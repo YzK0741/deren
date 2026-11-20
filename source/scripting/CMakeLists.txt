@@ -141,7 +141,7 @@ add_custom_command(OUTPUT "${game_assembly}"
         --output "${game_output}"
     DEPENDS "${game_project}" test_game/game_host.cs test_game/demo_debug_windows.cs test_game/rotate_behaviour.cs
         test_game/helmet_controls.cs test_game/audio_selftest.cs test_game/demo_audio_panel.cs test_game/rml_selftest.cs
-        test_game/toon_selftest.cs test_game/node_name_selftest.cs ${bridge_files}
+        test_game/toon_selftest.cs test_game/node_name_selftest.cs test_game/aspect_selftest.cs ${bridge_files}
     VERBATIM)
 # Package the managed UI assets beside Game.dll; authored scene TOMLs stay in the source tree.
 add_custom_target(deren_managed_ui_assets
@@ -164,7 +164,7 @@ target_compile_definitions(test_managed_host PRIVATE VR_AUDIO_FIXTURES="${CMAKE_
     VR_RMLUI_DEMO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ui/demo")
 add_dependencies(test_managed_host deren_managed_test_game)
 set(managed_host_tests "")
-foreach(scenario IN ITEMS round_trip missing_assembly missing_game_assembly missing_runtime abi_mismatch abi_layout_mismatch scene_module_unavailable scene_module_invalid scene_lifecycle scene_input frame_events toon_rig node_name audio_lifecycle audio_module_unavailable audio_module_invalid audio_module_incomplete rml_lifecycle rml_module_unavailable rml_module_invalid rml_module_incomplete)
+foreach(scenario IN ITEMS round_trip missing_assembly missing_game_assembly missing_runtime abi_mismatch abi_layout_mismatch scene_module_unavailable scene_module_invalid scene_lifecycle scene_input frame_events toon_rig node_name scene_aspect audio_lifecycle audio_module_unavailable audio_module_invalid audio_module_incomplete rml_lifecycle rml_module_unavailable rml_module_invalid rml_module_incomplete)
     add_test(NAME managed_host_${scenario} COMMAND test_managed_host "${bridge_output}" "${scenario}" "${game_assembly}")
     list(APPEND managed_host_tests managed_host_${scenario})
 endforeach()

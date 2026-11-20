@@ -86,5 +86,21 @@ namespace deren {
             direction = new vector_3 { x = unit[0], y = unit[1], z = unit[2] };
             return true;
         }
+
+        /// <summary>
+        /// Tells the renderer the shape of the rectangle the game shows the scene in. The render still
+        /// covers the whole window, but the projection is built for this aspect, so a game that puts
+        /// the scene image into a document viewport stretches it without distorting the geometry. Pass
+        /// 0 to go back to following the window's extent. The value applies from the next frame and
+        /// <see cref="try_project_point"/> / <see cref="try_screen_ray"/> answer in the same projection.
+        /// </summary>
+        public static bool try_set_aspect(float aspect) {
+            return try_set_aspect(aspect, out _);
+        }
+
+        public static bool try_set_aspect(float aspect, out script_status status) {
+            status = scene_api.assign_scene_aspect(aspect);
+            return status == script_status.success;
+        }
     }
 }

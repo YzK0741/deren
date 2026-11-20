@@ -2192,7 +2192,13 @@ namespace deren::engine {
         // so an external caller can interleave its work between the same steps)
         std::uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
         float current_aspect = 1.0f;           // swapchain aspect for the frame's UBO + culling
-        camera_ubo current_ubo = {};           // camera UBO snapshot written in pace_and_acquire()
+        // A game that shows the scene inside a sub-rectangle of the window (an editor viewport
+        // drawn as a document image, say) wants the projection built for THAT rectangle. Set, it
+        // replaces the presentation extent's aspect in current_aspect; the render extent and every
+        // pass stay window-sized - the image the UI samples is still the whole window, and the
+        // projection simply squeezes the world into the shape the viewer will stretch it to.
+        std::optional<float> scene_aspect_override = std::nullopt;
+        camera_ubo current_ubo = {}; // camera UBO snapshot written in pace_and_acquire()
         // called frame_leaves_buffer, not frame_leaves: the local view of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         deren::utility::vessel::vector<primitive const*> frame_leaves_buffer = {}; // every scene leaf this frame (shadow + cull input)
@@ -4712,6 +4718,13 @@ namespace deren::engine {
         void set_camera_override(std::optional<camera_ubo> view) noexcept {
             camera_override = std::move(view);
             camera_override_changed = true;
+        }
+        /// The projection aspect the scene is rendered with. nullopt restores the presentation
+        /// extent's aspect; a value must be finite and positive (callers validate before getting
+        /// here). Applies from the next frame, like every other frame-start quantity, and feeds the
+        /// UBO, the culling frustum and the projection helpers (project_point/screen_ray) alike.
+        void set_scene_aspect(std::optional<float> aspect) noexcept {
+            scene_aspect_override = aspect;
         }
         /// One unread request at a time. No allocation until the frame graph records the copy.
         [[nodiscard]] bool request_radiance_capture() noexcept {

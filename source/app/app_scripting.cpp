@@ -1497,7 +1497,8 @@ namespace deren::app {
             .gpu_timing_summary = gpu_timing_summary,
             .set_toon_rig = set_toon_rig,
             .get_toon_rig = get_toon_rig,
-            .set_node_name = set_node_name};
+            .set_node_name = set_node_name,
+            .set_scene_aspect = set_scene_aspect};
         *table = &scene_api;
         *byte_size = sizeof(scene_api);
         return scripting::script_status::success;
@@ -1846,6 +1847,23 @@ namespace deren::app {
         }
         scene_node->node_name.assign(text.data(), text.size());
         return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::set_scene_aspect(float const aspect) {
+        // The game names the shape of the rectangle it shows the scene in. Zero is the explicit
+        // "back to the window" value; everything else must be a usable aspect.
+        if (aspect != 0.0F && (!std::isfinite(aspect) || aspect <= 0.0F)) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.set_scene_aspect == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.set_scene_aspect(owner->host.context, aspect) ? scripting::script_status::success
+                                                                         : scripting::script_status::script_failure;
     }
 
     scripting::script_status script_scene::get_node_flags(std::uint64_t const tree, scripting::node_handle const node,

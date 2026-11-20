@@ -31,6 +31,9 @@ namespace deren.editor {
         private undo_stack? undo_history;
         private selection? selection_state;
         private string rename_field = string.Empty;
+        // The projection aspect last handed to the renderer, so the per-frame check only calls out when
+        // the viewport column actually changes shape.
+        private float applied_aspect = -1.0f;
 
         public script_status preinit(startup_options* options, int argc, byte** argv) {
             if (options == null || argc < 0 || (argc > 0 && argv == null)) {
@@ -147,6 +150,7 @@ namespace deren.editor {
             try {
                 current.handle_ui_events();
                 current.refresh_panels();
+                current.update_viewport_aspect();
                 return script_status.success;
             } catch (Exception error) {
                 host_logger.write($"Editor: update failed: {error.GetBaseException().Message}");
@@ -615,6 +619,32 @@ namespace deren.editor {
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// The viewport image is the whole window render stretched into the column between the two side
+        /// panels and the bars, so the scene's projection must be built for that column's shape: a 16:9
+        /// projection squeezed into a taller box would stretch the world. The extents are render pixels
+        /// and this project renders at scale 1, so the dp constants below are pixels; the aspect is
+        /// re-applied only when the column changes shape.
+        /// </summary>
+        private void update_viewport_aspect() {
+            if (!camera_projection.try_get_viewport_size(out var width, out var height)) {
+                return;
+            }
+            // outliner 320dp + details 320dp across; toolbar 40dp + status bar 24dp vertically.
+            const uint side_panels = 640;
+            const uint bars = 64;
+            if (width <= side_panels + 32 || height <= bars + 32) {
+                return;
+            }
+            var aspect = (float)(width - side_panels) / (float)(height - bars);
+            if (MathF.Abs(aspect - applied_aspect) < 0.0005f) {
+                return;
+            }
+            if (camera_projection.try_set_aspect(aspect)) {
+                applied_aspect = aspect;
+            }
         }
 
         private void refresh_panels(bool force_details = false) {

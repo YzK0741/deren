@@ -49,11 +49,15 @@ without it the viewport never receives an image. `fxaa` and `upscale` are altern
 a chain below `render_scale = 1.0` resolves through the upscale pass instead, and FXAA is switched
 off there.
 
-The element is fixed at 800dp x 450dp (16:9) in `ui/editor.rml` and centred in the middle column. The
-engine renders at the window's framebuffer extent and the element samples that image across its own
-area, so the scene is scaled into 800x450, not laid out at the engine's resolution. On a window whose
-aspect is not 16:9 the image is stretched: RmlUi has no `object-fit` and this document does not
-letterbox.
+The element fills the middle column (`width: 100%; height: 100%` in `ui/editor.rml`). That column's
+shape changes with the window and the fixed 320dp side panels, so `editor_host` reports it to the
+renderer every time it changes: `camera_projection.try_set_aspect((width - 640) / (height - 64))`
+names the column's aspect (the 640dp of side panels and the 64dp of toolbar plus status bar) and the
+scene's projection is built for it. The render still covers the whole window, so the image is
+stretched into the column exactly the way its projection was squeezed - geometry stays correct at any
+window size, with no letterboxing or cropping. The 1920x1080 the loader reports stays a placeholder.
+The extents are render pixels and the project renders at scale 1; a render scale other than 1 would
+make the dp constants below disagree with the pixel extents.
 
 P2 ships the viewport as a display surface. Picking (a click resolving to a node) and gizmos are not
 implemented: the outliner still selects and the details panel still transforms. The layout is also
@@ -69,7 +73,7 @@ fixed: one viewport, no `object-fit`, no docking, and the three columns cannot b
 | `document/scene_sync.cs` | One `rebuild` at startup, then per-node `create_one`/`destroy_one`/`push` into the activated tree. |
 | `editing/undo_stack.cs`, `undo_command.cs`, `selection.cs` | The undoable edits, the 64-entry history and the selection set. |
 | `panels/outliner_panel.cs`, `details_panel.cs`, `status_bar.cs` | Text into the fixed RmlUi ids (`row_0..row_63`, `detail_*`, `status`). |
-| `ui/editor.rml` | The document markup and its inline style, including the 800x450 `deren://scene` viewport. |
+| `ui/editor.rml` | The document markup and its inline style, including the full-column `deren://scene` viewport. |
 | `main.toml` | The entry scene the manifest points at: window size and title, and the `[render] fxaa` switch the viewport needs. |
 | `deren.toml.in` | The project manifest template CMake configures into the build tree. |
 

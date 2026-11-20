@@ -285,6 +285,15 @@ export namespace deren::app {
          */
         bool (*set_toon_rig)(void* context, scripting::toon_rig_desc const& value) = nullptr;
         bool (*get_toon_rig)(void* context, scripting::toon_rig_desc& value) = nullptr;
+        /**
+         * @brief ABI 41: the projection aspect the scene is rendered with.
+         *
+         * The game tells the host the shape of the rectangle it will show the scene in (an editor
+         * viewport drawn as a document image). The render still covers the window; the projection
+         * is built for this aspect so the stretched image looks right. False means the host has no
+         * runtime yet. Passing 0 restores the window's aspect.
+         */
+        bool (*set_scene_aspect)(void* context, float aspect) = nullptr;
     };
 
     class script_scene {
@@ -372,6 +381,8 @@ export namespace deren::app {
         /// ABI 40: renames a node; an empty, NUL-carrying or over-256-byte name is refused.
         static scripting::script_status set_node_name(std::uint64_t tree, scripting::node_handle node,
                                                       scripting::utf8_view name);
+        /// ABI 41: the projection aspect the scene is drawn with; 0 restores the window's.
+        static scripting::script_status set_scene_aspect(float aspect);
         static scripting::script_status get_node_flags(std::uint64_t tree, scripting::node_handle node,
                                                        std::uint32_t* flags);
         static scripting::script_status set_node_flags(std::uint64_t tree, scripting::node_handle node,

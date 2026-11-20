@@ -308,7 +308,10 @@ namespace deren::engine {
         // that rounds the two axes differently would otherwise tilt the projection by a fraction of a
         // pixel's worth of aspect).
         rhi::image_extent const output = this->presentation_extent();
-        this->current_aspect = static_cast<float>(output.width) / static_cast<float>(output.height);
+        // A game that shows the scene in a sub-rectangle of the window (the editor's viewport image)
+        // overrides the aspect: the projection must match the shape the image is stretched to, not
+        // the window's. The render extent stays window-sized either way.
+        this->current_aspect = this->scene_aspect_override.value_or(static_cast<float>(output.width) / static_cast<float>(output.height));
         this->current_ubo = this->camera_override ? *this->camera_override : make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_extent_radius, this->current_aspect);
         // Motion-vector support: the G-buffer computes its vectors from the UNJITTERED pair, and the
         // previous matrix is the one THIS swapchain image's history was rendered with (not simply the

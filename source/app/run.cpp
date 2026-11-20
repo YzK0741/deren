@@ -428,6 +428,12 @@ namespace deren::app {
             // otherwise the rig the last frame rendered with, which is what get_toon_rig answers.
             deren::scripting::toon_rig_desc toon_rig{};
             bool toon_rig_pending = false;
+            // A managed set_scene_aspect() request. The value is a plain float the frame-start camera
+            // setup reads, so there is nothing to upload - it is queued anyway so it lands at the same
+            // point as every other write a managed frame makes, and the newest request wins. 0 is the
+            // explicit "back to the window's aspect" value.
+            float scene_aspect = 0.0F;
+            bool scene_aspect_pending = false;
             // Clone sources for leaves currently shaded by the unlit pipeline, keyed by the
             // leaf's lifetime id (pointer identity alone would reuse a freed leaf's entry).
             pipeline_material_bases pipeline_bases;
@@ -487,6 +493,8 @@ namespace deren::app {
                                              .environment_pending = false,
                                              .toon_rig = startup_toon_rig,
                                              .toon_rig_pending = false,
+                                             .scene_aspect = 0.0F,
+                                             .scene_aspect_pending = false,
                                              .pipeline_bases = {},
                                              .shadow_scene_radius = 0.0f,
                                              .clouds = {},
@@ -850,6 +858,17 @@ namespace deren::app {
                 return false;
             }
             out = context->toon_rig;
+            return true;
+        };
+        // The projection aspect: a bare float the frame-start camera setup reads, queued so it lands
+        // with the other managed writes. 0 clears the override and restores the window's aspect.
+        auto const set_managed_scene_aspect = +[](void* opaque, float aspect) -> bool {
+            auto* context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->render_runtime == nullptr) {
+                return false;
+            }
+            context->scene_aspect = aspect;
+            context->scene_aspect_pending = true;
             return true;
         };
         // ---- ABI 35: THE ANIMATION ENTRIES ----
@@ -1597,7 +1616,8 @@ namespace deren::app {
                                            .counters = query_counters,
                                            .gpu_timing_summary = query_gpu_timing_summary,
                                            .set_toon_rig = set_managed_toon_rig,
-                                           .get_toon_rig = get_managed_toon_rig},
+                                           .get_toon_rig = get_managed_toon_rig,
+                                           .set_scene_aspect = set_managed_scene_aspect},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
         if (!started) {
@@ -1802,6 +1822,16 @@ namespace deren::app {
                 deren::utility::log("toon: light rig applied from managed code - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
                                     rig.day.x, rig.other_light.y, rig.other_light.x, rig.env.x,
                                     static_cast<int>(rig.shadow_softness.x));
+            }
+            // The projection aspect, for a game that shows the scene inside a sub-rectangle of the
+            // window: the render covers the window, but the world is built for this aspect so the
+            // stretched image looks right. Zero restores the window's own aspect.
+            if (managed_binding.scene_aspect_pending) {
+                managed_binding.scene_aspect_pending = false;
+                float const aspect = managed_binding.scene_aspect;
+                runtime.set_scene_aspect(aspect != 0.0F ? std::optional<float>{aspect} : std::nullopt);
+                deren::utility::log("scene: projection aspect {} from managed code",
+                                    aspect != 0.0F ? std::format("{:.4f}", aspect) : std::string{"follows the window"});
             }
             // A: THE FALLBACK SKY IS BAKED HERE, NOT AT STARTUP. A project that names slot 0's
             // environment before its first recorded frame (in initialize, or in update) never reaches

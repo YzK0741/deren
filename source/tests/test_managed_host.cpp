@@ -153,6 +153,13 @@ namespace {
     std::uint32_t node_name_rejections = 0;
     std::uint32_t node_name_misses = 0;
     std::uint32_t node_name_reads = 0;
+    // ABI 41: the projection aspect. The self check accepts a box aspect, restores the window aspect
+    // with zero, and has a negative value and NaN refused, so forwarding and host-side validation are
+    // both visible here.
+    std::uint32_t aspect_sets = 0;
+    std::uint32_t aspect_rejections = 0;
+    std::uint32_t aspect_last_reset = 0;
+    float aspect_last = 0.0F;
 
     constexpr node_handle node_zero{.value = 1};
     constexpr node_handle node_one{.value = 2};
@@ -434,6 +441,17 @@ namespace {
         std::memcpy(found->name, name.data, name.length);
         found->name_length = name.length;
         ++node_name_renames;
+        return script_status::success;
+    }
+
+    script_status set_scene_aspect(float aspect) {
+        if (aspect != 0.0F && (!std::isfinite(aspect) || aspect <= 0.0F)) {
+            ++aspect_rejections;
+            return script_status::invalid_argument;
+        }
+        ++aspect_sets;
+        aspect_last = aspect;
+        aspect_last_reset = aspect == 0.0F ? 1u : 0u;
         return script_status::success;
     }
 
@@ -1231,7 +1249,8 @@ namespace {
             .node_name = node_name,
             .set_toon_rig = set_toon_rig,
             .get_toon_rig = get_toon_rig,
-            .set_node_name = set_node_name};
+            .set_node_name = set_node_name,
+            .set_scene_aspect = set_scene_aspect};
         *table = &published;
         *byte_size = sizeof(published);
         return script_status::success;
@@ -1797,6 +1816,48 @@ namespace {
         return true;
     }
 
+    // ABI 41: the projection aspect. The demo turns itself into a self check when it sees
+    // `--scene-aspect-selftest`: it activates a tree and then names the shape of an editor viewport,
+    // resets to the window aspect with zero, and has a negative aspect and NaN refused. This case owns
+    // the host half: exactly the two accepted values arrived, the last one was the reset, and the two
+    // malformed ones never got past validation.
+    bool run_scene_aspect(host_paths const& paths) {
+        char const* selftest_argv[]{"test_managed_host", "--scene-aspect-selftest"};
+        auto selftest_paths = paths;
+        selftest_paths.argc = 2;
+        selftest_paths.argv = const_cast<char**>(selftest_argv);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify,
+                             .set_frame_boundary_timeout = record_timeout,
+                             .panic = record_panic};
+        managed_api scripts;
+        if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
+            std::fputs("scene aspect: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+            std::fputs("scene aspect: the managed self check failed\n", stderr);
+            return false;
+        }
+        if (aspect_sets != 2 || aspect_rejections != 2 || aspect_last_reset != 1 ||
+            aspect_last != 0.0F) {
+            std::fprintf(stderr, "scene aspect: sets=%u rejections=%u last=%g reset=%u\n", aspect_sets,
+                         aspect_rejections, static_cast<double>(aspect_last), aspect_last_reset);
+            return false;
+        }
+        if (scripts.stop() != script_status::success) {
+            std::fputs("scene aspect: managed stop failed\n", stderr);
+            return false;
+        }
+        return true;
+    }
+
     bool run_rml(host_paths const& paths, int mode) {
         rml_module_mode = mode;
         deren::ui::rml_document document;
@@ -1913,6 +1974,13 @@ int main(int argc, char** argv) {
     if (scenario == "node_name") {
         if (!run_node_name(paths)) {
             std::fputs("Managed node rename failed\n", stderr);
+            return 1;
+        }
+        return 0;
+    }
+    if (scenario == "scene_aspect") {
+        if (!run_scene_aspect(paths)) {
+            std::fputs("Managed scene aspect failed\n", stderr);
             return 1;
         }
         return 0;
