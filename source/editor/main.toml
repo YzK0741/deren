@@ -1,0 +1,10 @@
+[paths]
+screenshot_dir = "captures"
+
+# The editor window is deliberately large: the RmlUi outliner lists up to 64 nodes without scrolling.
+# The managed editor opens its own document from C# (rml_document.try_open), so this file must NOT
+# configure [gui] rml_document/rml_font - that is the native HUD path and would open a second document.
+[render]
+window_title = "deren editor"
+window_width = 1600
+window_height = 900

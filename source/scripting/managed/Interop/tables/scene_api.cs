@@ -181,6 +181,8 @@ namespace deren.scripting {
         // ABI 39: the toon light rig. Both are optional for the same reason as the batch above.
         private static delegate* unmanaged<scene_api.toon_rig_desc*, script_status> set_toon_rig;
         private static delegate* unmanaged<scene_api.toon_rig_desc*, script_status> get_toon_rig;
+        // ABI 40: renaming a node; optional like the entries above.
+        private static delegate* unmanaged<ulong, node_handle, utf8_view, script_status> set_node_name;
 
         internal static bool is_ready() {
             if (!host_call_guard.host_calls_allowed) {
@@ -266,6 +268,7 @@ namespace deren.scripting {
             gpu_timing_summary = null;
             set_toon_rig = null;
             get_toon_rig = null;
+            set_node_name = null;
 
             void* table = null;
             uint byte_size = 0;
@@ -357,6 +360,7 @@ namespace deren.scripting {
             gpu_timing_summary = resolved.gpu_timing_summary;
             set_toon_rig = resolved.set_toon_rig;
             get_toon_rig = resolved.get_toon_rig;
+            set_node_name = resolved.set_node_name;
             return script_status.success;
         }
 
@@ -736,6 +740,14 @@ namespace deren.scripting {
                 ? get_toon_rig(value)
                 : script_status.module_unavailable;
         }
+
+        // ---- ABI 40: renaming a node ----------------------------------------------------------------
+
+        internal static script_status assign_node_name(ulong tree, node_handle node, utf8_view name) {
+            return is_ready() && set_node_name != null
+                ? set_node_name(tree, node, name)
+                : script_status.module_unavailable;
+        }
     }
 
     /// <summary>
@@ -825,6 +837,9 @@ namespace deren.scripting {
         // next frame will use (the pending value while one is queued, otherwise the published rig).
         public delegate* unmanaged<scene_api.toon_rig_desc*, script_status> set_toon_rig;
         public delegate* unmanaged<scene_api.toon_rig_desc*, script_status> get_toon_rig;
+        // ABI 40: renaming a node. Optional like the batch above: a host that predates it leaves the
+        // pointer null and assign_node_name() reports module_unavailable instead of calling through it.
+        public delegate* unmanaged<ulong, node_handle, utf8_view, script_status> set_node_name;
 
         public readonly bool is_valid() {
             return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&

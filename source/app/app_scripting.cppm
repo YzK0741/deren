@@ -369,6 +369,9 @@ export namespace deren::app {
         static scripting::script_status node_child(std::uint64_t tree, scripting::node_handle node, std::uint32_t index,
                                                    scripting::node_handle* child);
         static scripting::script_status node_name(std::uint64_t tree, scripting::node_handle node, scripting::utf8_view* name);
+        /// ABI 40: renames a node; an empty, NUL-carrying or over-256-byte name is refused.
+        static scripting::script_status set_node_name(std::uint64_t tree, scripting::node_handle node,
+                                                      scripting::utf8_view name);
         static scripting::script_status get_node_flags(std::uint64_t tree, scripting::node_handle node,
                                                        std::uint32_t* flags);
         static scripting::script_status set_node_flags(std::uint64_t tree, scripting::node_handle node,

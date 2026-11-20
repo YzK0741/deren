@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 39;
+    inline constexpr std::uint32_t managed_abi_version = 40;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -440,6 +440,16 @@ export namespace deren::scripting {
         // the host owns one.
         script_status (*set_toon_rig)(toon_rig_desc const* rig) = nullptr;
         script_status (*get_toon_rig)(toon_rig_desc* rig) = nullptr;
+        // ABI 40: RENAMING A NODE. `set_node_name` replaces the name the node was created with. An
+        // empty name, a name longer than 256 UTF-8 bytes, a name whose bytes carry a NUL, or a null
+        // data pointer with a non-zero length is invalid_argument; handle 0 or a node that does not
+        // live in the tree is invalid_node, and an unknown tree is scene_not_found. Names are not
+        // unique: a lookup returns the first node in depth-first order, so a rename may leave two
+        // nodes with the same name and never renames the duplicate. A rename only assigns the node's
+        // own string - the engine keeps no name index, lookups just walk the children - so nothing
+        // else needs refreshing. The view node_name() hands out borrows the node's own string, so a
+        // successful rename invalidates every view obtained before it.
+        script_status (*set_node_name)(std::uint64_t tree, node_handle node, utf8_view name) = nullptr;
     };
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is

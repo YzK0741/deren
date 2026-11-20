@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v39.
+Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v40.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -288,13 +288,15 @@ struct scene_api {
     // ABI 39: the toon light rig, queued and published between frames.
     set_toon_rig;           // (toon_rig_desc const* rig)
     get_toon_rig;           // (toon_rig_desc* rig)
+    // ABI 40: renaming a node in place.
+    set_node_name;          // (uint64 tree, node_handle node, utf8_view name)
 };
 ```
 
 The order is part of the ABI. C# mirrors it with one layout and validates every pointer before
 publishing the table. The camera, environment, pipeline, post-processing, lighting, graph read-back,
-screen-space, diagnostic and toon-rig entries are optional: a host that predates them leaves the
-pointer null, and the C# wrapper reports `module_unavailable`.
+screen-space, diagnostic, toon-rig and rename entries are optional: a host that predates them leaves
+the pointer null, and the C# wrapper reports `module_unavailable`.
 
 - `create_scene_tree` creates an empty independent tree and returns a process-wide tree id.
 - `activate_scene` attaches the tree to the current project scene and calls the native
@@ -395,6 +397,13 @@ pointer null, and the C# wrapper reports `module_unavailable`.
 - `node_name` returns the name `create_node` was given. The bytes stay owned by the node, so the view
   borrows until that node is renamed or destroyed; the C# wrapper copies before returning. The root
   list has no name and answers `invalid_argument`.
+- `set_node_name` renames a node in place. The name is capped at 256 UTF-8 bytes; an empty name, one
+  that carries a NUL, or one longer than the cap is `invalid_argument` and the old name stays. Names
+  are not unique - `create_node` never enforced that either - so a rename can leave two nodes sharing
+  one name, and the engine's own name lookup answers the first match in depth-first order. Renaming
+  only assigns the node's own string and the engine keeps no name index, so nothing else needs
+  refreshing; a `utf8_view` `node_name` returned before the rename borrows the old string and is
+  invalid afterwards (`try_get_name` copies, so the C# string survives).
 - `get_node_flags`/`set_node_flags` are 32 opaque bits per node. Nothing in the renderer reads them:
   they are storage the game can use for its own marking (layers, selection, gameplay tags) that
   survives the graph rebuild a scene replacement performs. `set_node_flags` writes
@@ -838,7 +847,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 39.
+- One global `managed_abi_version`, currently 40.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -990,6 +999,15 @@ Status values are returned through the ABI; no exception crosses the native boun
   softness ladder to their documented ranges, and queues the whole block for the frame boundary - so
   the frame the game is scripting keeps the old rig, and `get_toon_rig` answers what the next frame
   will use. `abi_type::toon_rig_desc` (160 bytes) joined the layout check.
+- v40 made node names mutable: `scene_api` gained `set_node_name(tree, node, name)`, the C# wrapper
+  `scene_tree.try_set_name` (and its `out script_status` twin). It assigns the node's own name string
+  in place, so the entry is optional and an older host answers `module_unavailable`. The new name is
+  capped at 256 UTF-8 bytes; an empty name, one that carries a NUL byte inside the length, or one over
+  the cap is `invalid_argument` and the old name stays, while a stale or foreign handle is
+  `invalid_node` and an unknown tree `scene_not_found`. Duplicate names stay allowed (the engine's name
+  lookup answers the first depth-first match) and there is no name index to rebuild, so a rename is
+  visible to the next lookup immediately; a `utf8_view` returned by `node_name` before the rename
+  borrows the old storage and is invalid afterwards.
 
 ## Audio module
 

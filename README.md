@@ -258,6 +258,20 @@ cmake --build build
 
 For your own project, reference `Deren.Managed.dll` when building your scripts. Set `[scripts] assembly` in `deren.toml` to the built DLL path relative to the project root. The game assembly provides the `game_entry` implementation; it creates the scene tree, loads assets and attaches behaviors to the nodes it creates. Derive behaviors from `deren.behaviour` and override `on_create`, `on_update`, or `on_destroy` as needed. See the [demo game entry](source/scripting/test_game/game_host.cs) and [behaviors](source/scripting/test_game/helmet_controls.cs). Running a scripted project requires the .NET 10 runtime.
 
+#### Scene editor
+
+`source/editor` is a managed project that ships with every build: the first editor shell (document
+model, TOML save/load, undo, selection, outliner) built on the same ABI as any game. The build puts
+it at `build/source/editor`:
+
+```powershell
+./build/deren.exe run ./build/source/editor --editor-selftest
+```
+
+`--scene <path>` opens an existing `*.scene.toml`; `--editor-selftest` runs the
+save/reload/rename/delete/undo check and fails the run on a mismatch. See the
+[editor README](source/editor/README.md) for the document format and the P0 limits.
+
 Bind named actions to one or more keys in `deren.toml`:
 
 ```toml
