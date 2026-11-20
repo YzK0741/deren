@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -476,6 +477,10 @@ namespace {
     }
 
     script_status set_environment_hdr(utf8_view path, std::uint32_t requested_slot);
+
+    // ABI 39: the toon light rig, published on the scene table below.
+    script_status set_toon_rig(toon_rig_desc const* value);
+    script_status get_toon_rig(toon_rig_desc* value);
 
     // ABI 35: the fake animation player, over the counters declared beside the other fixtures.
     script_status get_animation_state(animation_state* out) {
@@ -1167,7 +1172,9 @@ namespace {
             .select_animation = select_animation,
             .set_animation_playing = set_animation_playing,
             .set_animation_speed = set_animation_speed,
-            .set_animation_time = set_animation_time};
+            .set_animation_time = set_animation_time,
+            .set_toon_rig = set_toon_rig,
+            .get_toon_rig = get_toon_rig};
         *table = &published;
         *byte_size = sizeof(published);
         return script_status::success;
@@ -1189,6 +1196,7 @@ namespace {
             {.type = abi_type::face_frame_desc, .size = sizeof(face_frame_desc)},
             {.type = abi_type::animation_state, .size = sizeof(animation_state)},
             {.type = abi_type::diagnostic_counters, .size = sizeof(diagnostic_counters)},
+            {.type = abi_type::toon_rig_desc, .size = sizeof(toon_rig_desc)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1255,6 +1263,51 @@ namespace {
         environment_slot = requested_slot;
         environment_slot_mask |= 1u << requested_slot;
         ++environment_requests;
+        return script_status::success;
+    }
+
+    // ABI 39: the toon light rig. The real host clamps/normalises in script_scene and queues the
+    // result between frames; the fake mirrors both halves (including "get answers the queued value")
+    // so the managed self test round trips through the published table instead of a stub.
+    toon_rig_desc toon_rig_current{};
+    toon_rig_desc toon_rig_next{};
+    bool toon_rig_pending = false;
+    std::uint32_t toon_rig_sets = 0;
+    std::uint32_t toon_rig_rejections = 0;
+    std::uint32_t toon_rig_gets = 0;
+
+    script_status set_toon_rig(toon_rig_desc const* value) {
+        if (value == nullptr) {
+            return script_status::invalid_argument;
+        }
+        float const* const lanes = reinterpret_cast<float const*>(value);
+        for (int lane = 0; lane < 40; ++lane) {
+            if (!std::isfinite(lanes[lane])) {
+                ++toon_rig_rejections;
+                return script_status::invalid_argument;
+            }
+        }
+        if (value->reference_modes[2] != 0.0F || value->reference_modes[3] != 0.0F) {
+            ++toon_rig_rejections;
+            return script_status::invalid_argument;
+        }
+        toon_rig_next = *value;
+        toon_rig_next.day[0] = std::clamp(value->day[0], 0.0F, 1.0F);
+        toon_rig_next.other_colour[3] = std::clamp(value->other_colour[3], 0.0F, 3.0F);
+        toon_rig_next.shadow_softness[0] = std::clamp(std::round(value->shadow_softness[0]), 0.0F, 4.0F);
+        toon_rig_next.reference_modes[0] = value->reference_modes[0] != 0.0F ? 1.0F : 0.0F;
+        toon_rig_next.reference_modes[1] = value->reference_modes[1] != 0.0F ? 1.0F : 0.0F;
+        ++toon_rig_sets;
+        toon_rig_pending = true;
+        return script_status::success;
+    }
+
+    script_status get_toon_rig(toon_rig_desc* value) {
+        if (value == nullptr) {
+            return script_status::invalid_argument;
+        }
+        ++toon_rig_gets;
+        *value = toon_rig_pending ? toon_rig_next : toon_rig_current;
         return script_status::success;
     }
 
@@ -1501,6 +1554,11 @@ namespace {
                          static_cast<double>(material_override_last.emissive_scale));
             return false;
         }
+        if (toon_rig_sets != 0 || toon_rig_rejections != 0 || toon_rig_gets != 0) {
+            std::fprintf(stderr, "frame: toon rig sets=%u rejections=%u gets=%u\n", toon_rig_sets,
+                         toon_rig_rejections, toon_rig_gets);
+            return false;
+        }
         if (scripts.stop() != script_status::success || scripts.stop() != script_status::success) {
             std::fputs("shutdown: managed stop failed\n", stderr);
             return false;
@@ -1570,6 +1628,60 @@ namespace {
         }
         if (update_scene(scripts, 7, 0.5F) != script_status::success) {
             std::fputs("frame events: the final self check failed\n", stderr);
+            return false;
+        }
+        return true;
+    }
+
+    // ABI 39: the toon light rig round trip. The demo turns itself into a self check when it sees
+    // `--toon-selftest`: it reads the current rig, proves a non-finite lane is rejected without
+    // disturbing the queued value, applies 0.25 and reads it back, then proves out-of-range lanes map
+    // onto the documented ranges. This case owns the host half: the call counts, and that what
+    // reached the host is the normalised rig rather than the raw request or a failure.
+    bool run_toon_rig(host_paths const& paths) {
+        char const* selftest_argv[]{"test_managed_host", "--toon-selftest"};
+        auto selftest_paths = paths;
+        selftest_paths.argc = 2;
+        selftest_paths.argv = const_cast<char**>(selftest_argv);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify,
+                             .set_frame_boundary_timeout = record_timeout,
+                             .panic = record_panic};
+        managed_api scripts;
+        if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
+            std::fputs("toon rig: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+            std::fputs("toon rig: the managed self check failed\n", stderr);
+            return false;
+        }
+        // Four reads: the baseline, the unchanged value after the rejection, the 0.25 request and the
+        // clamped request. Three accepted writes (0.25, the out-of-range one, the restore) and one
+        // rejection for the NaN lane.
+        if (toon_rig_sets != 3 || toon_rig_rejections != 1 || toon_rig_gets != 4) {
+            std::fprintf(stderr, "toon rig: sets=%u rejections=%u gets=%u\n", toon_rig_sets, toon_rig_rejections,
+                         toon_rig_gets);
+            return false;
+        }
+        // The last write is the self check restoring the startup lanes, so the queued rig is the one
+        // the scene began with - proof the readback was used as the starting point of every change.
+        if (!toon_rig_pending || toon_rig_next.day[0] != toon_rig_current.day[0] ||
+            toon_rig_next.shadow_softness[0] != toon_rig_current.shadow_softness[0]) {
+            std::fprintf(stderr, "toon rig: restore missed day %g vs %g, softness %g vs %g\n",
+                         static_cast<double>(toon_rig_next.day[0]), static_cast<double>(toon_rig_current.day[0]),
+                         static_cast<double>(toon_rig_next.shadow_softness[0]),
+                         static_cast<double>(toon_rig_current.shadow_softness[0]));
+            return false;
+        }
+        if (scripts.stop() != script_status::success) {
+            std::fputs("toon rig: managed stop failed\n", stderr);
             return false;
         }
         return true;
@@ -1677,6 +1789,13 @@ int main(int argc, char** argv) {
     if (scenario == "frame_events") {
         if (!run_frame_events(paths)) {
             std::fputs("Managed frame event boundaries failed\n", stderr);
+            return 1;
+        }
+        return 0;
+    }
+    if (scenario == "toon_rig") {
+        if (!run_toon_rig(paths)) {
+            std::fputs("Managed toon light rig round trip failed\n", stderr);
             return 1;
         }
         return 0;

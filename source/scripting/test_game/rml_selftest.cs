@@ -18,6 +18,10 @@ namespace deren {
                 return !rml_document.try_open("missing.rml", "missing.ttf", out _, out var status) &&
                        status == script_status.module_unavailable ? script_status.success : script_status.script_failure;
             }
+            // A configured native HUD must not be replaced by an unrequested demo panel.
+            if (game.demo_audio_panel.create(null) != null) {
+                return script_status.script_failure;
+            }
             if (!rml_document.try_open(Path.Combine(path!, "hud.rml"), Path.Combine(path!, "LatoLatin-Regular.ttf"),
                                        out document, out _) || document == null) {
                 return script_status.script_failure;
@@ -53,6 +57,9 @@ namespace deren {
         }
         [UnmanagedCallersOnly]
         private static script_status stop() {
+            if (document != null && !document.set_text("status", "Stopped while UI is alive")) {
+                return script_status.script_failure;
+            }
             document?.Dispose();
             document?.Dispose();
             return document == null || !document.is_valid ? script_status.success : script_status.script_failure;

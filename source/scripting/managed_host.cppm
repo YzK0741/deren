@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 38;
+    inline constexpr std::uint32_t managed_abi_version = 39;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -160,6 +160,42 @@ export namespace deren::scripting {
     };
 
     static_assert(sizeof(head_basis_desc) == 52);
+
+    // THE TOON LIGHT RIG (ABI 39): a lane-for-lane mirror of `deren::engine::toon_rig`, which is the
+    // ten `float4`s the character stage reads every frame (scene block slot 750; see that struct for
+    // what each lane means - `source/shaders/toon/toon_params.slang`'s `ToonRigUBO` is the other half
+    // of the mirror). It crosses the ABI as a value so managed code can carry the whole art direction
+    // in one number set instead of rebuilding it from twenty scalars. The defaults are the engine
+    // struct's, so a lane a caller leaves alone behaves exactly as if the rig had never been set.
+    struct toon_rig_desc {
+        /// x = `_DayStrength` (0 = sun off, head light carries the character; 1 = full sun),
+        /// y = `_OtherLightOffset`, z = `_OtherLightStrength`, w = `_OtherLightStrength_Offset`.
+        float day[4] = {1.0F, 0.0F, 1.0F, 0.0F};
+        /// x/y = `_OtherLightResultStrength_day0/day1`, z = `_SelfAoShadowStrength`, w = `_AoStrength`.
+        float other_light[4] = {0.7F, 0.3F, 1.0F, 1.0F};
+        /// rgb = `_OtherLightColor`; w = the face expression index (0..3, clamped by the host).
+        float other_colour[4] = {0.60F, 0.65F, 0.80F, 0.0F};
+        /// rgb = `_MainLightColor_dark` (the sun on a surface's shadow side); a = `_BaseColorPow`.
+        float main_dark[4] = {0.60F, 0.65F, 0.80F, 1.0F};
+        /// x = `_RimLightArea`, y = `_RimLightStrength`, z = `_RimLightNoLxzStrength`,
+        /// w = `_RimLightDiffuseColorEffect`.
+        float rim[4] = {1.0F, 1.0F, 1.0F, 0.1F};
+        /// rgb = `_SssColor`; a = `_SssPowStrength`.
+        float sss[4] = {1.0F, 0.80F, 0.78F, 1.0F};
+        /// x = `_EnvLightStrength`, y = `_EnvRotation` in degrees, z = `_SpecularStrength`,
+        /// w = `_DiffuseBlendEffect`.
+        float env[4] = {1.0F, 0.0F, 1.0F, 1.0F};
+        /// x = backlight weight, y = `_NoFStrength`, z = `_NoFPowStrength`, w = `_RampColorNoLStrength`.
+        float misc[4] = {1.0F, 1.0F, 1.0F, 1.0F};
+        /// x = the toon shadow softness ladder (`[render] toon_shadow_softness`, 0..4, rounded by the
+        /// host); y/z/w = nose shadow reduction, hair highlight width and shift.
+        float shadow_softness[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+        /// x = authored hair P-mask mode, y = angular face SDF, both 0/1 (the host normalises any
+        /// other value); z/w reserved and must stay 0.
+        float reference_modes[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    };
+
+    static_assert(sizeof(toon_rig_desc) == 160);
 
     // One frame of the host's CHARACTER ANIMATION PLAYER (ABI 36). The host keeps one player for the
     // scene and builds it from the first bound asset whose manifest names a motion file, so managed
@@ -394,6 +430,16 @@ export namespace deren::scripting {
         // valid until the next frame, so copy it if it must outlive the callback.
         script_status (*query_counters)(diagnostic_counters* counters) = nullptr;
         script_status (*gpu_timing_summary)(utf8_view* text) = nullptr;
+        // ABI 39: THE TOON LIGHT RIG at runtime. `set_toon_rig` replaces the whole block; the host
+        // refuses a non-finite lane or a reserved lane that is not zero with invalid_argument,
+        // normalises the two flags and the two clamped lanes (see toon_rig_desc), and applies the
+        // value between frames - the block may not be written while a frame is in flight, so a
+        // request is queued and the newest one wins. `get_toon_rig` answers what the next frame will
+        // use: the queued value while one is pending, otherwise the published rig (the `[toon]`
+        // profile at startup). Neither call needs an active scene; they answer scene_not_found before
+        // the host owns one.
+        script_status (*set_toon_rig)(toon_rig_desc const* rig) = nullptr;
+        script_status (*get_toon_rig)(toon_rig_desc* rig) = nullptr;
     };
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is
@@ -464,7 +510,8 @@ export namespace deren::scripting {
         head_basis_desc = 9,
         face_frame_desc = 10,
         animation_state = 11,
-        diagnostic_counters = 12
+        diagnostic_counters = 12,
+        toon_rig_desc = 13
     };
 
     struct abi_layout_entry {

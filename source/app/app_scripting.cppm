@@ -274,6 +274,17 @@ export namespace deren::app {
         bool (*screen_ray)(void* context, float x, float y, float origin[3], float direction[3]) = nullptr;
         bool (*counters)(void* context, scripting::diagnostic_counters& value) = nullptr;
         bool (*gpu_timing_summary)(void* context, std::string_view& text) = nullptr;
+        /**
+         * @brief ABI 39: the TOON LIGHT RIG, queued and applied between frames.
+         *
+         * The rig lives in one block the character stage reads every frame, so it may not be written
+         * while a frame is in flight; this entry only stores the value and the app applies it after
+         * the managed update, the same place an environment change lands. False means the host has no
+         * runtime yet (nothing was stored). `get` answers what the next frame will use: the pending
+         * value while one is queued, otherwise the published rig.
+         */
+        bool (*set_toon_rig)(void* context, scripting::toon_rig_desc const& value) = nullptr;
+        bool (*get_toon_rig)(void* context, scripting::toon_rig_desc& value) = nullptr;
     };
 
     class script_scene {
@@ -291,6 +302,8 @@ export namespace deren::app {
         [[nodiscard]] std::expected<void, std::string> start(
             std::filesystem::path const& assembly, managed_scene_host host,
             std::filesystem::path const& asset_library_root = {}, managed_asset_binder binder = {});
+        // Stop once while the runtime and UI callbacks are still alive. Safe before start or after stop.
+        void stop();
         [[nodiscard]] bool update(float dt, std::span<std::uint8_t const> input_frame);
         /**
          * Emits the before-frame callback and waits for managed code to report the batch done.
@@ -368,6 +381,9 @@ export namespace deren::app {
         static scripting::script_status screen_ray(float x, float y, float* origin, float* direction);
         static scripting::script_status query_counters(scripting::diagnostic_counters* counters);
         static scripting::script_status gpu_timing_summary(scripting::utf8_view* text);
+        /// ABI 39: the toon light rig; see managed_scene_host::set_toon_rig.
+        static scripting::script_status set_toon_rig(scripting::toon_rig_desc const* value);
+        static scripting::script_status get_toon_rig(scripting::toon_rig_desc* value);
         static scripting::script_status list_asset(std::uint32_t index, scripting::utf8_view* id);
         static scripting::script_status load_asset(scripting::utf8_view id, scripting::asset_handle* asset);
         static scripting::script_status release_asset(scripting::asset_handle asset);

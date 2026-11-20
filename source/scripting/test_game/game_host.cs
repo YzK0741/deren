@@ -83,8 +83,9 @@ namespace game {
                     options->capture_windowed = 1;
                     continue;
                 }
-                if (argument == "--audio-panel" && i + 1 < args.Length) {
-                    requested_audio = args[++i];
+                if (argument == "--audio-panel") {
+                    requested_audio = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
+                        ? args[++i] : string.Empty;
                     continue;
                 }
                 if (argument == "--rml-selftest" && i + 1 < args.Length) {
@@ -97,6 +98,10 @@ namespace game {
                 }
                 if (argument == "--frame-events-selftest") {
                     frame_events_selftest = true;
+                    continue;
+                }
+                if (argument == "--toon-selftest") {
+                    toon_selftest.requested = true;
                     continue;
                 }
                 var separator = argument.IndexOf('=');
@@ -202,6 +207,9 @@ namespace game {
             }
             if (audio_selftest.path != null) {
                 return audio_selftest.initialize(scripts);
+            }
+            if (toon_selftest.requested) {
+                return toon_selftest.initialize(scripts);
             }
             // ABI 35: every run exercises the settable boundary wait, so the host test can assert
             // the value arrived and the demo keeps a wait that is still generous for its batches.
