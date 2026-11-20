@@ -282,6 +282,7 @@ namespace deren::app {
             this->scripts.stop() != scripting::script_status::success) {
             utility::log("scripts: managed game stopped with script errors");
         }
+        this->clear_asset_binder();
     }
 
     script_scene::~script_scene() {
@@ -1523,6 +1524,9 @@ namespace deren::app {
             {.type = abi_type::animation_state, .size = sizeof(scripting::animation_state)},
             {.type = abi_type::diagnostic_counters, .size = sizeof(scripting::diagnostic_counters)},
             {.type = abi_type::toon_rig_desc, .size = sizeof(scripting::toon_rig_desc)},
+            // ABI 42: the rml_ui table's pointer-event payload. The table itself is checked where the
+            // managed side installs it, like scene_api and ui_api.
+            {.type = abi_type::rml_ui_event, .size = sizeof(scripting::rml_ui_event)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1676,6 +1680,14 @@ namespace deren::app {
         auto const id = to_entity(node);
         if (!id.valid()) {
             return scripting::script_status::invalid_argument;
+        }
+        if (scene->find_node(id) == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        auto const* entry = find_managed_tree_entry(tree);
+        auto const* owner = entry ? entry->owner : nullptr;
+        if (entry && entry->active && owner && owner->asset_binder.before_remove) {
+            owner->asset_binder.before_remove(owner->asset_binder.context);
         }
         return scene->destroy_node(id) ? scripting::script_status::success : scripting::script_status::invalid_node;
     }

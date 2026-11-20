@@ -121,6 +121,7 @@ namespace deren::app_config {
     export struct render_settings {
         std::int32_t window_width = 1080;
         std::int32_t window_height = 960;
+        bool dark_window_frame = false;
         deren::utility::vessel::string window_title = "deren";                       // GLFW window title
         bool vsync = true;                                                           // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                                        // 0 = uncapped; a positive value caps the render loop

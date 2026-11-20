@@ -398,14 +398,17 @@ namespace deren::engine {
                                   rhi::max_frames_in_flight);
         }
 
-        // ---- THE ONE PLACE GLFW CALLBACKS ARE INSTALLED, and it stays here now that the WINDOW belongs to
-        //      the APPLICATION: the callbacks dereference THIS runtime through the window's user pointer, so
-        //      they can only be installed once both exist - which is exactly this constructor, running after
-        //      the caller created the window and handed it over. The application installs no GLFW callback
-        //      and must not touch the user pointer (it is this object's slot). The debug overlay's ImGui
-        //      backend chains onto whatever is installed here (ImGui_ImplGlfw_InitForVulkan with
-        //      install_callbacks = true, later), so the ORDER - orbit camera first, ImGui after - must not
-        //      move.
+        // ---- THE ONE PLACE THE ORBIT-CAMERA GLFW CALLBACKS ARE INSTALLED, and it stays here now that the WINDOW
+        //      belongs to the APPLICATION: the callbacks dereference THIS runtime through the window's user pointer,
+        //      so they can only be installed once both exist - which is exactly this constructor, running after the
+        //      caller created the window and handed it over. The application must not touch the user pointer (it is
+        //      this object's slot). The application's own action seam installs ITS cursor/button/scroll handlers
+        //      AFTER this constructor and chains these three as the previous callbacks (glfw_action_input in
+        //      source/app/glfw.cppm): the runtime's handlers stay in the chain instead of being overwritten, which
+        //      is what keeps the orbit camera and the managed UI reading one GLFW event stream. The debug overlay's
+        //      ImGui backend chains onto the application seam (ImGui_ImplGlfw_InitForVulkan with
+        //      install_callbacks = true, later), so the ORDER - orbit camera first, action seam after, ImGui last -
+        //      must not move.
         //
         // ONLY WHEN THE CALLER HANDED ONE OVER, and that is the contract's shape rather than a
         // shortcut (③-D/E step 2): `create_info::native_window` IS the window this half can name - the

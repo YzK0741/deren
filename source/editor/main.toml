@@ -10,6 +10,7 @@ screenshot_dir = "captures"
 # With it off the viewport element would be empty on every frame.
 [render]
 window_title = "deren editor"
+dark_window_frame = true
 window_width = 1600
 window_height = 900
 fxaa = true

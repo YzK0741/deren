@@ -260,9 +260,10 @@ For your own project, reference `Deren.Managed.dll` when building your scripts. 
 
 #### Scene editor
 
-`source/editor` is a managed project that ships with every build: the first editor shell (document
-model, TOML save/load, undo, selection, outliner) built on the same ABI as any game. The build puts
-it at `build/source/editor`:
+`source/editor` is a managed project that ships with every build: an editor shell (document model,
+TOML save/load, undo, selection, outliner, details, content browser and a draggable five-region layout
+modelled on the Unreal Level Editor) built on the same ABI as any game. The build puts it at
+`build/source/editor`:
 
 ```powershell
 ./build/deren.exe run ./build/source/editor --editor-selftest
@@ -273,8 +274,10 @@ the engine's render chain, so the editor's entry scene keeps `[render] fxaa = tr
 has to write the image the viewport shows.
 
 `--scene <path>` opens an existing `*.scene.toml`; `--editor-selftest` runs the
-save/reload/rename/delete/undo check and fails the run on a mismatch. See the
-[editor README](source/editor/README.md) for the document format, the viewport and the limits.
+save/reload/rename/delete/undo check plus the panel checks (outliner filter and its visibility glyph,
+asset selection, the viewport tool highlight, a menu open/close and both dock tabs) and fails the run
+on a mismatch. See the [editor README](source/editor/README.md) for the document format, the viewport,
+the panel additions and the limits.
 
 Bind named actions to one or more keys in `deren.toml`:
 

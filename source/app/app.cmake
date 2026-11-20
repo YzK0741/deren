@@ -98,6 +98,9 @@ target_link_libraries(app_support
 target_sources(app_support PRIVATE FILE_SET app_scripting_modules TYPE CXX_MODULES FILES source/app/app_scripting.cppm)
 target_sources(app_support PRIVATE source/app/app_scripting.cpp)
 target_link_libraries(app_support deren_managed_host)
+if(WIN32)
+    target_link_libraries(app_support dwmapi)
+endif()
 get_property(managed_runtime_dir TARGET deren_managed_bridge PROPERTY DEREN_MANAGED_RUNTIME_DIR)
 add_custom_target(deren_managed_runtime
     COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different

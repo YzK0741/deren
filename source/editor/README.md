@@ -9,13 +9,17 @@ build/deren.exe run build/source/editor
 ```
 
 Everything the editor does lives in C#: the document model, the TOML reader/writer, the scene sync,
-undo, selection and the panels. The managed ABI only gained the one entry the document could not
-express before, `scene_api.set_node_name` (ABI 40).
+undo, selection, the panels and the shell layout. The managed ABI gained only what the editor could
+not express otherwise: `scene_api.set_node_name` (ABI 40), `scene_api.set_scene_aspect` (ABI 41) for a
+projection that follows the viewport shape, and the rml pointer events, `get_element_rect` and
+`set_element_style` entries of ABI 42 for the splitters and dock tabs (`docs/scripting_module_abi.md`).
 
 ## What P1 ships
 
 - One scene document with an outliner, a details panel, a toolbar and a status bar drawn by RmlUi.
 - `New Node`, `Delete`, `Save`, `Undo`, `Redo`, `Rename` and row clicks in the outliner.
+- New Scene prompts Save / Discard / Cancel when the document is dirty. Save failure keeps the old
+  document and the prompt open. Recreated subtrees restore transform, visibility, flags, pipeline and name.
 - The details panel edits the selected node in place: name, the nine transform lanes, visibility and
   the application flags. Each accepted row pushes the value onto the runtime node immediately and
   records one snapshot undo command, the way a Unreal details row applies a property edit.
@@ -49,19 +53,49 @@ without it the viewport never receives an image. `fxaa` and `upscale` are altern
 a chain below `render_scale = 1.0` resolves through the upscale pass instead, and FXAA is switched
 off there.
 
-The element fills the middle column (`width: 100%; height: 100%` in `ui/editor.rml`). That column's
-shape changes with the window and the fixed 320dp side panels, so `editor_host` reports it to the
-renderer every time it changes: `camera_projection.try_set_aspect((width - 640) / (height - 64))`
-names the column's aspect (the 640dp of side panels and the 64dp of toolbar plus status bar) and the
-scene's projection is built for it. The render still covers the whole window, so the image is
-stretched into the column exactly the way its projection was squeezed - geometry stays correct at any
-window size, with no letterboxing or cropping. The 1920x1080 the loader reports stays a placeholder.
-The extents are render pixels and the project renders at scale 1; a render scale other than 1 would
-make the dp constants below disagree with the pixel extents.
+The element fills its viewport column (`width: 100%; height: 100%` in `ui/editor.rml`). That column's
+shape changes with the window and with the splitters, so `editor_host` reads the element rectangle
+(`try_get_element_rect("viewport")`) every frame and reports its shape to the renderer through
+`camera_projection.try_set_aspect(width / height)`. The render still covers the whole window, so the
+image is stretched into the column exactly the way its projection was squeezed - geometry stays
+correct at any window size, with no letterboxing or cropping. Both numbers are dp and an aspect is
+unitless, so a render scale other than 1 does not change the result. The 1920x1080 the loader reports
+stays a placeholder.
 
-P2 ships the viewport as a display surface. Picking (a click resolving to a node) and gizmos are not
-implemented: the outliner still selects and the details panel still transforms. The layout is also
-fixed: one viewport, no `object-fit`, no docking, and the three columns cannot be moved or resized.
+P2 ships the viewport as a display surface inside an editor shell modelled on the Unreal Level Editor:
+a menu bar, the main toolbar, the viewport with its own small toolbar over a bottom dock, and a right
+column with the World Outliner above the Details panel. The three splitters (`split_right`,
+`split_outliner`, `split_bottom`) are draggable: the pointer events of ABI 42 carry dp coordinates and
+the id of the nearest element with one, and `editor_host` resizes the neighbouring panel by writing
+`width`/`height` in dp through `try_set_element_style`. The bottom dock switches between the Content
+Browser and Output Log tabs by toggling the visibility of both bodies; there is no tab tearing, dock
+dragging or floating window. Picking (a click resolving to a node) and gizmos are not implemented: the
+outliner still selects and the details panel still transforms.
+
+## Editor shell additions
+
+- **Menu bar.** `File` (New Scene, Save Scene), `Edit` (Undo, Redo, Delete Node, Rename Node),
+  `Window` (World Outliner, Details, Content Browser) and `Help` (About). The four dropdowns are
+  authored once in `ui/editor.rml` and toggled by `visibility`; a click on any non-menu element closes
+  them first. The Window entries toggle a panel with `display: none`/`block` (the details and browser
+  bodies are `flex`), so hiding a panel does not leave its column reserved.
+- **Content browser.** `asset_manager.list()` is read once at startup and rendered into the 24 authored
+  tiles (`asset_0` .. `asset_23`); `#browser_search` filters the id list (`OrdinalIgnoreCase`) and
+  `#browser_count` reports "shown / total". A tile click moves a `#4a9eff` border to that tile and
+  writes `asset: <id>` into the status bar. Tiles use placeholder glyphs instead of thumbnails;
+  double-click adds the asset as a root node at the origin, selects it, and records an undoable edit.
+- **World Outliner.** `#outliner_search` keeps a node when its own name or any descendant name contains
+  the filter, so typing a child still reveals its parent chain; the selected row is still marked with
+  a `"> "` prefix. Each row has a `#row_N_vis` glyph that toggles the runtime node's visibility (and
+  records one `Show Node`/`Hide Node` undo command).
+- **Viewport toolbar.** `Select`/`Move`/`Rotate`/`Scale` highlight the active tool button and report
+  `tool: <name>` in the status bar; they do not change the gizmo yet because there is no gizmo.
+- **Status bar.** The notice suffix (`tool:`, `asset:`, the About line) is set by these interactions and
+  cleared by the next click, on top of the existing `dirty`, node count and selection fields.
+
+`--editor-selftest` exercises the same handlers in-process (the shell is not interactive yet when it
+runs): outliner filtering and the visibility glyph, asset selection from a tile and from its label, the
+viewport tool highlight, opening/closing a menu and both dock tabs.
 
 ## Layout
 
@@ -72,18 +106,20 @@ fixed: one viewport, no `object-fit`, no docking, and the three columns cannot b
 | `document/document_io.cs` | The strict TOML reader/writer for `*.scene.toml`. |
 | `document/scene_sync.cs` | One `rebuild` at startup, then per-node `create_one`/`destroy_one`/`push` into the activated tree. |
 | `editing/undo_stack.cs`, `undo_command.cs`, `selection.cs` | The undoable edits, the 64-entry history and the selection set. |
-| `panels/outliner_panel.cs`, `details_panel.cs`, `status_bar.cs` | Text into the fixed RmlUi ids (`row_0..row_63`, `detail_*`, `status`). |
-| `ui/editor.rml` | The document markup and its inline style, including the full-column `deren://scene` viewport. |
+| `panels/outliner_panel.cs`, `details_panel.cs`, `status_bar.cs`, `content_browser_panel.cs` | Text into the fixed RmlUi ids (`row_0..row_63`, `detail_*`, `asset_0..asset_23`, `status`). |
+| `ui/editor.rml` | The document markup and its inline style: menu bar, toolbar, viewport column, bottom dock, outliner column and the three splitters. |
 | `main.toml` | The entry scene the manifest points at: window size and title, and the `[render] fxaa` switch the viewport needs. |
 | `deren.toml.in` | The project manifest template CMake configures into the build tree. |
 
-The RmlUi managed document API exposes `set_text`, `set_value`, `set_visible`, `try_poll_event` and
-`close` only - it cannot create elements - so the outliner is 64 pre-built rows (`row_0` .. `row_63`)
-and the selected row is marked with a `"> "` text prefix. The details panel uses the same trick: its
-rows are authored once in `ui/editor.rml` and `details_panel` maps their `change` events back to
-properties. It rewrites a row only when the selection changes or an edit commits, because rewriting
-every frame would overwrite text the user is still typing. Visibility is a button rather than a
-checkbox because a checkbox `change` value is not round-tripped unambiguously by this bridge.
+The RmlUi managed document API exposes `set_text`, `set_value`, `set_visible`, `try_poll_event`,
+`try_get_element_rect`, `try_set_element_style` and `close` only - it cannot create elements - so the
+outliner is 64 pre-built rows (`row_0` .. `row_63`), the content browser is 24 pre-built tiles
+(`asset_0` .. `asset_23`) and the selected outliner row is marked with a `"> "` text prefix. The details
+panel uses the same trick: its rows are authored once in `ui/editor.rml` and `details_panel` maps their
+`change` events back to properties. It rewrites a row only when the selection changes or an edit
+commits, because rewriting every frame would overwrite text the user is still typing. Visibility is a
+button rather than a checkbox because a checkbox `change` value is not round-tripped unambiguously by
+this bridge.
 
 ## Document format
 
@@ -110,9 +146,35 @@ block per node in depth-first order, where a parent always appears before its ch
 `uid` and `name` are required; `parent` (a parent uid), `asset`, and `pipeline` are optional. Floats
 are written so they round-trip exactly.
 
-## Limits of P1
+## Limits
 
-One open document, 64 visible rows, a fixed set of details rows (no add/remove property, no asset
-picker), no viewport picking or gizmo, no content browser and no Play/Stop. Those are the next
-milestones; the document model, `scene_sync` and the snapshot undo commands are the seams they will
-attach to.
+One open document, 64 visible outliner rows, 24 asset tiles, a fixed set of details rows (no
+add/remove property, no asset picker), no viewport picking or gizmo, no Play/Stop, and the Output Log
+body is still a placeholder (no engine log feed). The content browser supports double-click placement but has no
+rendered thumbnail, asset rename, file import or drag-to-scene. The shell is a fixed five-region layout with draggable
+splitters, not a dock system: panels cannot be undocked, torn out, tabbed into each other or floated,
+and the Window menu only hides and shows the three authored panels. Those are the next milestones; the
+document model, `scene_sync` and the snapshot undo commands are the seams they will attach to.
+
+## Visual style
+
+The editor uses the neutral Slate/Starship hierarchy from the local UE reference:
+`StyleColors.cpp` (background, recessed, panel, header, input and primary roles) and
+`StarshipStyle.cpp` (toolbar, row and tab hierarchy). RmlUi implements the appearance
+without loading Unreal assets or copying its widget implementation.
+
+Toolbar groups, blue selection states, scrollable actor/asset lists, compact RGB XYZ
+fields and asset placeholders share the same palette. The card glyphs represent library
+assets; they are not rendered thumbnails. Existing element ids and editing actions are retained.
+
+Double-click placement uses the asset's default pipeline and an identity transform at the scene root.
+A single click only selects the card. Undo removes the instance, redo reloads it, and the asset id is
+saved in the scene document. Failed loads preserve the document, selection and undo history.
+`--editor-selftest` also exercises placement after startup, renders a frame, then checks undo, redo,
+failed-load rollback and save/load of the placed asset. The lightweight fixture is `damaged-helmet`.
+
+Placed assets record their declared default pipeline in the document (Laevatain: `game_toon`).
+Selecting this pipeline enables the character/game-toon stages even if the editor started empty.
+Editor imports pause bundled animation before the next frame, including reload/redo; they remain
+at the selected clip's initial frame rather than starting playback. Game projects retain their
+existing playback behavior. Use `--editor-selftest-asset laevatain` to exercise this path.

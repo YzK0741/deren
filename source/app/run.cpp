@@ -73,6 +73,10 @@ namespace deren::app {
                     leaf.push.material_index =
                         runtime.clone_material(inserted.first->second, glm::vec3(1.0f), 1.0f, 1.0f, 1.0f, true);
                 } else if (pipeline == "game_toon") {
+                    // Asset selection must enable the pass as well as mark its leaves. An editor
+                    // may start empty with both startup switches off and import a character later.
+                    runtime.set_character_forward(true);
+                    runtime.set_game_toon(true);
                     if (auto const found = bases.find(leaf.lifetime_id); found != bases.end()) {
                         leaf.push.material_index = found->second;
                     }
@@ -203,10 +207,10 @@ namespace deren::app {
         // Keep the splash younger than its GLFW window, including early-exit teardown.
         bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
         glfw_window window{settings.render.window_width, settings.render.window_height,
-                           settings.render.window_title.c_str(), capture.frames == 0, offscreen};
+                           settings.render.window_title.c_str(), capture.frames == 0, offscreen,
+                           settings.render.dark_window_frame};
         std::span<deren::input::action_binding const> const actions{project_actions.data(), project_actions.size()};
         deren::input::action_state action_state{actions};
-        glfw_action_input action_input{&window, action_state};
         deren::app::startup_splash splash{capture.frames == 0 && !settings.render.offscreen};
         splash.attach_window(window.native_handle());
 
@@ -278,6 +282,13 @@ namespace deren::app {
         // [render] shadow: the raster shadow term itself. Applied before the first scene set, so the
         // first frame already renders (or skips) the cascaded shadow maps.
         runtime.set_shadow_enabled(settings.render.shadow);
+        // THE ACTION SEAM IS INSTALLED AFTER THE RUNTIME, ON PURPOSE: the runtime's constructor
+        // registers the orbit camera's cursor/button/scroll callbacks, and installing this seam
+        // first let the runtime overwrite it - every mouse event then reached the camera and none
+        // reached the UI (a hover never happened, so no click ever fired). Constructing it here
+        // makes it capture the camera's handlers as the previous ones and forward every event back
+        // (see glfw_action_input's constructor), so both readers see the mouse.
+        glfw_action_input action_input{&window, action_state};
         auto const runtime_ready = std::chrono::steady_clock::now();
         deren::utility::log("vulkan runtime initialized: {:.1f} ms (no environment baked yet)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
 
@@ -326,16 +337,6 @@ namespace deren::app {
         app_renderer.set_gbuffer_channel(settings.render.gbuffer_channel);
         runtime.set_character_forward(settings.render.character_forward);
         runtime.set_game_toon(settings.render.game_toon);
-
-        // THE CAPTURED CHAIN'S DEPTH RIM (HEAD app_application's per-frame mirror, `set_toon_screen_rim`):
-        // width 0.368, gain 10, modest strength, near-white colour. The pass it shapes has its own defaults,
-        // and a frame drawn with those instead of these numbers draws a contour the reference capture never
-        // had - the rim is the only stage that reaches the hair's silhouette, so leaving it out is visible as
-        // bright edges on exactly that part. Published for the same "before the first frame" reason the rig
-        // above is, and gated the way HEAD gates it: only the effective game-toon selection draws it.
-        if (settings.render.game_toon && settings.render.character_forward) {
-            runtime.set_toon_screen_rim(0.368f, 10.0f, 0.25f, 1.0f, 0.85f, 0.95f);
-        }
 
         // THE TOON LIGHT RIG ([toon] profile -> deren::engine::toon_rig), published ONCE before the
         // first frame: nothing rewrites that block while a frame is in flight (see
@@ -411,7 +412,12 @@ namespace deren::app {
         // 9. THE MANAGED PROJECT: the C# game owns the scene. The engine hands it three native services
         //    (import a glTF asset into a scene node, read/write the camera, request a screenshot) and
         //    receives nothing but the scoped handlers below.
+        struct managed_cloud_binding {
+            std::shared_ptr<deren::engine::gaussian_splatting::raster_asset const> asset;
+            std::uint64_t stable_id;
+        };
         struct managed_bind_context {
+            bool starting = true;
             deren::engine::runtime* render_runtime = nullptr;
             // TAA/SSAO live on this application's renderer, not on the runtime.
             deren::app::app_renderer* renderer = nullptr;
@@ -486,7 +492,8 @@ namespace deren::app {
             std::mutex animation_mutex;
             std::vector<animation_command> animation_pending;
         };
-        managed_bind_context managed_binding{.render_runtime = &runtime,
+        managed_bind_context managed_binding{.starting = true,
+                                             .render_runtime = &runtime,
                                              .renderer = &app_renderer,
                                              .pending_environment = {},
                                              .pending_environment_slot = 0,
@@ -533,6 +540,15 @@ namespace deren::app {
                                             std::string_view asset_id, deren::app::managed_asset_source const& source) -> bool {
             auto& context = *static_cast<managed_bind_context*>(opaque);
             auto& runtime = *context.render_runtime;
+            // Live imports may grow GPU tables used by older frames. This wait is per import, not per frame.
+            if (!context.starting) {
+                runtime.rhi_face().wait_idle();
+                // Controllers cache scene-node addresses, which a structural edit may invalidate.
+                context.player.reset();
+                context.animation_names.clear();
+                context.animation_pending.clear();
+                publish_animation_state(context);
+            }
             // A CLOUD IS STAGED, NOT IMPORTED: it has no scene graph, no materials and no toon lookup, so
             // the whole import path below does not apply. The upload happens once per library id (the
             // static tables are expensive), and every placement of that asset becomes one instance in the
@@ -557,7 +573,11 @@ namespace deren::app {
                     deren::utility::log("gaussian: '{}' uploaded - {} splats, SH degree {}", asset_id,
                                         uploaded->source().particles.size(), uploaded->source().sh_degree);
                 }
-                runtime.add_gaussian_asset(uploaded, parent.local, context.next_cloud_id++);
+                // Tie the placement to the ECS node so undo/delete cannot leave a ghost cloud.
+                if (!deren::engine::scene_tree::components().try_emplace<managed_cloud_binding>(
+                        parent.node_id, managed_cloud_binding{uploaded, context.next_cloud_id++})) {
+                    return false;
+                }
                 runtime.scene_changed();
                 return true;
             }
@@ -1619,14 +1639,27 @@ namespace deren::app {
                                            .get_toon_rig = get_managed_toon_rig,
                                            .set_scene_aspect = set_managed_scene_aspect},
             settings.paths.asset_library,
-            deren::app::managed_asset_binder{.context = &managed_binding, .bind = bind_managed_asset});
+            deren::app::managed_asset_binder{
+                .context = &managed_binding, .bind = bind_managed_asset, .before_remove = +[](void* opaque) {
+                    auto& context = *static_cast<managed_bind_context*>(opaque);
+                    if (!context.starting) {
+                        context.render_runtime->rhi_face().wait_idle();
+                        context.player.reset();
+                        context.animation_names.clear();
+                        context.animation_pending.clear();
+                        publish_animation_state(context);
+                    }
+                    // A removed leaf must not survive in the next frame's cached BVH.
+                    context.render_runtime->scene_changed();
+                }});
         if (!started) {
             deren::utility::println(stderr, "{}", started.error());
             deren::utility::error("{}", started.error());
             deren::utility::wait_log_all();
             return 2;
         }
-        script_scene.clear_asset_binder();
+        // The editor binds assets during update as well as initialize. The context outlives the session.
+        managed_binding.starting = false;
         // The scene the game built is only visible through the log once; dumping it here is the last
         // point where "what the game imported" and "what the renderer holds" are the same thing.
         runtime.log_scene_tree();
@@ -1749,6 +1782,25 @@ namespace deren::app {
                 }
                 managed_binding.ui_panel = nullptr;
                 managed_binding.ui_panel_open = false;
+            }
+            if (!managed_binding.clouds.empty()) {
+                runtime.clear_gaussian_assets();
+                auto stage_clouds = [&](auto&& self, deren::engine::scene_tree::scene_node const& node,
+                                        glm::mat4 const& parent_world) -> void {
+                    if (!node.visible) {
+                        return;
+                    }
+                    auto const world = parent_world * node.local;
+                    if (auto const* cloud = deren::engine::scene_tree::components().try_get<managed_cloud_binding>(node.node_id)) {
+                        runtime.add_gaussian_asset(cloud->asset, world, cloud->stable_id);
+                    }
+                    for (auto const& child : node.children) {
+                        self(self, child, world);
+                    }
+                };
+                for (auto const& root : runtime.get_scene().roots) {
+                    stage_clouds(stage_clouds, root, glm::mat4(1.0f));
+                }
             }
             // A managed environment change is applied between frames: preparing the IBL is CPU work
             // and set_ibl waits for the GPU, so neither may run inside the managed callback. The

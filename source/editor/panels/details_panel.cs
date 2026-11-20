@@ -59,7 +59,10 @@ namespace deren.editor {
             var node = selection.primary == Guid.Empty ? null : document.find(selection.primary);
             ui.set_visible(empty_id, node == null);
             ui.set_visible(form_id, node != null);
+            ui.try_set_element_style(empty_id, "display", node == null ? "block" : "none");
+            ui.try_set_element_style(form_id, "display", node != null ? "block" : "none");
             if (node == null) {
+                ui.set_text(title_id, "Details");
                 return;
             }
 

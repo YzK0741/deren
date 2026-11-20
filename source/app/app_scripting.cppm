@@ -59,6 +59,8 @@ export namespace deren::app {
         void* context = nullptr;
         bool (*bind)(void* context, engine::scene_tree::scene_node& parent, std::string_view asset_id,
                      managed_asset_source const& source) = nullptr;
+        // Finish in-flight draws before a live edit releases a node's render resources.
+        void (*before_remove)(void* context) = nullptr;
     };
 
     /**
@@ -333,7 +335,7 @@ export namespace deren::app {
         /// and keeps no input state of its own, so a game that wants a pointer-locked camera, a text
         /// field or a hotkey reads this stream and decides. Safe to call with nobody listening.
         static void publish_input_event(scripting::input_event const& event);
-        /** Drops the startup-only asset binder; bindings after the scene started are unsupported. */
+        /** Drops the asset binder before its host context is destroyed. */
         void clear_asset_binder() noexcept;
 
     private:

@@ -76,7 +76,7 @@ namespace deren::app_config {
             }
             if (auto const* render = table.get_as<toml::table>("render")) {
                 append_unknown_keys(*render, "render",
-                                    {"window_width", "window_height", "window_title", "vsync", "max_fps", "clear_color",
+                                    {"window_width", "window_height", "window_title", "dark_window_frame", "vsync", "max_fps", "clear_color",
                                      "exposure", "tone_mapping", "sun_intensity", "shadow", "rt_shadows", "rt_reflections",
                                      "rt_reflection_cloth", "rt_reflection_strength", "rt_reflection_samples", "rt_reflection_materials",
                                      "animation_time", "camera_fit",
@@ -266,6 +266,7 @@ namespace deren::app_config {
                     settings.render.window_height = static_cast<std::int32_t>(*value);
                 }
             }
+            settings.render.dark_window_frame = (*render)["dark_window_frame"].value_or(false);
             if (toml::node const* node = render->get("window_title")) {
                 if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.window_title = *value;

@@ -10,14 +10,19 @@ namespace deren.editor {
             this.ui = ui;
         }
 
-        /// <summary>Rewrites #status as "<path or untitled> *dirty* | nodes: N | selected: <name or ->".</summary>
-        internal void refresh(scene_document document, selection selection) {
+        /// <summary>
+        /// Rewrites #status as "<path or untitled> *dirty* | nodes: N | selected: <name or ->".
+        /// A non-empty notice (the active tool, a picked asset, the About entry of the Help menu) is
+        /// appended after the selection so the menu and viewport toolbar have a visible result.
+        /// </summary>
+        internal void refresh(scene_document document, selection selection, string notice = "") {
             var path = string.IsNullOrEmpty(document.path) ? "untitled" : document.path!;
             var dirty = document.dirty ? " *dirty*" : string.Empty;
             var selected = selection.primary == Guid.Empty
                 ? "-"
                 : document.find(selection.primary)?.name ?? "-";
-            ui.set_text("status", $"{path}{dirty} | nodes: {count(document.roots)} | selected: {selected}");
+            var suffix = notice.Length == 0 ? string.Empty : $" | {notice}";
+            ui.set_text("status", $"{path}{dirty} | nodes: {count(document.roots)} | selected: {selected}{suffix}");
         }
 
         private static int count(IReadOnlyList<document_node> nodes) {

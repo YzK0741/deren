@@ -1152,7 +1152,17 @@ namespace {
                 return script_status::module_unavailable;
             }
             static rml_ui_api const incomplete{};
-            *table = rml_module_mode == 3 ? &incomplete : &deren::ui::rml_scripting::table();
+            // ABI 42: a host built before the pointer/rect/style entries. The base six stay valid, so
+            // the managed side must keep working and refuse only the two optional calls.
+            static rml_ui_api const legacy = [] {
+                rml_ui_api value = deren::ui::rml_scripting::table();
+                value.get_element_rect = nullptr;
+                value.set_element_style = nullptr;
+                return value;
+            }();
+            *table = rml_module_mode == 3   ? &incomplete
+                     : rml_module_mode == 4 ? &legacy
+                                            : &deren::ui::rml_scripting::table();
             *byte_size = sizeof(rml_ui_api) + (rml_module_mode == 2 ? 8 : 0);
             return script_status::success;
         }
@@ -1890,6 +1900,52 @@ namespace {
         return ok;
     }
 
+    bool run_rml_layout(host_paths const& paths, bool optional_absent) {
+        rml_module_mode = optional_absent ? 4 : 1;
+        deren::ui::rml_document document;
+        deren::ui::rml_scripting host(document);
+        std::string fixture = VR_RMLUI_DEMO_DIR;
+        char const* arguments[]{"test_managed_host", "--rml-layout-selftest", fixture.c_str(),
+                                optional_absent ? "--rml-optional-absent" : "--rml-layout-present"};
+        auto configured = paths;
+        configured.argc = 4;
+        configured.argv = const_cast<char**>(arguments);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log, .get_module = get_scene_module, .request_screenshot = request_screenshot, .set_input_event_callback = set_input_callback, .abi_layout = publish_abi_layout, .notify_rendering = record_notify, .set_frame_boundary_timeout = record_timeout, .panic = record_panic};
+        managed_api scripts;
+        auto const result = initialize_managed_host(configured, api, scripts);
+        bool ok = result.status == host_status::success;
+        if (ok) {
+            // The managed side authors in density-independent pixels; the window is 2x, so the
+            // viewport reports 320x240 and a pointer at framebuffer (10, 10) reports (5, 5).
+            document.set_density_independent_pixel_ratio(2.0F);
+            document.paint(640, 480);
+            auto const first = update_scene(scripts, 7, 0.01F);
+            ok = first == script_status::success && ok;
+        }
+        if (ok && !optional_absent) {
+            document.paint(640, 480); // The width style written by the first tick needs a layout pass.
+            float x = 0, y = 0, width = 0, height = 0;
+            ok = document.element_rect("apply", x, y, width, height) && ok;
+            int const center_x = static_cast<int>((x + width * 0.5F) * 2.0F);
+            int const center_y = static_cast<int>((y + height * 0.5F) * 2.0F);
+            document.input({.type = deren::ui::input_type::move, .x = center_x, .y = center_y});
+            document.input({.type = deren::ui::input_type::button, .x = center_x, .y = center_y, .button = 0, .down = true});
+            document.input({.type = deren::ui::input_type::move, .x = 10, .y = 10});
+            document.input({.type = deren::ui::input_type::button, .x = 10, .y = 10, .button = 0, .down = false});
+            ok = update_scene(scripts, 7, 0.01F) == script_status::success && ok;
+        }
+        if (result.status == host_status::success) {
+            ok = scripts.stop != nullptr && scripts.stop() == script_status::success && ok;
+        }
+        if (!ok) {
+            std::fprintf(stderr, "RmlUi layout self-test failed: optional_absent %d, host status %d\n",
+                         optional_absent ? 1 : 0, static_cast<int>(result.status));
+        }
+        return ok;
+    }
+
     bool run_audio(host_paths const& paths, int mode) {
         audio_module_mode = mode;
         std::string fixture = (std::filesystem::path(VR_AUDIO_FIXTURES) / "tone.opus").string();
@@ -1949,6 +2005,9 @@ int main(int argc, char** argv) {
                                                        : scenario == "rml_module_incomplete" ? 3
                                                                                              : 0;
         return run_rml(paths, mode) ? 0 : 1;
+    }
+    if (scenario == "rml_layout" || scenario == "rml_module_optional_absent") {
+        return run_rml_layout(paths, scenario == "rml_module_optional_absent") ? 0 : 1;
     }
     if (scenario == "audio_lifecycle" || scenario == "audio_module_unavailable" ||
         scenario == "audio_module_invalid" || scenario == "audio_module_incomplete") {

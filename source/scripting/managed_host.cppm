@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 41;
+    inline constexpr std::uint32_t managed_abi_version = 42;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -515,7 +515,9 @@ export namespace deren::scripting {
     // disagree about; these entries also catch a field added, removed, or reordered without a
     // version bump, which used to surface as a call through a wrong signature. The module tables
     // (scene_api, ui_api) are not listed here: get_module() reports their size instead, so each
-    // module checks its own table where it consumes it. Never renumber a value once shipped.
+    // module checks its own table where it consumes it. rml_ui_event is listed because the rml_ui
+    // table passes it by pointer, so its size is the one such payload the table itself cannot
+    // describe. Never renumber a value once shipped.
     enum class abi_type : std::uint32_t {
         native_api = 1,
         managed_api = 2,
@@ -529,7 +531,9 @@ export namespace deren::scripting {
         face_frame_desc = 10,
         animation_state = 11,
         diagnostic_counters = 12,
-        toon_rig_desc = 13
+        toon_rig_desc = 13,
+        // ABI 42: the pointer-event payload of the rml_ui table (28 bytes).
+        rml_ui_event = 14
     };
 
     struct abi_layout_entry {

@@ -19,6 +19,8 @@ namespace deren.scripting {
         animation_state = 11,
         diagnostic_counters = 12,
         toon_rig_desc = 13,
+        /// <summary>ABI 42: the rml_ui table's pointer-event payload.</summary>
+        rml_ui_event = 14,
     }
 
     /// <summary>One <c>{type, sizeof}</c> answer from the host's abi_layout entry point.</summary>

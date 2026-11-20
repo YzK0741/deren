@@ -82,10 +82,21 @@ internal static class scene_sync
             return false;
         }
         try {
+            if (node.pipeline == null && asset_manager.try_get_default_pipeline(asset, out var declared)) {
+                node.pipeline = declared;
+            }
             if (!tree.try_bind_asset(parent_runtime, asset, node.local, out var bound, out status)) {
                 return false;
             }
             node.runtime = bound;
+            // Importing an asset is authoring, not a request to start its bundled motion.
+            // Pause before the next frame consumes the new player's first update.
+            if (animation_player.try_get_info(out _) && !animation_player.try_pause()) {
+                tree.destroy_node(bound);
+                node.runtime = default;
+                status = script_status.script_failure;
+                return false;
+            }
             status = script_status.success;
             return true;
         } finally {

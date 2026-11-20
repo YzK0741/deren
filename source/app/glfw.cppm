@@ -2,6 +2,13 @@ module;
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#include <dwmapi.h>
+#endif
 
 export module deren.app.glfw;
 
@@ -118,7 +125,7 @@ export namespace deren::app {
     // The application's complete GLFW surface: window lifecycle, queries and input callbacks.
     // The engine only receives native_handle(); it never owns a window.
     struct glfw_window {
-        glfw_window(int width, int height, char const* title, bool visible, bool offscreen = false)
+        glfw_window(int width, int height, char const* title, bool visible, bool offscreen = false, [[maybe_unused]] bool dark_frame = false)
             : window_(nullptr) {
             if (offscreen) {
                 return;
@@ -128,11 +135,24 @@ export namespace deren::app {
             }
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-            glfwWindowHint(GLFW_VISIBLE, visible ? GLFW_TRUE : GLFW_FALSE);
+            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
             window_ = glfwCreateWindow(width, height, title, nullptr, nullptr);
             if (window_ == nullptr) {
                 deren::utility::panic("glfwCreateWindow failed");
             }
+#ifdef _WIN32
+            if (dark_frame) {
+                auto const hwnd = glfwGetWin32Window(window_);
+                BOOL const dark = TRUE;
+                COLORREF const caption = RGB(21, 21, 21);
+                COLORREF const border = RGB(47, 47, 47);
+                COLORREF const title_text = RGB(224, 224, 224);
+                DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+                DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+                DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &border, sizeof(border));
+                DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, &title_text, sizeof(title_text));
+            }
+#endif
             if (visible) {
                 glfwShowWindow(window_);
             } else {
@@ -237,11 +257,12 @@ export namespace deren::app {
                 if (focused == GLFW_FALSE) {
                     active->state.release_keys();
                     active->modifiers = 0;
+                    active->camera_drag = false;
                     window_event event{.type = window_event_type::focus_lost, .down = false};
                     active->publish(event);
                 }
             });
-            glfwSetCursorPosCallback(window_, [](GLFWwindow* event_window, double x, double y) {
+            previous_cursor = glfwSetCursorPosCallback(window_, [](GLFWwindow* event_window, double x, double y) {
                 if (active->window_ != event_window) {
                     return;
                 }
@@ -255,9 +276,16 @@ export namespace deren::app {
                 active->cursor_y = fy;
                 active->has_cursor = true;
                 window_event event{.type = window_event_type::mouse_move, .x = fx, .y = fy, .dx = dx, .dy = dy, .modifiers = active->modifiers};
-                active->publish(event);
+                // CHAINED, NOT REPLACED - AND ONLY WHEN THE UI DID NOT TAKE THE EVENT: the runtime's
+                // orbit camera installed its cursor callback before this seam existed. A move the
+                // document consumed (over a panel) must not also fly the camera; a move the camera
+                // owns, even one that has wandered over a panel mid-drag, still must.
+                bool const consumed = active->publish(event);
+                if ((!consumed || active->camera_drag) && active->previous_cursor != nullptr) {
+                    active->previous_cursor(event_window, x, y);
+                }
             });
-            glfwSetMouseButtonCallback(window_, [](GLFWwindow* event_window, int button, int action, int mods) {
+            previous_button = glfwSetMouseButtonCallback(window_, [](GLFWwindow* event_window, int button, int action, int mods) {
                 if (active->window_ != event_window || (action != GLFW_PRESS && action != GLFW_RELEASE)) {
                     return;
                 }
@@ -265,14 +293,28 @@ export namespace deren::app {
                                    .button = button,
                                    .down = action == GLFW_PRESS,
                                    .modifiers = mods};
-                active->publish(event);
+                bool const consumed = active->publish(event);
+                if (event.down) {
+                    // THE PRESS DECIDES WHO DRAGS: consumed by the document means a panel owns the
+                    // pointer; otherwise it is the camera's until the button comes back up.
+                    active->camera_drag = !consumed;
+                } else {
+                    active->camera_drag = false;
+                }
+                // A RELEASE IS ALWAYS CHAINED. The camera clears its drag state on it, and a press
+                // that the document consumed must not leave the camera believing the button is down.
+                if ((!consumed || !event.down) && active->previous_button != nullptr) {
+                    active->previous_button(event_window, button, action, mods);
+                }
             });
-            glfwSetScrollCallback(window_, [](GLFWwindow* event_window, double, double yoffset) {
+            previous_scroll = glfwSetScrollCallback(window_, [](GLFWwindow* event_window, double xoffset, double yoffset) {
                 if (active->window_ != event_window) {
                     return;
                 }
                 window_event event{.type = window_event_type::scroll, .wheel = static_cast<float>(yoffset), .modifiers = active->modifiers};
-                active->publish(event);
+                if (!active->publish(event) && active->previous_scroll != nullptr) {
+                    active->previous_scroll(event_window, xoffset, yoffset);
+                }
             });
             glfwSetCharCallback(window_, [](GLFWwindow* event_window, unsigned codepoint) {
                 if (active->window_ != event_window) {
@@ -287,9 +329,12 @@ export namespace deren::app {
             if (window_ != nullptr) {
                 glfwSetKeyCallback(window_, nullptr);
                 glfwSetWindowFocusCallback(window_, nullptr);
-                glfwSetCursorPosCallback(window_, nullptr);
-                glfwSetMouseButtonCallback(window_, nullptr);
-                glfwSetScrollCallback(window_, nullptr);
+                // THE THREE CHAINED CALLBACKS GO BACK TO THEIR PREVIOUS OWNER, not to null: the
+                // runtime installed the orbit camera's handlers before this seam and they must
+                // survive this object (teardown order has the runtime outlive us).
+                glfwSetCursorPosCallback(window_, previous_cursor);
+                glfwSetMouseButtonCallback(window_, previous_button);
+                glfwSetScrollCallback(window_, previous_scroll);
                 glfwSetCharCallback(window_, nullptr);
                 active = nullptr;
             }
@@ -316,6 +361,19 @@ export namespace deren::app {
 
         GLFWwindow* window_;
         deren::input::action_state& state;
+        // THE CALLBACKS THIS SEAM REPLACED: the runtime's orbit camera installs its cursor/button/
+        // scroll handlers in its constructor, and the ACTION SEAM IS INSTALLED AFTER IT so it can
+        // capture them here and forward every event back (a plain overwrite silently dropped every
+        // mouse event, so the managed UI never saw a hover). Key/focus/char are not chained because
+        // the runtime installs none of them.
+        GLFWcursorposfun previous_cursor = nullptr;
+        GLFWmousebuttonfun previous_button = nullptr;
+        GLFWscrollfun previous_scroll = nullptr;
+        // THE CAMERA'S HALF OF THE ROUTING LATCH: a press the document did not consume belongs to the
+        // orbit camera, and the moves that follow keep flowing to it even when the pointer wanders
+        // over a panel, so a drag that started in the 3D view never freezes half way. A press the
+        // document consumed never starts it. Cleared on release and on focus loss.
+        bool camera_drag = false;
         // The raw stream's one reader, and where the cursor was on the previous move event.
         int modifiers = 0;
         event_filter filter = nullptr;
