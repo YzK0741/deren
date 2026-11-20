@@ -21,6 +21,14 @@ import deren.vstd;
 import deren.utility;
 
 namespace deren::ui {
+    namespace {
+        // The one URI a document can name to ask the overlay for the 3D scene instead of a file texture,
+        // and the sentinel handle LoadTexture hands out for it. Its low value cannot collide with
+        // `generated_texture` pointers and lets ReleaseTexture skip a real free.
+        constexpr std::string_view scene_color_uri = "deren://scene";
+        Rml::TextureHandle const scene_color_texture = reinterpret_cast<Rml::TextureHandle>(std::uintptr_t{1});
+    } // namespace
+
     struct rml_render_interface final : Rml::RenderInterface {
         using compiled_geometry = rml_document::compiled_geometry;
         using generated_texture = rml_document::generated_texture;
@@ -54,7 +62,9 @@ namespace deren::ui {
             }
 
             texture_view texture;
-            if (auto const* data = reinterpret_cast<generated_texture const*>(texture_handle)) {
+            if (texture_handle == scene_color_texture) {
+                texture.scene_color = true;
+            } else if (auto const* data = reinterpret_cast<generated_texture const*>(texture_handle)) {
                 texture = {data->width, data->height, data->pixels};
             }
             this->document->draws.push_back({geometry.vertices, geometry.indices, texture, offset.x, offset.y, clip.Left(),
@@ -69,6 +79,13 @@ namespace deren::ui {
         }
 
         Rml::TextureHandle LoadTexture(Rml::Vector2i& dimensions, Rml::String const& source) override {
+            // `deren://scene` is answered without touching the filesystem: the overlay resolves it to the
+            // frame's render-chain image. The dimensions are the intrinsic size placeholder RmlUi wants;
+            // a document sizes the viewport element in CSS, so this only matters if it does not.
+            if (source == scene_color_uri) {
+                dimensions = {1920, 1080};
+                return scene_color_texture;
+            }
             auto bytes = utility::read_binary_to_vector(std::filesystem::path(source), 64u * 1024u * 1024u);
             if (!bytes) {
                 return 0;
@@ -110,6 +127,9 @@ namespace deren::ui {
         }
 
         void ReleaseTexture(Rml::TextureHandle handle) override {
+            if (handle == scene_color_texture) {
+                return; // borrowed from the overlay, never owned here
+            }
             std::unique_ptr<generated_texture> texture(reinterpret_cast<generated_texture*>(handle));
             if (this->document->rendering || !this->document->draws.empty()) {
                 this->document->retired_textures.push_back(std::move(texture));

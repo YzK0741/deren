@@ -413,6 +413,20 @@ namespace deren::engine {
             this->output_overlay_context = context;
             this->output_overlay_record = record;
         }
+        /// @brief the display-encoded LDR image the frame's post chain wrote, for an overlay that wants to
+        ///        show the 3D scene inside its own document (an editor viewport, not a second window).
+        ///
+        /// THE COMPOSITE WRITES THAT IMAGE ONLY WHEN A RESOLVE FINISHES THE FRAME - see `post_fxaa_active()`
+        /// and `post_upscale_active()`. On every other frame the displayed pixels live in the swapchain image
+        /// and `image` answers empty, which is the honest answer rather than a stale frame: the overlay then
+        /// has nothing to sample and draws nothing for the request.
+        /// The handle keeps the image alive, so a caller may hold it for the frame it was made in.
+        struct scene_color_target {
+            rhi::shared_object<rhi::image> image;
+            rhi::image_extent extent{};
+            rhi::image_format format = rhi::image_format::unknown;
+        };
+        [[nodiscard]] scene_color_target current_scene_color() const noexcept;
         /// THE DEVICE ROOT behind `rhi_face()`, for A separate caller that prepares device state OUTSIDE the frame
         /// graph (the Gaussian probe): the returned handle keeps this runtime's device valid underneath it.
         [[nodiscard]] rhi::shared_object<rhi::api_core> device_root() const noexcept {

@@ -3419,6 +3419,31 @@ namespace deren::engine {
         return this->fxaa_on && this->pass_ready("fxaa") && !this->post_upscale_active();
     }
 
+    runtime::scene_color_target runtime::current_scene_color() const noexcept {
+        // A skipped frame (zero-sized window, out-of-date swapchain) returns before the frame's image index
+        // is updated, so the index below would still describe the PREVIOUS frame. No frame is in flight in
+        // that case, and that is exactly what the frame command buffer records.
+        if (this->frame_command_buffer() == nullptr) {
+            return {};
+        }
+        // The image the composite writes instead of the swapchain exists only on frames a resolve finishes
+        // (the two predicates are the frame's one answer to that, see their notes). Asking them keeps this
+        // accessor and the target choice the same decision rather than two that can drift.
+        if (!this->post_fxaa_active() && !this->post_upscale_active()) {
+            return {};
+        }
+        auto const index = static_cast<std::size_t>(this->current_image_index);
+        if (index >= this->ldr_images.size() || !this->ldr_images[index]) {
+            return {};
+        }
+        auto* const image = this->ldr_images[index].get();
+        return {
+            .image = image->share(),
+            .extent = image->extent(),
+            .format = image->format(),
+        };
+    }
+
     bool runtime::post_upscale_active() const noexcept {
         // ONE definition of "the upscale pass is this frame's last writer", composed from the two facts that
         // decide it: the render chain is running BELOW the output size, and the pass built the pipeline it

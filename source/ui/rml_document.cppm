@@ -49,6 +49,9 @@ export namespace deren::ui {
     struct texture_view {
         std::uint32_t width = 0, height = 0;
         std::span<std::byte const> pixels; // Premultiplied RGBA8, or empty for untextured draws.
+        // A draw whose texture is the scene itself (`deren://scene`): the overlay samples the engine's
+        // render-chain image instead of an atlas this document owns.
+        bool scene_color = false;
     };
 
     struct draw {

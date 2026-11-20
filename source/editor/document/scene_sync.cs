@@ -30,11 +30,15 @@ internal static class scene_sync
         if (!scene_tree.try_create(out var created, out status) || created == null) {
             return false;
         }
-        if (!create_all(doc, created, doc.roots, null, out status)) {
+        if (!created.try_activate(out status)) {
             created.destroy();
             return false;
         }
-        if (!created.try_activate(out status)) {
+        // Bind the assets only after activation: the native side materialises the render instances of
+        // a bound asset when the tree is already active, and a tree that is populated beforehand never
+        // gets them.
+        if (!create_all(doc, created, doc.roots, null, out status)) {
+            created.detach();
             created.destroy();
             return false;
         }

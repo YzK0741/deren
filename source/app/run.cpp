@@ -1906,8 +1906,13 @@ namespace deren::app {
                 float const pixel_ratio = window_width > 0 && window_height > 0
                                               ? static_cast<float>(extent.width) / static_cast<float>(window_width)
                                               : 1.0F;
+                // A document may show the 3D scene itself (`deren://scene`): hand the frame's resolved color
+                // image over so the overlay samples it instead of an atlas. The image exists only on frames
+                // a resolve finishes (FXAA/upscale); on the others the viewport element draws nothing.
+                auto const scene_color = runtime.current_scene_color();
+                deren::ui::scene_texture const scene_texture{.image = scene_color.image};
                 if (!game_ui->prepare(extent.width, extent.height, image->format(),
-                                      runtime.rhi_face().frames->walk_frames()->position(), pixel_ratio)) {
+                                      runtime.rhi_face().frames->walk_frames()->position(), pixel_ratio, scene_texture)) {
                     return fail_project("RmlUi could not prepare its overlay");
                 }
                 if (!document_ui.has_managed_document()) {

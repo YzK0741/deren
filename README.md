@@ -268,9 +268,13 @@ it at `build/source/editor`:
 ./build/deren.exe run ./build/source/editor --editor-selftest
 ```
 
+The same RmlUi document carries the 3D view: a `deren://scene` element that the overlay samples from
+the engine's render chain, so the editor's entry scene keeps `[render] fxaa = true` - a resolve pass
+has to write the image the viewport shows.
+
 `--scene <path>` opens an existing `*.scene.toml`; `--editor-selftest` runs the
 save/reload/rename/delete/undo check and fails the run on a mismatch. See the
-[editor README](source/editor/README.md) for the document format and the P0 limits.
+[editor README](source/editor/README.md) for the document format, the viewport and the limits.
 
 Bind named actions to one or more keys in `deren.toml`:
 
