@@ -12,14 +12,19 @@ Everything the editor does lives in C#: the document model, the TOML reader/writ
 undo, selection and the panels. The managed ABI only gained the one entry the document could not
 express before, `scene_api.set_node_name` (ABI 40).
 
-## What P0 ships
+## What P1 ships
 
-- One scene document with an outliner, a toolbar and a status bar drawn by RmlUi.
-- `New Node`, `Delete`, `Save`, `Rename` and row clicks in the outliner.
+- One scene document with an outliner, a details panel, a toolbar and a status bar drawn by RmlUi.
+- `New Node`, `Delete`, `Save`, `Undo`, `Redo`, `Rename` and row clicks in the outliner.
+- The details panel edits the selected node in place: name, the nine transform lanes, visibility and
+  the application flags. Each accepted row pushes the value onto the runtime node immediately and
+  records one snapshot undo command, the way a Unreal details row applies a property edit.
 - Save/load of `scenes/<name>.scene.toml` under the project directory, undo/redo through a 64-entry
   stack, and a dirty flag.
 - `--editor-selftest`: save, reload, compare every uid/name/transform, rename the root through the
-  button path, delete it, undo it. A failure ends the run with `script_status.script_failure`.
+  button path, delete it, undo it, then edit a transform lane through the details path, check the
+  runtime node received it and undo it again. A failure ends the run with
+  `script_status.script_failure`.
 - `--scene <path>` opens an existing document instead of the default single-node one.
 
 ## Layout
@@ -30,16 +35,19 @@ express before, `scene_api.set_node_name` (ABI 40).
 | `document/scene_document.cs`, `document_node.cs` | The editable tree: uid, name, asset, pipeline, transform, visible, flags, children, runtime node id. |
 | `document/document_io.cs` | The strict TOML reader/writer for `*.scene.toml`. |
 | `document/scene_sync.cs` | One `rebuild` at startup, then per-node `create_one`/`destroy_one`/`push` into the activated tree. |
-| `editing/undo_stack.cs`, `undo_command.cs`, `selection.cs` | The five undoable edits, the 64-entry history and the selection set. |
-| `panels/outliner_panel.cs`, `status_bar.cs` | Text into the fixed RmlUi ids (`row_0..row_63`, `status`). |
+| `editing/undo_stack.cs`, `undo_command.cs`, `selection.cs` | The undoable edits, the 64-entry history and the selection set. |
+| `panels/outliner_panel.cs`, `details_panel.cs`, `status_bar.cs` | Text into the fixed RmlUi ids (`row_0..row_63`, `detail_*`, `status`). |
 | `ui/editor.rml` | The document markup and its inline style. |
 | `main.toml` | The entry scene the manifest points at: window size and title only. |
 | `deren.toml.in` | The project manifest template CMake configures into the build tree. |
 
 The RmlUi managed document API exposes `set_text`, `set_value`, `set_visible`, `try_poll_event` and
 `close` only - it cannot create elements - so the outliner is 64 pre-built rows (`row_0` .. `row_63`)
-and the selected row is marked with a `"> "` text prefix. A larger document needs a paging or
-element-creation follow-up.
+and the selected row is marked with a `"> "` text prefix. The details panel uses the same trick: its
+rows are authored once in `ui/editor.rml` and `details_panel` maps their `change` events back to
+properties. It rewrites a row only when the selection changes or an edit commits, because rewriting
+every frame would overwrite text the user is still typing. Visibility is a button rather than a
+checkbox because a checkbox `change` value is not round-tripped unambiguously by this bridge.
 
 ## Document format
 
@@ -66,8 +74,9 @@ block per node in depth-first order, where a parent always appears before its ch
 `uid` and `name` are required; `parent` (a parent uid), `asset`, and `pipeline` are optional. Floats
 are written so they round-trip exactly.
 
-## Limits of P0
+## Limits of P1
 
-One open document, 64 visible rows, name-only outliner labels, no viewport picking or gizmo, no
-property grid, no content browser and no Play/Stop. Those are the next milestones; the document model
-and `scene_sync` are the seams they will attach to.
+One open document, 64 visible rows, a fixed set of details rows (no add/remove property, no asset
+picker), no viewport picking or gizmo, no content browser and no Play/Stop. Those are the next
+milestones; the document model, `scene_sync` and the snapshot undo commands are the seams they will
+attach to.

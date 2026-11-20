@@ -26,6 +26,7 @@ namespace deren.editor {
         private scene_tree? tree;
         private rml_document? ui;
         private outliner_panel? outliner;
+        private details_panel? details;
         private status_bar? status_line;
         private undo_stack? undo_history;
         private selection? selection_state;
@@ -108,10 +109,11 @@ namespace deren.editor {
             }
             ui = opened_document;
             outliner = new outliner_panel(opened_document);
+            details = new details_panel(opened_document);
             status_line = new status_bar(opened_document);
             undo_history = new undo_stack();
             selection_state = new selection();
-            refresh_panels();
+            refresh_panels(force_details: true);
             host_logger.write($"Editor: document ready ({count_nodes(document.roots)} node(s))");
 
             if (requested_selftest) {
@@ -177,6 +179,8 @@ namespace deren.editor {
                 if (input.type == rml_event_type.change) {
                     if (input.id == rename_field_id) {
                         rename_field = input.value;
+                    } else if (details_panel.try_field(input.id, out var field)) {
+                        apply_detail_change(field, input.value);
                     }
                     continue;
                 }
@@ -195,6 +199,19 @@ namespace deren.editor {
                         break;
                     case "btn_rename":
                         apply_rename(rename_field);
+                        break;
+                    case "btn_undo":
+                        if (undo_history?.try_undo() == true) {
+                            refresh_panels(force_details: true);
+                        }
+                        break;
+                    case "btn_redo":
+                        if (undo_history?.try_redo() == true) {
+                            refresh_panels(force_details: true);
+                        }
+                        break;
+                    case "detail_visible":
+                        toggle_selected_visibility();
                         break;
                     default:
                         select_row(input.id);
@@ -346,8 +363,147 @@ namespace deren.editor {
                 });
             rename_field = string.Empty;
             ui?.set_value(rename_field_id, string.Empty);
+            refresh_panels(force_details: true);
+            return true;
+        }
+
+        /// <summary>
+        /// Applies one details row: parse, mutate the document node, push it onto the runtime node and
+        /// record a snapshot undo command. A refused value redraws the row from the document so the
+        /// input never keeps text the document rejected.
+        /// </summary>
+        private bool apply_detail_change(detail_field field, string text) {
+            if (document == null || selection_state == null) {
+                return false;
+            }
+            var node = selection_state.primary == Guid.Empty ? null : document.find(selection_state.primary);
+            if (node == null) {
+                return false;
+            }
+            var before = new node_snapshot(node);
+            var changed = false;
+            switch (field) {
+                case detail_field.name: {
+                    var trimmed = text.Trim();
+                    if (trimmed.Length != 0 && trimmed != node.name) {
+                        node.name = trimmed;
+                        changed = true;
+                    }
+                    break;
+                }
+                case detail_field.flags: {
+                    if (uint.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var flags) &&
+                        flags != node.flags) {
+                        node.flags = flags;
+                        changed = true;
+                    }
+                    break;
+                }
+                default: {
+                    if (!float.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) ||
+                        !float.IsFinite(number)) {
+                        break;
+                    }
+                    var local = node.local;
+                    changed = set_lane(ref local, field, number);
+                    if (changed) {
+                        node.local = local;
+                    }
+                    break;
+                }
+            }
+            if (!changed) {
+                details?.refresh(document, selection_state, true);
+                return false;
+            }
+            if (!push_runtime(node)) {
+                restore_node(node, before, mark_dirty: false);
+                details?.refresh(document, selection_state, true);
+                return false;
+            }
+            var after = new node_snapshot(node);
+            document.mark_dirty();
+            record_undo(details_panel.label(field),
+                () => restore_node(node, before, mark_dirty: true),
+                () => restore_node(node, after, mark_dirty: true));
+            details?.refresh(document, selection_state, true);
             refresh_panels();
             return true;
+        }
+
+        /// <summary>Writes one transform lane, returning false when the value was already there.</summary>
+        private static bool set_lane(ref transform_value local, detail_field field, float value) {
+            switch (field) {
+                case detail_field.position_x: return set_axis(ref local.position.x, value);
+                case detail_field.position_y: return set_axis(ref local.position.y, value);
+                case detail_field.position_z: return set_axis(ref local.position.z, value);
+                case detail_field.rotation_x: return set_axis(ref local.rotation_degrees.x, value);
+                case detail_field.rotation_y: return set_axis(ref local.rotation_degrees.y, value);
+                case detail_field.rotation_z: return set_axis(ref local.rotation_degrees.z, value);
+                case detail_field.scale_x: return set_axis(ref local.scale.x, value);
+                case detail_field.scale_y: return set_axis(ref local.scale.y, value);
+                case detail_field.scale_z: return set_axis(ref local.scale.z, value);
+                default: return false;
+            }
+        }
+
+        private static bool set_axis(ref float lane, float value) {
+            if (lane == value) {
+                return false;
+            }
+            lane = value;
+            return true;
+        }
+
+        /// <summary>Flips the selected node's visibility through the same undo path as the details rows.</summary>
+        private bool toggle_selected_visibility() {
+            if (document == null || selection_state == null) {
+                return false;
+            }
+            var node = selection_state.primary == Guid.Empty ? null : document.find(selection_state.primary);
+            if (node == null) {
+                return false;
+            }
+            var before = new node_snapshot(node);
+            node.visible = !node.visible;
+            if (!push_runtime(node)) {
+                restore_node(node, before, mark_dirty: false);
+                return false;
+            }
+            var after = new node_snapshot(node);
+            document.mark_dirty();
+            record_undo(node.visible ? "Show Node" : "Hide Node",
+                () => restore_node(node, before, mark_dirty: true),
+                () => restore_node(node, after, mark_dirty: true));
+            refresh_panels(force_details: true);
+            return true;
+        }
+
+        /// <summary>Writes a snapshot back onto the document node and the runtime node.</summary>
+        private void restore_node(document_node node, node_snapshot snapshot, bool mark_dirty) {
+            node.name = snapshot.name;
+            node.local = snapshot.local;
+            node.visible = snapshot.visible;
+            node.flags = snapshot.flags;
+            push_runtime(node);
+            if (mark_dirty) {
+                mark_dirty_and_refresh();
+            }
+        }
+
+        /// <summary>The editable values of one node, captured before and after an edit.</summary>
+        private sealed class node_snapshot {
+            internal node_snapshot(document_node node) {
+                name = node.name;
+                local = node.local;
+                visible = node.visible;
+                flags = node.flags;
+            }
+
+            internal readonly string name;
+            internal readonly transform_value local;
+            internal readonly bool visible;
+            internal readonly uint flags;
         }
 
         private void record_undo(string label, Action undo, Action redo) {
@@ -356,7 +512,7 @@ namespace deren.editor {
 
         private void mark_dirty_and_refresh() {
             document?.mark_dirty();
-            refresh_panels();
+            refresh_panels(force_details: true);
         }
 
         private bool insert_document_node(document_node? parent, int index, document_node node) {
@@ -461,11 +617,12 @@ namespace deren.editor {
             return false;
         }
 
-        private void refresh_panels() {
+        private void refresh_panels(bool force_details = false) {
             if (document == null || selection_state == null || outliner == null || status_line == null) {
                 return;
             }
             outliner.refresh(document, selection_state);
+            details?.refresh(document, selection_state, force_details);
             status_line.refresh(document, selection_state);
         }
 
@@ -473,6 +630,7 @@ namespace deren.editor {
             ui?.Dispose();
             ui = null;
             outliner = null;
+            details = null;
             status_line = null;
             undo_history?.clear();
             undo_history = null;
@@ -533,6 +691,21 @@ namespace deren.editor {
                     return selftest_failure("undo did not restore the renamed root");
                 }
                 host_logger.write("Editor selftest: undo restored the root");
+
+                selection_state.select(root.uid);
+                if (!apply_detail_change(detail_field.position_x, "2.5") || root.local.position.x != 2.5F) {
+                    return selftest_failure("the details panel did not edit the transform");
+                }
+                if (tree == null || !tree.try_get_transform(root.runtime, out var runtime_transform) ||
+                    runtime_transform.position.x != 2.5F) {
+                    return selftest_failure("the details edit did not reach the runtime transform");
+                }
+                host_logger.write("Editor selftest: details edit reached the runtime node");
+
+                if (undo_history == null || !undo_history.try_undo() || root.local.position.x != 0.0F) {
+                    return selftest_failure("undo did not restore the transform");
+                }
+                host_logger.write("Editor selftest: undo restored the transform");
                 host_logger.write("Editor selftest: passed");
                 return script_status.success;
             } finally {

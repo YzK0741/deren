@@ -11,6 +11,16 @@ body { width: 100%; height: 100%; margin: 0; font-family: LatoLatin; font-size: 
 .row { box-sizing: border-box; display: block; height: 13dp; padding-left: 8dp; white-space: nowrap; }
 .row:hover { background-color: #2b3a49; }
 .row_name { font-size: 12dp; line-height: 13dp; white-space: pre; pointer-events: none; }
+#details { box-sizing: border-box; width: 320dp; height: 100%; padding: 8dp; overflow: hidden; background-color: #18202a; border-left: 1dp #34404e; }
+#details_title { box-sizing: border-box; height: 24dp; font-size: 15dp; line-height: 24dp; color: #cfe0f0; border-bottom: 1dp #34404e; margin-bottom: 6dp; white-space: nowrap; }
+#details_empty { font-size: 13dp; color: #8fa3b8; }
+.detail_header { box-sizing: border-box; height: 20dp; margin-top: 8dp; font-size: 12dp; line-height: 20dp; color: #8fa3b8; text-transform: uppercase; }
+.detail_row { display: flex; flex-direction: row; align-items: center; box-sizing: border-box; height: 24dp; }
+.detail_label { box-sizing: border-box; width: 92dp; font-size: 13dp; line-height: 24dp; color: #cfe0f0; }
+.detail_text { box-sizing: border-box; flex-grow: 1; height: 20dp; font-size: 13dp; line-height: 20dp; padding: 0 6dp; color: #9fb3c8; background-color: #111820; border: 1dp #2b3a49; white-space: nowrap; overflow: hidden; }
+#details input { box-sizing: border-box; flex-grow: 1; height: 20dp; padding: 0 6dp; background-color: #111820; border: 1dp #4a5b6d; color: #ffffff; font-size: 13dp; }
+#detail_visible { box-sizing: border-box; height: 20dp; padding: 0 8dp; background-color: #335b80; border: 1dp #5b7894; color: #ffffff; font-size: 13dp; }
+#detail_visible:hover { background-color: #487dab; }
 #status { box-sizing: border-box; height: 24dp; padding: 2dp 12dp; background-color: #1d2530; border-top: 1dp #34404e; font-size: 14dp; line-height: 20dp; white-space: nowrap; }
 </style></head>
 <body>
@@ -18,6 +28,8 @@ body { width: 100%; height: 100%; margin: 0; font-family: LatoLatin; font-size: 
 <button id="btn_new">New Node</button>
 <button id="btn_delete">Delete</button>
 <button id="btn_save">Save</button>
+<button id="btn_undo">Undo</button>
+<button id="btn_redo">Redo</button>
 <input id="rename_field" type="text"/>
 <button id="btn_rename">Rename</button>
 </div>
@@ -87,6 +99,28 @@ body { width: 100%; height: 100%; margin: 0; font-family: LatoLatin; font-size: 
     <div id="row_61" class="row" style="visibility: hidden;"><div id="row_61_name" class="row_name"></div></div>
     <div id="row_62" class="row" style="visibility: hidden;"><div id="row_62_name" class="row_name"></div></div>
     <div id="row_63" class="row" style="visibility: hidden;"><div id="row_63_name" class="row_name"></div></div>
+</div>
+<div id="details">
+    <div id="details_title">Details</div>
+    <div id="details_empty">Select a node to edit its properties.</div>
+    <div id="details_form" style="visibility: hidden;">
+        <div class="detail_row"><div class="detail_label">Name</div><input id="detail_name" type="text"/></div>
+        <div class="detail_header">Transform</div>
+        <div class="detail_row"><div class="detail_label">Position X</div><input id="detail_position_x" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Position Y</div><input id="detail_position_y" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Position Z</div><input id="detail_position_z" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Rotation X</div><input id="detail_rotation_x" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Rotation Y</div><input id="detail_rotation_y" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Rotation Z</div><input id="detail_rotation_z" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Scale X</div><input id="detail_scale_x" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Scale Y</div><input id="detail_scale_y" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Scale Z</div><input id="detail_scale_z" type="text"/></div>
+        <div class="detail_header">Actor</div>
+        <div class="detail_row"><div class="detail_label">Visible</div><button id="detail_visible">Visible: yes</button></div>
+        <div class="detail_row"><div class="detail_label">Flags</div><input id="detail_flags" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Asset</div><div id="detail_asset" class="detail_text">-</div></div>
+        <div class="detail_row"><div class="detail_label">Pipeline</div><div id="detail_pipeline" class="detail_text">-</div></div>
+    </div>
 </div>
 </div>
 <div id="status"></div>
