@@ -407,6 +407,32 @@ namespace deren {
         }
 
         /// <summary>
+        /// Renames a node in place. The new name is capped at 256 UTF-8 bytes; an empty name, a longer
+        /// one, or one that carries a NUL byte is invalid_argument, and a stale or foreign node is
+        /// invalid_node. Names are not unique: a rename may leave two nodes sharing one name, and a
+        /// later lookup returns the first of them in depth-first order. A name read with
+        /// <see cref="try_get_name"/> before the rename is a copy, so it stays valid; the view the
+        /// host hands out internally does not.
+        /// </summary>
+        public bool try_set_name(node_id node, string name) {
+            return try_set_name(node, name, out _);
+        }
+
+        public bool try_set_name(node_id node, string name, out script_status status) {
+            if (handle == 0 || string.IsNullOrEmpty(name)) {
+                status = script_status.invalid_argument;
+                return false;
+            }
+            if (!node.is_valid) {
+                status = script_status.invalid_node;
+                return false;
+            }
+            using var text = native_string.create(name);
+            status = scene_api.assign_node_name(handle, node.handle, text.view);
+            return status == script_status.success;
+        }
+
+        /// <summary>
         /// Reads the opaque 32-bit word the game attached to a node (four are left alone by every host
         /// entry). They are free storage, not a host feature: nothing in the renderer reads them.
         /// </summary>

@@ -86,6 +86,41 @@ target_link_libraries(deren_managed_host PUBLIC vstd_lib static_utility deren_sc
 
 target_include_directories(deren_managed_host SYSTEM PRIVATE "${host_native}")
 
+# ================================================================================================
+# THE EDITOR IS A MANAGED PROJECT, like the demo game: it compiles to Game.dll and is launched with
+# `deren run build/source/editor`. Its project manifest points back at the authored TOML in
+# source/editor, so the build tree holds no copy of it. Unlike the demo it is not a test fixture -
+# it ships with every build - so this block sits before the VR_BUILD_TESTS early return.
+# ================================================================================================
+set(editor_source_dir "${CMAKE_CURRENT_SOURCE_DIR}/../editor")
+set(editor_project "${editor_source_dir}/Editor.csproj")
+set(editor_output "${CMAKE_BINARY_DIR}/source/editor")
+set(editor_assembly "${editor_output}/Game.dll")
+file(GLOB_RECURSE editor_sources CONFIGURE_DEPENDS "${editor_source_dir}/*.cs")
+list(FILTER editor_sources EXCLUDE REGEX "[/\\\\](obj|bin)[/\\\\]")
+set(DEREN_EDITOR_SCENE "${editor_source_dir}/main.toml")
+set(DEREN_EDITOR_ASSEMBLY "${editor_assembly}")
+configure_file("${editor_source_dir}/deren.toml.in" "${editor_output}/deren.toml" @ONLY)
+add_custom_command(OUTPUT "${editor_assembly}"
+    COMMAND "${DOTNET_EXECUTABLE}" build "${editor_project}"
+        --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet-editor"
+        --output "${editor_output}"
+    DEPENDS "${editor_project}" ${editor_sources} ${bridge_files}
+    VERBATIM)
+add_custom_target(deren_managed_editor ALL DEPENDS "${editor_assembly}")
+add_dependencies(deren_managed_editor deren_managed_bridge)
+# The RmlUi document and its font are packaged beside Game.dll; the scene TOMLs stay in source.
+add_custom_target(deren_editor_assets ALL
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${editor_output}/ui"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${editor_source_dir}/ui/editor.rml" "${editor_output}/ui/editor.rml"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ui/demo/LatoLatin-Regular.ttf" "${editor_output}/ui/LatoLatin-Regular.ttf"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../ui/demo/FONT-LICENSE.txt" "${editor_output}/ui/FONT-LICENSE.txt"
+    VERBATIM)
+add_dependencies(deren_managed_editor deren_editor_assets)
+
 if(NOT VR_BUILD_TESTS)
     return()
 endif()
@@ -106,7 +141,7 @@ add_custom_command(OUTPUT "${game_assembly}"
         --output "${game_output}"
     DEPENDS "${game_project}" test_game/game_host.cs test_game/demo_debug_windows.cs test_game/rotate_behaviour.cs
         test_game/helmet_controls.cs test_game/audio_selftest.cs test_game/demo_audio_panel.cs test_game/rml_selftest.cs
-        test_game/toon_selftest.cs ${bridge_files}
+        test_game/toon_selftest.cs test_game/node_name_selftest.cs ${bridge_files}
     VERBATIM)
 # Package the managed UI assets beside Game.dll; authored scene TOMLs stay in the source tree.
 add_custom_target(deren_managed_ui_assets
@@ -129,7 +164,7 @@ target_compile_definitions(test_managed_host PRIVATE VR_AUDIO_FIXTURES="${CMAKE_
     VR_RMLUI_DEMO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../ui/demo")
 add_dependencies(test_managed_host deren_managed_test_game)
 set(managed_host_tests "")
-foreach(scenario IN ITEMS round_trip missing_assembly missing_game_assembly missing_runtime abi_mismatch abi_layout_mismatch scene_module_unavailable scene_module_invalid scene_lifecycle scene_input frame_events toon_rig audio_lifecycle audio_module_unavailable audio_module_invalid audio_module_incomplete rml_lifecycle rml_module_unavailable rml_module_invalid rml_module_incomplete)
+foreach(scenario IN ITEMS round_trip missing_assembly missing_game_assembly missing_runtime abi_mismatch abi_layout_mismatch scene_module_unavailable scene_module_invalid scene_lifecycle scene_input frame_events toon_rig node_name audio_lifecycle audio_module_unavailable audio_module_invalid audio_module_incomplete rml_lifecycle rml_module_unavailable rml_module_invalid rml_module_incomplete)
     add_test(NAME managed_host_${scenario} COMMAND test_managed_host "${bridge_output}" "${scenario}" "${game_assembly}")
     list(APPEND managed_host_tests managed_host_${scenario})
 endforeach()

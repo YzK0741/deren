@@ -25,6 +25,10 @@ namespace {
         struct tree_node {
             std::uint64_t value = 0;
             transform_value pose{};
+            // ABI 40: the name the node was created with, then possibly renamed to. The name lives in
+            // the node itself, exactly like the engine's, so a readback borrows these bytes.
+            char name[256] = {};
+            std::uint32_t name_length = 0;
         };
 
         transform_value poses[2]{};
@@ -142,6 +146,13 @@ namespace {
     // The clip the fixture pretends the player holds; the names are reported from here.
     constexpr std::uint32_t animation_clip_count = 2;
     constexpr char const* animation_clip_names[animation_clip_count] = {"idle", "bibideba"};
+    // ABI 40: renaming a node. The self check performs one accepted rename, one rejection of its own
+    // (the over-long name; the empty one never leaves the C# wrapper), one stale handle and two name
+    // reads, so a wrapper that stopped forwarding any of them shows up here.
+    std::uint32_t node_name_renames = 0;
+    std::uint32_t node_name_rejections = 0;
+    std::uint32_t node_name_misses = 0;
+    std::uint32_t node_name_reads = 0;
 
     constexpr node_handle node_zero{.value = 1};
     constexpr node_handle node_one{.value = 2};
@@ -351,10 +362,14 @@ namespace {
         if (state.nodes_created >= std::size(state.nodes)) {
             return script_status::invalid_node;
         }
-        (void)name;
         auto& created = state.nodes[state.nodes_created];
         created.value = spawned_base + 0x200 + ++state.nodes_created;
         created.pose = *local;
+        auto const name_length = name.data == nullptr ? 0u : std::min<std::uint32_t>(name.length, 256u);
+        if (name_length != 0) {
+            std::memcpy(created.name, name.data, name_length);
+        }
+        created.name_length = name_length;
         if (parent.value == 0) {
             ++state.roots;
             if (state.roots == 2) {
@@ -379,6 +394,46 @@ namespace {
         }
         destroyed->value = 0;
         ++state.nodes_destroyed;
+        return script_status::success;
+    }
+
+    // ABI 38/40: the name readback and the rename. The fixture answers both against the node's own
+    // storage, so the self check can prove that what a rename stored is what the next read returns.
+    script_status node_name(std::uint64_t tree, node_handle node, utf8_view* name) {
+        auto& state = *module_context;
+        if (name == nullptr) {
+            return script_status::invalid_argument;
+        }
+        if (tree == 0 || tree != state.live_tree) {
+            return script_status::scene_not_found;
+        }
+        auto* found = find_tree_node(state, node.value);
+        if (found == nullptr) {
+            return script_status::invalid_node;
+        }
+        ++node_name_reads;
+        *name = {.data = found->name, .length = found->name_length};
+        return script_status::success;
+    }
+
+    script_status set_node_name(std::uint64_t tree, node_handle node, utf8_view name) {
+        auto& state = *module_context;
+        if (name.data == nullptr || name.length == 0 || name.length > 256u ||
+            std::string_view{name.data, name.length}.find('\0') != std::string_view::npos) {
+            ++node_name_rejections;
+            return script_status::invalid_argument;
+        }
+        if (tree == 0 || tree != state.live_tree) {
+            return script_status::scene_not_found;
+        }
+        auto* found = find_tree_node(state, node.value);
+        if (found == nullptr) {
+            ++node_name_misses;
+            return script_status::invalid_node;
+        }
+        std::memcpy(found->name, name.data, name.length);
+        found->name_length = name.length;
+        ++node_name_renames;
         return script_status::success;
     }
 
@@ -1173,8 +1228,10 @@ namespace {
             .set_animation_playing = set_animation_playing,
             .set_animation_speed = set_animation_speed,
             .set_animation_time = set_animation_time,
+            .node_name = node_name,
             .set_toon_rig = set_toon_rig,
-            .get_toon_rig = get_toon_rig};
+            .get_toon_rig = get_toon_rig,
+            .set_node_name = set_node_name};
         *table = &published;
         *byte_size = sizeof(published);
         return script_status::success;
@@ -1687,6 +1744,59 @@ namespace {
         return true;
     }
 
+    // ABI 40: renaming a node. The demo turns itself into a self check when it sees
+    // `--node-name-selftest`: it creates and activates a tree, creates one named node, renames it and
+    // reads the name back, then proves an empty name, a 300-byte name and a well-formed but stale
+    // handle are refused without disturbing the stored name. This case owns the host half: exactly one
+    // rename landed, the over-long name and the stale handle reached the host as refusals, the empty
+    // name was refused before the call left the wrapper, and the stored bytes are the ones read back.
+    bool run_node_name(host_paths const& paths) {
+        char const* selftest_argv[]{"test_managed_host", "--node-name-selftest"};
+        auto selftest_paths = paths;
+        selftest_paths.argc = 2;
+        selftest_paths.argv = const_cast<char**>(selftest_argv);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify,
+                             .set_frame_boundary_timeout = record_timeout,
+                             .panic = record_panic};
+        managed_api scripts;
+        if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
+            std::fputs("node name: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+            std::fputs("node name: the managed self check failed\n", stderr);
+            return false;
+        }
+        // One accepted rename, one host-side rejection (the 300-byte name), one stale handle, and two
+        // reads (after the rename and after the refusals).
+        if (node_name_renames != 1 || node_name_rejections != 1 || node_name_misses != 1 ||
+            node_name_reads != 2) {
+            std::fprintf(stderr, "node name: renames=%u rejections=%u misses=%u reads=%u\n", node_name_renames,
+                         node_name_rejections, node_name_misses, node_name_reads);
+            return false;
+        }
+        auto const* renamed = find_tree_node(scene, scene.nodes[0].value);
+        if (renamed == nullptr ||
+            std::string_view{renamed->name, renamed->name_length} != "renamed-node") {
+            std::fprintf(stderr, "node name: the stored name is '%.*s'\n",
+                         renamed != nullptr ? static_cast<int>(renamed->name_length) : 0,
+                         renamed != nullptr ? renamed->name : "");
+            return false;
+        }
+        if (scripts.stop() != script_status::success) {
+            std::fputs("node name: managed stop failed\n", stderr);
+            return false;
+        }
+        return true;
+    }
+
     bool run_rml(host_paths const& paths, int mode) {
         rml_module_mode = mode;
         deren::ui::rml_document document;
@@ -1796,6 +1906,13 @@ int main(int argc, char** argv) {
     if (scenario == "toon_rig") {
         if (!run_toon_rig(paths)) {
             std::fputs("Managed toon light rig round trip failed\n", stderr);
+            return 1;
+        }
+        return 0;
+    }
+    if (scenario == "node_name") {
+        if (!run_node_name(paths)) {
+            std::fputs("Managed node rename failed\n", stderr);
             return 1;
         }
         return 0;

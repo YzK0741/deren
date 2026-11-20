@@ -1496,7 +1496,8 @@ namespace deren::app {
             .query_counters = query_counters,
             .gpu_timing_summary = gpu_timing_summary,
             .set_toon_rig = set_toon_rig,
-            .get_toon_rig = get_toon_rig};
+            .get_toon_rig = get_toon_rig,
+            .set_node_name = set_node_name};
         *table = &scene_api;
         *byte_size = sizeof(scene_api);
         return scripting::script_status::success;
@@ -1820,6 +1821,30 @@ namespace deren::app {
         }
         // Borrowed: the node owns the name, so the view lives until the node is renamed/destroyed.
         *name = {.data = scene_node->node_name.data(), .length = static_cast<std::uint32_t>(scene_node->node_name.size())};
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::set_node_name(std::uint64_t const tree, scripting::node_handle const node,
+                                                         scripting::utf8_view const name) {
+        // A name is a non-empty UTF-8 byte run without a NUL, capped at the size of the copy that would
+        // be made. Renaming only assigns node_name: name lookups walk the children, so nothing else has
+        // to be refreshed.
+        if (name.data == nullptr || name.length == 0 || name.length > 256u) {
+            return scripting::script_status::invalid_argument;
+        }
+        std::string_view const text{name.data, name.length};
+        if (text.find('\0') != std::string_view::npos) {
+            return scripting::script_status::invalid_argument;
+        }
+        auto* scene = find_managed_tree(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto* const scene_node = scene->find_node(to_entity(node));
+        if (scene_node == nullptr) {
+            return scripting::script_status::invalid_node;
+        }
+        scene_node->node_name.assign(text.data(), text.size());
         return scripting::script_status::success;
     }
 
