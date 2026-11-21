@@ -45,9 +45,12 @@ export namespace deren::ui {
     // not RmlUi dispatches - a drag keeps reporting moves after the pointer leaves the element it
     // started on, and no click is invented. Coordinates and every rect query are in
     // density-independent pixels, the unit documents author in.
+    // Values are offset by 3 in the managed event table.
     enum class pointer_type { down,
                               move,
-                              up };
+                              up,
+                              wheel,
+                              cancel };
     struct pointer_event {
         pointer_type type = pointer_type::move;
         // The nearest ancestor with an id, so a hit on a splitter's child still names the splitter.
@@ -132,7 +135,8 @@ export namespace deren::ui {
         friend struct rml_event_listener;
         deren::utility::vessel::vector<ui_event> events;
         deren::utility::vessel::vector<pointer_event> pointer_events;
-        void push_pointer(pointer_type type, int x, int y, int button, unsigned modifiers, std::string_view id);
+        void push_pointer(pointer_type type, int x, int y, int button, unsigned modifiers, std::string_view id, float wheel = 0.0F);
+        int pointer_x = 0, pointer_y = 0;
 
         struct compiled_geometry {
             deren::utility::vessel::vector<vertex> vertices;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Diagnostics;
 using System.IO;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using deren;
 using deren.scripting;
@@ -22,6 +23,12 @@ namespace deren.editor {
 
         private static editor_host? instance;
         private static string? requested_scene;
+        private static string? requested_thumbnail;
+        private static string? requested_play;
+        private play_behaviours? behaviours;
+        private play_session? playing;
+        private string? play_stop_marker;
+        private long last_play_stop_check;
         private static bool requested_selftest;
         private static string runtime_selftest_asset = "damaged-helmet";
 
@@ -37,8 +44,18 @@ namespace deren.editor {
         // The projection aspect last handed to the renderer, so the per-frame check only calls out when
         // the viewport column actually changes shape.
         private float applied_aspect = -1.0f;
+        private readonly viewport_camera viewport_navigation = new();
+        private readonly viewport_gizmo gizmo = new();
+        private bool gizmo_local;
+        private bool cancel_gizmo_requested;
+        private float viewport_height;
+        private Vector2? viewport_press;
+        private bool focus_selection_requested;
+        private bool camera_input_installed;
         // The dock tab whose body is visible; both bodies stay laid out, only visibility flips.
         private string active_dock_tab = "tab_content";
+        private workspace_layout layout = new();
+        private string layout_path = string.Empty;
         // Splitter drag: the captured handle, the pointer position where the drag started and the size
         // (dp) of the panel it resizes at that moment. An empty handle means no drag is in progress.
         private string active_splitter = string.Empty;
@@ -53,16 +70,36 @@ namespace deren.editor {
         private string browser_filter = string.Empty;
         private string outliner_filter = string.Empty;
         private content_browser_panel? browser;
+        private asset_thumbnail_cache? thumbnails;
         // The viewport tool highlighted by the Select/Move/Rotate/Scale buttons (UE's transform widget mode).
         private const string tool_select_id = "vp_select";        private static readonly string[] tool_ids = ["vp_select", "vp_move", "vp_rotate", "vp_scale"];
         private string active_tool = tool_select_id;
         // A short status-bar suffix ("tool: select", "asset: ...", the About line) cleared by the next click.
         private string notice = string.Empty;
+        private bool scene_path_open;
+        private bool scene_path_saving;
+        private string scene_path_text = string.Empty;
+        private string? overwrite_path;
+        private scene_document? pending_open;
+        private (string asset, Vector2 press)? asset_drag;
         private bool pending_new_scene;
+        // The close button waits on the same unsaved-changes prompt as New Scene; the answer is applied
+        // to whichever action asked for the dialog.
+        private bool pending_close;
+        // Borderless caption press: the first press starts the system move loop, a second press inside
+        // the double-click window maximises/restores instead.
+        private bool caption_pressed;
+        private long last_caption_press;
         private string last_clicked_asset = string.Empty;
         private long last_asset_click;
         private int asset_selftest_phase;
         private Guid selftest_asset_uid;
+        // The Window-menu layout regression check that runs after the asset phases: it needs several
+        // frames because a display change only reaches the element boxes on the next layout pass.
+        private int panel_selftest_phase;
+        private float panel_rows_height;
+        private float panel_title_width;
+        private float panel_details_y;
         // Panel visibility toggled from the Window menu; style keeps the layout space from being reserved.
         private bool outliner_shown = true;
         private bool details_shown = true;
@@ -88,6 +125,15 @@ namespace deren.editor {
                             requested_scene = null;
                         }
                         break;
+                    case "--editor-play":
+                        requested_play = inline_value ?? take_value(args, ref i);
+                        requested_scene = requested_play;
+                        break;
+                    case "--editor-thumbnail":
+                        requested_thumbnail = inline_value ?? take_value(args, ref i);
+                        options->capture_frames = 8;
+                        options->capture_windowed = 0;
+                        break;
                     case "--editor-selftest-asset":
                         requested_selftest = true;
                         runtime_selftest_asset = inline_value ?? take_value(args, ref i);
@@ -107,7 +153,9 @@ namespace deren.editor {
                     }
                 }
             }
-            if (requested_selftest) { options->capture_frames = Math.Max(options->capture_frames, 4); }
+            // The selftest runs over several frames: one per asset phase, then the layout shots the
+            // Window-menu check needs (a display change only reaches the boxes on the next pass).
+            if (requested_selftest) { options->capture_frames = Math.Max(options->capture_frames, 20); }
             return script_status.success;
         }
 
@@ -123,7 +171,10 @@ namespace deren.editor {
                 return module_status;
             }
 
-            if (requested_scene != null) {
+            if (requested_thumbnail != null) {
+                document = new scene_document();
+                document.add_root(new document_node { name = requested_thumbnail, asset = requested_thumbnail });
+            } else if (requested_scene != null) {
                 if (!document_io.try_load(requested_scene, out var loaded, out var load_error) || loaded == null) {
                     host_logger.write($"Editor: cannot load scene '{requested_scene}': {load_error}");
                     return script_status.script_failure;
@@ -141,6 +192,28 @@ namespace deren.editor {
                 return rebuild_status != script_status.success ? rebuild_status : script_status.script_failure;
             }
             tree = rebuilt_tree;
+            if (requested_play != null) {
+                play_stop_marker = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(requested_play))!, "stop.request");
+                var camera_path = Path.Combine(Path.GetDirectoryName(play_stop_marker)!, "camera.json");
+                if (File.Exists(camera_path)) {
+                    var pose = System.Text.Json.JsonSerializer.Deserialize<orbit_camera>(File.ReadAllText(camera_path), play_session.camera_json);
+                    pose.try_apply();
+                }
+                instance = this;
+                scripts->update = &update;
+                scripts->stop = &stop;
+                return script_status.success;
+            }
+            if (requested_thumbnail != null) {
+                if (!orient_thumbnail(document.roots[0])) {
+                    cleanup();
+                    return script_status.script_failure;
+                }
+                instance = this;
+                scripts->update = &update;
+                scripts->stop = &stop;
+                return script_status.success;
+            }
 
             if (!rml_document.try_open("ui/editor.rml", "ui/LatoLatin-Regular.ttf",
                                        out var opened_document, out var ui_status) || opened_document == null) {
@@ -149,12 +222,19 @@ namespace deren.editor {
                 return script_status.script_failure;
             }
             ui = opened_document;
+            if (!requested_selftest) {
+                layout_path = Path.Combine(managed_bootstrap.project_directory, "editor-layout.json");
+                layout = workspace_layout.load(layout_path);
+                apply_workspace_layout();
+            }
             outliner = new outliner_panel(opened_document);
             details = new details_panel(opened_document);
             status_line = new status_bar(opened_document);
             undo_history = new undo_stack();
             selection_state = new selection();
-            browser = new content_browser_panel(opened_document);
+            thumbnails = new asset_thumbnail_cache(managed_bootstrap.project_directory);
+            playing = new play_session(managed_bootstrap.project_directory);
+            browser = new content_browser_panel(opened_document, thumbnails);
             assets = asset_manager.list();
             apply_tool_style();
             refresh_browser();
@@ -171,11 +251,31 @@ namespace deren.editor {
                 asset_selftest_phase = 1;
             }
 
+            camera_input_installed = input_events.try_set_callback(input => {
+                if (input.type == input_type.key && input.key == key_code.f && input.down) {
+                    focus_selection_requested = true;
+                } else if (input.type == input_type.key && input.key == key_code.escape && input.down &&
+                           gizmo.dragging != null) {
+                    cancel_gizmo_requested = true;
+                }
+            });
             instance = this;
             scripts->update = &update;
             scripts->stop = &stop;
             host_logger.write("Editor: ready");
             return script_status.success;
+        }
+
+        private bool orient_thumbnail(document_node node) {
+            if (tree == null || !tree.try_get_bounds(node.runtime, out var center, out var radius) || radius <= 0 ||
+                !orbit_camera.try_get(out var pose)) {
+                return false;
+            }
+            pose.target = center;
+            pose.distance = MathF.Max(radius * 2.85f, 0.25f);
+            pose.yaw_degrees = node.pipeline == "game_toon" ? 0 : 25;
+            pose.pitch_degrees = node.pipeline == "game_toon" ? 0 : -12;
+            return pose.try_apply();
         }
 
         private static scene_document create_default_document() {
@@ -192,13 +292,42 @@ namespace deren.editor {
                 return script_status.invalid_argument;
             }
             try {
+                if (requested_play != null) {
+                    return current.update_play(frame);
+                }
+                if (current.playing?.poll(out var play_result) == true) {
+                    current.notice = play_result;
+                    current.ui?.set_text("btn_play", "Play");
+                }
+                if (requested_thumbnail != null) {
+                    return script_status.success;
+                }
+                if (current.thumbnails?.poll(out var thumbnail_result) == true) {
+                    current.notice = thumbnail_result;
+                    current.refresh_browser();
+                }
                 if (current.asset_selftest_phase != 0) {
                     var status = current.run_runtime_asset_selftest();
                     if (status != script_status.success) { return status; }
                 }
+                if (current.panel_selftest_phase != 0) {
+                    var status = current.run_panel_selftest();
+                    if (status != script_status.success) { return status; }
+                }
+                if (current.cancel_gizmo_requested) {
+                    current.cancel_gizmo_requested = false;
+                    current.finish_gizmo(cancel: true);
+                }
                 current.handle_ui_events();
                 current.refresh_panels();
                 current.update_viewport_aspect();
+                current.layout_gizmo();
+                if (current.focus_selection_requested) {
+                    current.focus_selection_requested = false;
+                    if (!current.pending_new_scene && !current.pending_close && current.pending_open == null && !current.scene_path_open) {
+                        current.focus_selection();
+                    }
+                }
                 return script_status.success;
             } catch (Exception error) {
                 host_logger.write($"Editor: update failed: {error.GetBaseException().Message}");
@@ -228,8 +357,25 @@ namespace deren.editor {
             }
             // A bound keeps one busy document from monopolizing a frame.
             for (var count = 0; count < event_budget && ui.try_poll_event(out var input); ++count) {
-                if (pending_new_scene) {
-                    if (input.type == rml_event_type.click) { resolve_new_scene(input.id); }
+                if (input.type == rml_event_type.pointer_cancel) {
+                    viewport_navigation.cancel_drag();
+                    finish_split_drag();
+                }
+                if (scene_path_open) {
+                    if (input.type == rml_event_type.change && input.id == "scene_path") {
+                        scene_path_text = input.value;
+                        overwrite_path = null;
+                        ui.set_text("scene_path_accept", scene_path_saving ? "Save As" : "Open");
+                    } else if (input.type == rml_event_type.click) {
+                        handle_scene_path(input.id);
+                    }
+                    continue;
+                }
+                if (pending_new_scene || pending_close || pending_open != null) {
+                    asset_drag = null;
+                    viewport_press = null;
+                    viewport_navigation.cancel_drag();
+                    if (input.type == rml_event_type.click) { resolve_unsaved(input.id); }
                     continue;
                 }
                 if (input.type == rml_event_type.change) {
@@ -246,8 +392,16 @@ namespace deren.editor {
                     }
                     continue;
                 }
+                if (handle_asset_drag(input) || handle_gizmo(input)) {
+                    continue;
+                }
+                handle_viewport_selection(input);
+                viewport_navigation.handle_pointer(input, viewport_height);
                 if (input.type == rml_event_type.pointer_down) {
-                    begin_split_drag(input);
+                    if (input.button == 0) {
+                        begin_split_drag(input);
+                        handle_caption_press(input.id);
+                    }
                     continue;
                 }
                 if (input.type == rml_event_type.pointer_move) {
@@ -255,7 +409,9 @@ namespace deren.editor {
                     continue;
                 }
                 if (input.type == rml_event_type.pointer_up) {
-                    active_splitter = string.Empty;
+                    if (input.button == 0) {
+                        finish_split_drag();
+                    }
                     continue;
                 }
                 if (input.type != rml_event_type.click) {
@@ -276,6 +432,9 @@ namespace deren.editor {
                     case "btn_delete":
                         delete_selected();
                         break;
+                    case "btn_play":
+                        toggle_play();
+                        break;
                     case "btn_save":
                         save_document();
                         break;
@@ -292,12 +451,38 @@ namespace deren.editor {
                             refresh_panels(force_details: true);
                         }
                         break;
+                    case "detail_pipeline":
+                        cycle_pipeline();
+                        break;
                     case "detail_visible":
                         toggle_selected_visibility();
+                        break;
+                    case "win_minimize":
+                        window_control.try_minimize();
+                        break;
+                    case "win_maximize":
+                        window_control.try_toggle_maximize();
+                        break;
+                    case "win_close":
+                        close_window();
+                        break;
+                    case "browser_thumbnail":
+                        if (browser == null || browser.selected_asset.Length == 0) {
+                            notice = "Select an asset to render a thumbnail";
+                        } else if (thumbnails != null) {
+                            thumbnails.begin(browser.selected_asset, out notice);
+                        }
                         break;
                     case "tab_content":
                     case "tab_log":
                         set_dock_tab(input.id);
+                        break;
+                    case "vp_space":
+                        gizmo_local = !gizmo_local;
+                        ui.set_text("vp_space", gizmo_local ? "Local" : "World");
+                        break;
+                    case "vp_focus":
+                        focus_selection_requested = true;
                         break;
                     case "vp_select":
                     case "vp_move":
@@ -332,6 +517,12 @@ namespace deren.editor {
                 case "menu_file_new":
                     new_scene();
                     break;
+                case "menu_file_open":
+                    show_scene_path(saving: false);
+                    break;
+                case "menu_file_save_as":
+                    show_scene_path(saving: true);
+                    break;
                 case "menu_file_save":
                     save_document();
                     break;
@@ -352,13 +543,25 @@ namespace deren.editor {
                     apply_rename(rename_field);
                     break;
                 case "menu_window_outliner":
-                    toggle_panel("outliner", "block", ref outliner_shown);
+                    toggle_panel("outliner", "flex", ref outliner_shown);
                     break;
                 case "menu_window_details":
-                    toggle_panel("details", "flex", ref details_shown);
+                    toggle_panel("details", "block", ref details_shown);
                     break;
                 case "menu_window_browser":
                     toggle_panel("bottom_dock", "flex", ref dock_shown);
+                    break;
+                case "menu_window_sidebar_side":
+                    set_workspace_layout(layout with { sidebar_left = !layout.sidebar_left });
+                    break;
+                case "menu_window_dock_side":
+                    set_workspace_layout(layout with { dock_top = !layout.dock_top });
+                    break;
+                case "menu_window_panel_order":
+                    set_workspace_layout(layout with { details_first = !layout.details_first });
+                    break;
+                case "menu_window_reset_layout":
+                    set_workspace_layout(new workspace_layout());
                     break;
                 case "menu_help_about":
                     notice = "deren editor - managed scene editor for deren";
@@ -391,13 +594,67 @@ namespace deren.editor {
         private static readonly string[] menu_dropdown_ids =
             ["menu_file_items", "menu_edit_items", "menu_window_items", "menu_help_items"];
 
+        private void set_workspace_layout(workspace_layout value) {
+            active_splitter = string.Empty;
+            layout = value;
+            apply_workspace_layout();
+            save_workspace_layout();
+        }
+
+        private void apply_workspace_layout() {
+            if (ui == null) {
+                return;
+            }
+            ui.try_set_element_style("main", "flex-direction", layout.sidebar_left ? "row-reverse" : "row");
+            ui.try_set_element_style("left_area", "flex-direction", layout.dock_top ? "column-reverse" : "column");
+            ui.try_set_element_style("right_column", "flex-direction", layout.details_first ? "column-reverse" : "column");
+            set_panel_size("right_column", "width", layout.sidebar_width);
+            set_panel_size("bottom_dock", "height", layout.dock_height);
+            set_panel_size("outliner", "height", layout.outliner_height);
+            ui.set_text("menu_window_sidebar_side", layout.sidebar_left ? "Move Sidebar Right" : "Move Sidebar Left");
+            ui.set_text("menu_window_dock_side", layout.dock_top ? "Move Dock to Bottom" : "Move Dock to Top");
+            ui.set_text("menu_window_panel_order", layout.details_first ? "Place Outliner First" : "Place Details First");
+        }
+
+        private void save_workspace_layout() {
+            if (layout_path.Length != 0) {
+                layout.save(layout_path);
+            }
+        }
+
+        private void finish_split_drag() {
+            if (active_splitter.Length != 0) {
+                active_splitter = string.Empty;
+                save_workspace_layout();
+            }
+        }
+
+        private void set_panel_size(string id, string property, float size) =>
+            ui?.try_set_element_style(id, property, string.Create(CultureInfo.InvariantCulture, $"{size:0.#}dp"));
+
         /// <summary>Shows or hides a panel from the Window menu without leaving its layout space behind.</summary>
         private void toggle_panel(string id, string display, ref bool shown) {
             if (ui == null) {
                 return;
             }
             shown = !shown;
+            // `display` is the element's own display type from editor.rml (outliner: flex, details:
+            // block); restoring anything else silently changes its layout once it comes back.
             ui.try_set_element_style(id, "display", shown ? display : "none");
+            sync_splitter_visibility();
+        }
+
+        /// <summary>
+        /// A splitter only exists while both panels it separates are visible: a handle for a hidden
+        /// panel still grabs the pointer and resizes something the user cannot see.
+        /// </summary>
+        private void sync_splitter_visibility() {
+            if (ui == null) {
+                return;
+            }
+            var outliner_splitter = outliner_shown && details_shown;
+            ui.try_set_element_style("split_outliner", "display", outliner_splitter ? "block" : "none");
+            ui.try_set_element_style("split_bottom", "display", dock_shown ? "block" : "none");
         }
 
         /// <summary>Starts over with one empty root node; the activated tree is reused, never re-activated.</summary>
@@ -430,18 +687,76 @@ namespace deren.editor {
             return true;
         }
 
-        private bool resolve_new_scene(string choice) {
-            if (!pending_new_scene || choice is not ("unsaved_save" or "unsaved_discard" or "unsaved_cancel")) {
+        private bool resolve_unsaved(string choice) {
+            if ((!pending_new_scene && !pending_close && pending_open == null) ||
+                choice is not ("unsaved_save" or "unsaved_discard" or "unsaved_cancel")) {
                 return false;
             }
             if (choice == "unsaved_save" && !save_document()) {
                 ui?.set_text("unsaved_message", "Save failed. Your scene is unchanged. Retry, discard, or cancel.");
                 return false;
             }
+            var closing = pending_close;
+            var opening = pending_open;
+            pending_open = null;
             pending_new_scene = false;
+            pending_close = false;
             last_clicked_asset = string.Empty;
             ui?.try_set_element_style("unsaved_prompt", "display", "none");
-            return choice == "unsaved_cancel" || new_scene(discard_unsaved: true);
+            if (choice == "unsaved_cancel") {
+                // Cancel is a handled answer: nothing changes, and the caller reports the prompt resolved.
+                return true;
+            }
+            if (opening != null) {
+                return replace_scene(opening);
+            }
+            return closing ? window_control.try_close() : new_scene(discard_unsaved: true);
+        }
+
+        /// <summary>
+        /// The caption close button: a dirty scene asks the unsaved-changes question first, exactly like
+        /// New Scene; a clean one goes straight to the window's close request, and the app still decides
+        /// whether that ends the run.
+        /// </summary>
+        private void close_window() {
+            if (document?.dirty != true || tree == null) {
+                window_control.try_close();
+                return;
+            }
+            pending_close = true;
+            active_splitter = string.Empty;
+            close_menus();
+            ui?.set_text("unsaved_message", "Save your changes before closing?");
+            ui?.try_set_element_style("unsaved_prompt", "display", "flex");
+        }
+
+        /// <summary>
+        /// A press inside the caption strip (the menu bar's empty area, the brand block, the project
+        /// label) is the borderless replacement for the system title bar: the first press hands the move
+        /// loop to the system, a second press inside the double-click window toggles maximise. Clicks on
+        /// the menus and the window buttons resolve to their own ids, so they never reach here.
+        /// </summary>
+        private void handle_caption_press(string id) {
+            if (id is not ("menubar" or "brand" or "project_label")) {
+                caption_pressed = false;
+                return;
+            }
+            if (open_menu.Length != 0) {
+                close_menus();
+                caption_pressed = false;
+                return;
+            }
+            var now = Stopwatch.GetTimestamp();
+            var double_click = caption_pressed && now >= last_caption_press &&
+                Stopwatch.GetElapsedTime(last_caption_press, now).TotalSeconds <= 0.5;
+            caption_pressed = !double_click;
+            last_caption_press = now;
+            if (double_click) {
+                window_control.try_toggle_maximize();
+            } else {
+                // Blocks until the pointer button is released: the system owns the move loop.
+                window_control.try_begin_drag();
+            }
         }
 
         /// <summary>Toggles a node from the visibility glyph at the right of its outliner row.</summary>
@@ -525,7 +840,7 @@ namespace deren.editor {
             refresh_panels();
         }
 
-        private bool add_node(string? asset_id = null) {
+        private bool add_node(string? asset_id = null, vector_3? position = null) {
             if (document == null || tree == null) {
                 return false;
             }
@@ -533,6 +848,9 @@ namespace deren.editor {
                 ? document.find(selection_state.primary)
                 : null;
             var node = new document_node { name = asset_id ?? "node", asset = asset_id };
+            if (position is vector_3 placement) {
+                node.local.position = placement;
+            }
             var previous_selection = selection_state?.primary ?? Guid.Empty;
             var index = parent != null ? parent.children.Count : document.roots.Count;
             if (!insert_document_node(parent, index, node) || !create_subtree(parent, node)) {
@@ -608,13 +926,12 @@ namespace deren.editor {
             return true;
         }
 
-        private bool save_document() {
+        private bool save_document(string? destination = null) {
             if (document == null) {
                 return false;
             }
-            var path = string.IsNullOrEmpty(document.path)
-                ? Path.Combine(managed_bootstrap.project_directory, "scenes", default_scene_file)
-                : document.path!;
+            var path = destination ?? document.path ??
+                Path.Combine(managed_bootstrap.project_directory, "scenes", default_scene_file);
             try {
                 var directory = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(directory)) {
@@ -693,6 +1010,12 @@ namespace deren.editor {
                         node.name = trimmed;
                         changed = true;
                     }
+                    break;
+                }
+                case detail_field.script: {
+                    string? binding = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+                    changed = binding != node.script;
+                    node.script = binding;
                     break;
                 }
                 case detail_field.flags: {
@@ -794,6 +1117,7 @@ namespace deren.editor {
             node.local = snapshot.local;
             node.visible = snapshot.visible;
             node.flags = snapshot.flags;
+            node.script = snapshot.script;
             push_runtime(node);
             if (mark_dirty) {
                 mark_dirty_and_refresh();
@@ -807,12 +1131,14 @@ namespace deren.editor {
                 local = node.local;
                 visible = node.visible;
                 flags = node.flags;
+                script = node.script;
             }
 
             internal readonly string name;
             internal readonly transform_value local;
             internal readonly bool visible;
             internal readonly uint flags;
+            internal readonly string? script;
         }
 
         private void record_undo(string label, Action undo, Action redo) {
@@ -832,8 +1158,7 @@ namespace deren.editor {
                 parent.children.Insert(Math.Clamp(index, 0, parent.children.Count), node);
                 return true;
             }
-            // Roots only expose add_root: an undone root deletion is appended at the end.
-            document.add_root(node);
+            document.insert_root(index, node);
             return true;
         }
 
@@ -937,6 +1262,7 @@ namespace deren.editor {
                 viewport.width < 64.0f || viewport.height < 64.0f) {
                 return;
             }
+            viewport_height = viewport.height;
             var aspect = viewport.width / viewport.height;
             if (MathF.Abs(aspect - applied_aspect) < 0.0005f) {
                 return;
@@ -1003,17 +1329,17 @@ namespace deren.editor {
             string property;
             switch (active_splitter) {
                 case "split_right":
-                    size = drag_start_size - (input.x - drag_origin);
+                    size = drag_start_size + (input.x - drag_origin) * (layout.sidebar_left ? 1 : -1);
                     panel = "right_column";
                     property = "width";
                     break;
                 case "split_outliner":
-                    size = drag_start_size + (input.y - drag_origin);
+                    size = drag_start_size + (input.y - drag_origin) * (layout.details_first ? -1 : 1);
                     panel = "outliner";
                     property = "height";
                     break;
                 case "split_bottom":
-                    size = drag_start_size - (input.y - drag_origin);
+                    size = drag_start_size + (input.y - drag_origin) * (layout.dock_top ? 1 : -1);
                     panel = "bottom_dock";
                     property = "height";
                     break;
@@ -1021,7 +1347,12 @@ namespace deren.editor {
                     return;
             }
             size = Math.Clamp(size, drag_min_size, drag_max_size);
-            ui.try_set_element_style(panel, property, string.Create(CultureInfo.InvariantCulture, $"{size:0.#}dp"));
+            set_panel_size(panel, property, size);
+            layout = active_splitter switch {
+                "split_right" => layout with { sidebar_width = size },
+                "split_outliner" => layout with { outliner_height = size },
+                _ => layout with { dock_height = size },
+            };
         }
 
         /// <summary>Switches the bottom dock between the Content Browser and the Output Log.</summary>
@@ -1068,13 +1399,426 @@ namespace deren.editor {
             browser?.refresh(assets, browser_filter);
         }
 
+        private void layout_gizmo() {
+            if (ui == null || !ui.try_get_element_rect("viewport", out var viewport)) {
+                return;
+            }
+            var node = gizmo.dragging ?? document?.find(selection_state?.primary ?? Guid.Empty);
+            var parent_world = Matrix4x4.Identity;
+            for (var ancestor = node; ancestor != null; ) {
+                if (!ancestor.visible) {
+                    node = null;
+                    break;
+                }
+                locate_node(ancestor, out var parent, out _);
+                if (parent != null) {
+                    parent_world *= viewport_gizmo.local_matrix(parent.local);
+                }
+                ancestor = parent;
+            }
+            camera_projection.try_get_viewport_size(out var width, out var height);
+            var tool = active_tool switch {
+                "vp_move" => viewport_gizmo.gizmo_mode.move,
+                "vp_rotate" => viewport_gizmo.gizmo_mode.rotate,
+                "vp_scale" => viewport_gizmo.gizmo_mode.scale,
+                _ => viewport_gizmo.gizmo_mode.select,
+            };
+            gizmo.layout(ui, viewport, node, parent_world, tool, gizmo_local, width, height);
+        }
+
+        private bool handle_gizmo(rml_event input) {
+            if (gizmo.dragging is document_node node) {
+                if (input.type == rml_event_type.pointer_cancel) {
+                    finish_gizmo(cancel: true);
+                } else if (input.type == rml_event_type.pointer_up && input.button == 0) {
+                    finish_gizmo(cancel: false);
+                } else if (input.type == rml_event_type.pointer_move && ui != null &&
+                           ui.try_get_element_rect("viewport", out var area) && tree != null) {
+                    var value = gizmo.update(new Vector2(input.x - area.x, input.y - area.y));
+                    if (tree.try_set_transform(node.runtime, value)) {
+                        node.local = value;
+                        if (document != null && selection_state != null) {
+                            details?.refresh(document, selection_state, true);
+                        }
+                    }
+                }
+                return true;
+            }
+            if (input.type != rml_event_type.pointer_down || input.button != 0 || open_menu.Length != 0 ||
+                input.id is not ("viewport" or "viewport_image") || ui == null ||
+                !ui.try_get_element_rect("viewport", out var viewport)) {
+                return false;
+            }
+            if (!gizmo.begin(new Vector2(input.x - viewport.x, input.y - viewport.y))) {
+                return false;
+            }
+            viewport_press = null;
+            viewport_navigation.cancel_drag();
+            return true;
+        }
+
+        private void finish_gizmo(bool cancel) {
+            if (gizmo.dragging is not document_node node) {
+                return;
+            }
+            var before = gizmo.original;
+            var after = node.local;
+            string label = gizmo.active_tool.ToString();
+            gizmo.end();
+            if (!cancel && !before.Equals(after)) {
+                document?.mark_dirty();
+                record_undo(label,
+                    () => { apply_gizmo_transform(node, before); mark_dirty_and_refresh(); },
+                    () => { apply_gizmo_transform(node, after); mark_dirty_and_refresh(); });
+            } else if (cancel && !before.Equals(after)) {
+                apply_gizmo_transform(node, before);
+            }
+            refresh_panels(force_details: true);
+        }
+
+        private void apply_gizmo_transform(document_node node, transform_value value) {
+            if (tree?.try_set_transform(node.runtime, value) == true) {
+                node.local = value;
+            }
+        }
+
+        private void show_scene_path(bool saving) {
+            scene_path_open = true;
+            scene_path_saving = saving;
+            overwrite_path = null;
+            scene_path_text = saving ? document?.path ?? default_scene_file : string.Empty;
+            ui?.set_value("scene_path", scene_path_text);
+            ui?.set_text("scene_path_title", saving ? "Save Scene As" : "Open Scene");
+            ui?.set_text("scene_path_accept", saving ? "Save As" : "Open");
+            ui?.set_text("scene_path_message", "Enter a path relative to the project's scenes folder, or an absolute path.");
+            ui?.try_set_element_style("scene_path_prompt", "display", "flex");
+        }
+
+        private void hide_scene_path() {
+            scene_path_open = false;
+            ui?.try_set_element_style("scene_path_prompt", "display", "none");
+        }
+
+        private void handle_scene_path(string id) {
+            if (id == "scene_path_cancel") {
+                hide_scene_path();
+                return;
+            }
+            if (id != "scene_path_accept") {
+                return;
+            }
+            string path;
+            try {
+                var text = scene_path_text.Trim().Trim('"');
+                if (text.Length == 0) {
+                    ui?.set_text("scene_path_message", "Enter a scene path.");
+                    return;
+                }
+                if (scene_path_saving && !text.EndsWith(".scene.toml", StringComparison.OrdinalIgnoreCase)) {
+                    text += ".scene.toml";
+                }
+                path = Path.GetFullPath(text, Path.Combine(managed_bootstrap.project_directory, "scenes"));
+            } catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException) {
+                ui?.set_text("scene_path_message", error.Message);
+                return;
+            }
+            if (!scene_path_saving) {
+                if (!document_io.try_load(path, out var loaded, out var error) || loaded == null) {
+                    ui?.set_text("scene_path_message", error ?? "Could not open scene.");
+                    return;
+                }
+                hide_scene_path();
+                if (document?.dirty == true) {
+                    pending_open = loaded;
+                    ui?.set_text("unsaved_message", "Save your changes before opening another scene?");
+                    ui?.try_set_element_style("unsaved_prompt", "display", "flex");
+                } else {
+                    replace_scene(loaded);
+                }
+            } else if (File.Exists(path) && overwrite_path != path) {
+                overwrite_path = path;
+                ui?.set_text("scene_path_message", "A file already exists here. Choose Replace to overwrite it.");
+                ui?.set_text("scene_path_accept", "Replace");
+            } else if (save_document(path)) {
+                hide_scene_path();
+            } else {
+                ui?.set_text("scene_path_message", "Could not save the scene. Check the path and try again.");
+            }
+        }
+
+        private bool replace_scene(scene_document next) {
+            if (document == null || tree == null) {
+                return false;
+            }
+            var old = document;
+            document = next;
+            foreach (var root in next.roots) {
+                if (create_subtree(null, root)) {
+                    continue;
+                }
+                foreach (var created in next.roots) {
+                    if (created.runtime.is_valid) { destroy_runtime(created); }
+                }
+                document = old;
+                notice = "Could not open scene: " + next.name;
+                refresh_panels(force_details: true);
+                return false;
+            }
+            foreach (var root in old.roots) {
+                if (destroy_runtime(root)) {
+                    continue;
+                }
+                foreach (var created in next.roots) { destroy_runtime(created); }
+                document = old;
+                foreach (var missing in old.roots) {
+                    if (!missing.runtime.is_valid) { create_subtree(null, missing); }
+                }
+                notice = "Could not replace the current scene";
+                refresh_panels(force_details: true);
+                return false;
+            }
+            if (next.path != null && document_io.try_serialize(next, out var loaded_content, out _)) {
+                next.mark_saved(next.path, loaded_content);
+            }
+            selection_state?.clear();
+            undo_history?.clear();
+            browser?.clear_selection();
+            refresh_browser();
+            notice = "Opened: " + next.name;
+            refresh_panels(force_details: true);
+            return true;
+        }
+
+        private void cycle_pipeline() {
+            var node = document?.find(selection_state?.primary ?? Guid.Empty);
+            if (node?.asset == null || tree == null || !asset_manager.try_load(node.asset, out var asset)) {
+                return;
+            }
+            try {
+                var pipelines = asset_manager.supported_pipelines(asset);
+                if (pipelines.Length < 2) {
+                    return;
+                }
+                var before = node.pipeline ?? pipelines[0];
+                string pipeline = pipelines[(Array.IndexOf(pipelines, node.pipeline) + 1) % pipelines.Length];
+                if (!tree.try_set_pipeline(node.runtime, pipeline)) {
+                    return;
+                }
+                node.pipeline = pipeline;
+                document?.mark_dirty();
+                record_undo("Set Pipeline", () => restore_pipeline(node, before), () => restore_pipeline(node, pipeline));
+                refresh_panels(force_details: true);
+            } finally {
+                asset_manager.release(asset);
+            }
+        }
+
+        private void restore_pipeline(document_node node, string pipeline) {
+            if (tree?.try_set_pipeline(node.runtime, pipeline) == true) {
+                node.pipeline = pipeline;
+                mark_dirty_and_refresh();
+            }
+        }
+
+        private bool handle_asset_drag(rml_event input) {
+            var pointer = new Vector2(input.x, input.y);
+            if (input.type == rml_event_type.pointer_down && input.button == 0 &&
+                input.id.StartsWith("asset_", StringComparison.Ordinal)) {
+                var digits = input.id.AsSpan("asset_".Length);
+                int suffix = digits.IndexOf('_');
+                if (suffix >= 0) { digits = digits[..suffix]; }
+                if (int.TryParse(digits, out var tile) && browser?.try_tile_asset(tile, out var asset) == true) {
+                    asset_drag = (asset, pointer);
+                }
+            } else if (input.type == rml_event_type.pointer_cancel) {
+                asset_drag = null;
+            } else if (input.type == rml_event_type.pointer_up && input.button == 0 && asset_drag is { } drag) {
+                asset_drag = null;
+                if (Vector2.DistanceSquared(drag.press, pointer) <= 16 ||
+                    input.id is not ("viewport" or "viewport_image") ||
+                    !try_viewport_ray(pointer, out var origin, out var direction)) {
+                    return false;
+                }
+                // Drop onto the scene's Y=0 construction plane. A parallel or upward ray uses the orbit depth.
+                float distance = MathF.Abs(direction.y) > 0.0001f ? -origin.y / direction.y : -1;
+                float orbit_distance = orbit_camera.try_get(out var pose) ? pose.distance : 3;
+                if (distance <= 0 || distance > orbit_distance * 4 || !float.IsFinite(distance)) {
+                    distance = orbit_distance;
+                }
+                add_node(drag.asset, new vector_3 {
+                    x = origin.x + direction.x * distance,
+                    y = origin.y + direction.y * distance,
+                    z = origin.z + direction.z * distance,
+                });
+                last_clicked_asset = string.Empty;
+                return true;
+            }
+            return false;
+        }
+
+        private bool test_viewport_transform(document_node node) {
+            if (ui == null || undo_history == null || !ui.try_get_element_rect("viewport", out var area)) {
+                return false;
+            }
+            var before = node.local;
+            foreach (var tool in new[] { "vp_move", "vp_rotate", "vp_scale" }) {
+                set_active_tool(tool);
+                layout_gizmo();
+                if (!gizmo.try_handle(0, out var from, out var direction)) {
+                    return false;
+                }
+                from += new Vector2(area.x, area.y);
+                if (tool == "vp_rotate") {
+                    direction = new Vector2(-direction.Y, direction.X);
+                }
+                var to = from + direction * 24;
+                var down = new rml_event(rml_event_type.pointer_down, "viewport_image", "", from.X, from.Y);
+                var move = new rml_event(rml_event_type.pointer_move, "viewport_image", "", to.X, to.Y);
+                if (!handle_gizmo(down) || !handle_gizmo(move) || before.Equals(node.local)) {
+                    return false;
+                }
+                var changed = node.local;
+                handle_gizmo(new rml_event(rml_event_type.pointer_cancel, "", ""));
+                if (!before.Equals(node.local) || !handle_gizmo(down) || !handle_gizmo(move)) {
+                    return false;
+                }
+                handle_gizmo(new rml_event(rml_event_type.pointer_up, "viewport_image", "", to.X, to.Y));
+                if (!undo_history.try_undo() || !before.Equals(node.local) ||
+                    !undo_history.try_redo() || !changed.Equals(node.local) ||
+                    !undo_history.try_undo() || !before.Equals(node.local)) {
+                    return false;
+                }
+            }
+            set_active_tool(tool_select_id);
+            return true;
+        }
+
+        private void handle_viewport_selection(rml_event input) {
+            const float click_slop = 4.0f;
+            bool over_viewport = input.id is "viewport" or "viewport_image";
+            var pointer = new Vector2(input.x, input.y);
+            switch (input.type) {
+                case rml_event_type.pointer_down:
+                    viewport_press = input.button == 0 && over_viewport && open_menu.Length == 0 ? pointer : null;
+                    break;
+                case rml_event_type.pointer_move:
+                    if (viewport_press is Vector2 start &&
+                        Vector2.DistanceSquared(start, pointer) > click_slop * click_slop) {
+                        viewport_press = null;
+                    }
+                    break;
+                case rml_event_type.pointer_up when input.button == 0:
+                    bool is_click = over_viewport && viewport_press is Vector2 press &&
+                        Vector2.DistanceSquared(press, pointer) <= click_slop * click_slop;
+                    viewport_press = null;
+                    if (is_click) {
+                        pick_viewport(pointer);
+                    }
+                    break;
+                case rml_event_type.pointer_cancel:
+                case rml_event_type.pointer_wheel:
+                    viewport_press = null;
+                    break;
+            }
+        }
+
+        private bool try_viewport_ray(Vector2 pointer, out vector_3 origin, out vector_3 direction) {
+            origin = default;
+            direction = default;
+            if (ui == null ||
+                !ui.try_get_element_rect("viewport", out var viewport) || viewport.width <= 0 || viewport.height <= 0 ||
+                !camera_projection.try_get_viewport_size(out var width, out var height)) {
+                return false;
+            }
+            float u = (pointer.X - viewport.x) / viewport.width;
+            float v = (pointer.Y - viewport.y) / viewport.height;
+            return u >= 0 && u < 1 && v >= 0 && v < 1 &&
+                camera_projection.try_screen_ray(u * width, v * height, out origin, out direction);
+        }
+
+        private void pick_viewport(Vector2 pointer) {
+            if (tree == null || document == null || selection_state == null ||
+                !try_viewport_ray(pointer, out var origin, out var direction) ||
+                !tree.try_pick_node(origin, direction, out var hit)) {
+                return;
+            }
+            var node = document.find_runtime(hit);
+            if (node == null) {
+                selection_state.clear();
+            } else {
+                selection_state.select(node.uid);
+            }
+            last_clicked_asset = string.Empty;
+            notice = string.Empty;
+            refresh_panels();
+        }
+
+        private bool focus_selection() {
+            var node = selection_state == null ? null : document?.find(selection_state.primary);
+            if (tree == null || node == null || !viewport_navigation.focus(tree, node.runtime, applied_aspect)) {
+                notice = "Select a scene node to focus";
+                return false;
+            }
+            notice = $"Focused: {node.name}";
+            return true;
+        }
+
+        private void toggle_play() {
+            if (playing == null || ui == null || document == null) {
+                return;
+            }
+            if (playing.running) {
+                playing.stop();
+                ui.set_text("btn_play", "Stopping...");
+                return;
+            }
+            if (orbit_camera.try_get(out var camera) && playing.start(document, camera, out notice)) {
+                ui.set_text("btn_play", "Stop");
+            }
+        }
+
+        private script_status update_play(frame_info* frame) {
+            try {
+                long now = Stopwatch.GetTimestamp();
+                if (Stopwatch.GetElapsedTime(last_play_stop_check, now).TotalMilliseconds >= 100) {
+                    last_play_stop_check = now;
+                    if (File.Exists(play_stop_marker)) {
+                        window_control.try_close();
+                        return script_status.success;
+                    }
+                }
+                if (behaviours == null && document != null) {
+                    behaviours = new play_behaviours(Path.Combine(managed_bootstrap.project_directory, "scripts"));
+                    behaviours.attach_nodes(document.roots, frame->scene);
+                    if (animation_player.try_get_info(out _)) {
+                        animation_player.try_play();
+                    }
+                }
+                behaviours?.update(frame->delta_time);
+                return script_status.success;
+            } catch (Exception error) {
+                host_logger.write($"Editor play: {error.GetBaseException().Message}");
+                return script_status.script_failure;
+            }
+        }
+
         private void cleanup() {
+            behaviours?.Dispose();
+            behaviours = null;
+            playing?.Dispose();
+            playing = null;
+            if (camera_input_installed) {
+                input_events.try_set_callback(null);
+                camera_input_installed = false;
+            }
             ui?.Dispose();
             ui = null;
             outliner = null;
             details = null;
             status_line = null;
             browser = null;
+            thumbnails?.Dispose();
+            thumbnails = null;
             assets = [];
             undo_history?.clear();
             undo_history = null;
@@ -1238,18 +1982,18 @@ namespace deren.editor {
                 if (new_scene() || !pending_new_scene || !ReferenceEquals(document, unsaved_document)) {
                     return selftest_failure("New Scene discarded unsaved work without confirmation");
                 }
-                if (!resolve_new_scene("unsaved_cancel") || pending_new_scene ||
+                if (!resolve_unsaved("unsaved_cancel") || pending_new_scene ||
                     !ReferenceEquals(document, unsaved_document) || undo_history?.next_undo_label != undo_label) {
                     return selftest_failure("Cancel did not preserve the document and undo history");
                 }
                 document.path = Path.Combine(path, "blocked.scene.toml");
                 new_scene();
-                if (resolve_new_scene("unsaved_save") || !pending_new_scene ||
+                if (resolve_unsaved("unsaved_save") || !pending_new_scene ||
                     !ReferenceEquals(document, unsaved_document)) {
                     return selftest_failure("a failed save discarded the document");
                 }
                 document.path = path;
-                if (!resolve_new_scene("unsaved_save") || pending_new_scene ||
+                if (!resolve_unsaved("unsaved_save") || pending_new_scene ||
                     ReferenceEquals(document, unsaved_document) || undo_history?.can_undo == true ||
                     !document_io.try_load(path, out var saved_before_new, out _) || saved_before_new == null ||
                     !same_document(unsaved_document, saved_before_new, out _)) {
@@ -1257,11 +2001,27 @@ namespace deren.editor {
                 }
                 var discarded_document = document;
                 new_scene();
-                if (!pending_new_scene || !resolve_new_scene("unsaved_discard") || pending_new_scene ||
+                if (!pending_new_scene || !resolve_unsaved("unsaved_discard") || pending_new_scene ||
                     ReferenceEquals(document, discarded_document)) {
                     return selftest_failure("Discard did not create a new scene after confirmation");
                 }
                 host_logger.write("Editor selftest: unsaved confirmation save/failure/discard/cancel");
+
+                // The caption close button must ask the same question: a dirty document gets the prompt,
+                // and cancelling it leaves the document open. The window itself is only asked to close
+                // after an explicit save/discard, which is why this test cancels.
+                var close_document = document;
+                var close_undo_label = undo_history?.next_undo_label;
+                document.mark_dirty();
+                close_window();
+                if (!pending_close || !ReferenceEquals(document, close_document)) {
+                    return selftest_failure("the close button skipped the unsaved prompt");
+                }
+                if (!resolve_unsaved("unsaved_cancel") || pending_close ||
+                    !ReferenceEquals(document, close_document) || undo_history?.next_undo_label != close_undo_label) {
+                    return selftest_failure("cancelling the close prompt did not keep the document");
+                }
+                host_logger.write("Editor selftest: close confirmation");
                 selection_state.select(document.roots[0].uid);
                 refresh_panels(force_details: true);
                 host_logger.write("Editor selftest: passed");
@@ -1285,6 +2045,7 @@ namespace deren.editor {
                 if (Array.IndexOf(assets, runtime_selftest_asset) < 0) {
                     host_logger.write($"Editor selftest: runtime asset test skipped (no {runtime_selftest_asset} fixture)");
                     asset_selftest_phase = 0;
+                    panel_selftest_phase = 1;
                     return script_status.success;
                 }
                 browser_filter = runtime_selftest_asset;
@@ -1305,6 +2066,66 @@ namespace deren.editor {
                 selftest_asset_uid = added.uid;
                 host_logger.write($"Editor selftest: runtime double click loaded and selected {runtime_selftest_asset}");
             } else if (asset_selftest_phase == 2) {
+                update_viewport_aspect();
+                if (!focus_selection() || !orbit_camera.try_get(out var framed) ||
+                    !tree.try_get_bounds(document.find(selftest_asset_uid)!.runtime, out var center, out var radius) ||
+                    radius <= 0 || framed.target.y != center.y || framed.distance <= radius) {
+                    return selftest_failure("viewport focus did not frame the asset bounds");
+                }
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_down, "viewport_image", "", 10, 10, 1), viewport_height);
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_move, "details", "", 30, 20), viewport_height);
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_cancel, "", ""), viewport_height);
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_move, "viewport", "", 60, 40), viewport_height);
+                if (!orbit_camera.try_get(out var orbited) || MathF.Abs(orbited.yaw_degrees - framed.yaw_degrees - 5.6f) > 0.01f) {
+                    return selftest_failure("viewport orbit or drag cancellation failed");
+                }
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_down, "viewport", "", 10, 10, 2), viewport_height);
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_move, "viewport", "", 20, 20), viewport_height);
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_up, "viewport", "", 20, 20, 2), viewport_height);
+                viewport_navigation.handle_pointer(new(rml_event_type.pointer_wheel, "viewport", "", 1), viewport_height);
+                if (!orbit_camera.try_get(out var moved) || moved.target.y <= orbited.target.y || moved.distance >= orbited.distance) {
+                    return selftest_failure("viewport pan or zoom failed");
+                }
+                focus_selection();
+                host_logger.write("Editor selftest: viewport focus, orbit, pan, zoom and cancel passed");
+                if (ui == null || !ui.try_get_element_rect("viewport", out var viewport)) {
+                    return selftest_failure("viewport layout was unavailable for picking");
+                }
+                float x = viewport.x + viewport.width * 0.5f;
+                float y = viewport.y + viewport.height * 0.5f;
+                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", x, y));
+                handle_viewport_selection(new(rml_event_type.pointer_move, "viewport_image", "", x + 12, y));
+                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", x, y));
+                if (selection_state?.primary != selftest_asset_uid) {
+                    return selftest_failure("a viewport drag changed the selection");
+                }
+                float empty_x = viewport.x + 2, empty_y = viewport.y + 2;
+                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", empty_x, empty_y));
+                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", empty_x, empty_y));
+                if (selection_state?.primary != Guid.Empty) {
+                    return selftest_failure("clicking empty viewport did not clear selection");
+                }
+                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", x, y));
+                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", x, y));
+                if (selection_state?.primary != selftest_asset_uid) {
+                    return selftest_failure("clicking the framed asset did not select it");
+                }
+                var picked_runtime = document.find(selftest_asset_uid)!.runtime;
+                if (!tree.try_set_visible(picked_runtime, false)) {
+                    return selftest_failure("could not hide the pickable asset");
+                }
+                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", x, y));
+                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", x, y));
+                if (selection_state?.primary != Guid.Empty || !tree.try_set_visible(picked_runtime, true)) {
+                    return selftest_failure("a hidden asset was picked or could not be revealed");
+                }
+                selection_state.select(selftest_asset_uid);
+                host_logger.write("Editor selftest: viewport picking, visibility and deselection passed");
+                if (!test_viewport_transform(document.find(selftest_asset_uid)!)) {
+                    return selftest_failure("gizmo drag, cancel, undo or redo failed");
+                }
+                host_logger.write("Editor selftest: transform gizmo passed");
+
                 if (animation_player.try_get_info(out var animation) && (animation.playing || animation.time != 0)) {
                     return selftest_failure("an imported animation started playing in the editor");
                 }
@@ -1343,16 +2164,215 @@ namespace deren.editor {
                     document.mark_dirty();
                     File.Delete(path);
                 }
+                if (runtime_selftest_asset == "laevatain" &&
+                    Array.IndexOf(assets, "damaged-helmet") >= 0 && Array.IndexOf(assets, "flowers") >= 0 &&
+                    !test_mixed_scene()) {
+                    return selftest_failure("mixed scene drag/drop, save point or reopening failed");
+                }
                 browser_filter = string.Empty;
                 notice = "Asset loading self-test passed";
                 refresh_browser();
                 refresh_panels(force_details: true);
                 asset_selftest_phase = 0;
+                panel_selftest_phase = 1;
                 host_logger.write("Editor selftest: runtime asset rollback/save passed");
                 return script_status.success;
             }
             ++asset_selftest_phase;
             return script_status.success;
+        }
+
+        private bool test_mixed_scene() {
+            if (document == null || selection_state == null || undo_history == null || browser == null ||
+                ui == null || !ui.try_get_element_rect("viewport", out var area)) {
+                host_logger.write("Editor mixed selftest: layout unavailable");
+                return false;
+            }
+            browser_filter = string.Empty;
+            refresh_browser();
+            var ids = new[] { "damaged-helmet", "flowers" };
+            for (int i = 0; i < ids.Length; ++i) {
+                int tile = 0;
+                while (browser.try_tile_asset(tile, out var id) && id != ids[i]) { ++tile; }
+                if (!browser.try_tile_asset(tile, out _)) {
+                    host_logger.write("Editor mixed selftest: missing asset tile");
+                    return false;
+                }
+                handle_asset_drag(new(rml_event_type.pointer_down, $"asset_{tile}", "", area.x, area.y + area.height + 24));
+                if (!handle_asset_drag(new(rml_event_type.pointer_up, "viewport_image", "",
+                        area.x + area.width * (i == 0 ? 0.25f : 0.75f), area.y + area.height * 0.55f)) ||
+                    document.find(selection_state.primary) is not { } placed || placed.asset != ids[i] ||
+                    !placed.runtime.is_valid || placed.local.position.Equals(default(vector_3))) {
+                    host_logger.write("Editor mixed selftest: drop did not place the asset");
+                    return false;
+                }
+            }
+
+            var character = document.find(selftest_asset_uid)!;
+            selection_state.select(character.uid);
+            string? original_pipeline = character.pipeline;
+            cycle_pipeline();
+            if (character.pipeline == original_pipeline || !undo_history.try_undo() ||
+                character.pipeline != original_pipeline) {
+                host_logger.write("Editor mixed selftest: pipeline edit or undo failed");
+                return false;
+            }
+
+            var path = Path.Combine(managed_bootstrap.project_directory, "captures", $"mixed-selftest-{Guid.NewGuid():N}.scene.toml");
+            var original = document;
+            try {
+                show_scene_path(saving: true);
+                scene_path_text = path;
+                handle_scene_path("scene_path_accept");
+                if (scene_path_open || original.dirty || original.path != path) {
+                    host_logger.write("Editor mixed selftest: Save As did not advance the save point");
+                    return false;
+                }
+                if (!toggle_selected_visibility() || !original.dirty ||
+                    !undo_history.try_undo() || original.dirty ||
+                    !undo_history.try_redo() || !original.dirty || !undo_history.try_undo() || original.dirty) {
+                    host_logger.write("Editor mixed selftest: visibility undo/redo did not track the save point");
+                    return false;
+                }
+                if (!delete_selected() || !original.dirty || !undo_history.try_undo() || original.dirty) {
+                    host_logger.write("Editor mixed selftest: delete undo did not return to the save point");
+                    return false;
+                }
+                selection_state.select(character.uid);
+                if (!toggle_selected_visibility() || !original.dirty) {
+                    host_logger.write("Editor mixed selftest: visibility edit did not mark the scene dirty");
+                    return false;
+                }
+                show_scene_path(saving: false);
+                scene_path_text = path;
+                handle_scene_path("scene_path_accept");
+                if (pending_open == null || !resolve_unsaved("unsaved_cancel") || !ReferenceEquals(original, document) ||
+                    !original.dirty || !undo_history.try_undo() || original.dirty) {
+                    host_logger.write("Editor mixed selftest: Open cancellation did not preserve the draft");
+                    return false;
+                }
+                show_scene_path(saving: false);
+                scene_path_text = path;
+                handle_scene_path("scene_path_accept");
+                if (scene_path_open || ReferenceEquals(original, document) || document == null || document.dirty ||
+                    !same_document(original, document, out _) || undo_history.can_undo) {
+                    host_logger.write("Editor mixed selftest: reopened scene did not match saved scene");
+                    return false;
+                }
+                foreach (var node in document.roots) {
+                    if (!node.runtime.is_valid) {
+                        host_logger.write("Editor mixed selftest: reopened runtime node is missing");
+                        return false;
+                    }
+                }
+            } finally {
+                File.Delete(path);
+                if (document?.path == path) { document.path = null; }
+            }
+            var loaded_character = document?.find(selftest_asset_uid);
+            if (loaded_character == null) {
+                host_logger.write("Editor mixed selftest: reopened character missing");
+                return false;
+            }
+            selection_state.select(loaded_character.uid);
+            set_active_tool("vp_move");
+            focus_selection();
+            host_logger.write("Editor selftest: mixed scene drag/drop, pipeline, save point and reopening passed");
+            return true;
+        }
+
+        // Window-menu visibility must restore the element's own display type (the outliner is a flex
+        // column, the details a block) and hide the splitter of a hidden panel: restoring the wrong
+        // one collapses the outliner rows and lays the details out sideways, and a splitter left over
+        // a hidden panel still moves it. Runs over several frames because a display change only
+        // reaches the element boxes on the next layout pass.
+        private script_status run_panel_selftest() {
+            if (ui == null) {
+                return selftest_failure("panel visibility test has no document");
+            }
+            switch (panel_selftest_phase) {
+                case 1:
+                    if (!ui.try_get_element_rect("outliner_rows", out var rows) ||
+                        !ui.try_get_element_rect("details_title", out var title) ||
+                        !ui.try_get_element_rect("details", out var details)) {
+                        return selftest_failure("panel visibility test cannot measure the layout");
+                    }
+                    panel_rows_height = rows.height;
+                    panel_title_width = title.width;
+                    panel_details_y = details.y;
+                    // Go through the menu handler, not toggle_panel directly: the regression was the
+                    // display string the Window menu restores, which a direct call would bypass.
+                    handle_menu_click("menu_window_outliner");
+                    panel_selftest_phase = 2;
+                    return script_status.success;
+                case 3:
+                    if (!ui.try_get_element_rect("details", out var hidden) ||
+                        hidden.y > panel_details_y - 100.0f) {
+                        return selftest_failure("a hidden panel left its layout space reserved");
+                    }
+                    handle_menu_click("menu_window_outliner");
+                    panel_selftest_phase = 4;
+                    return script_status.success;
+                case 5:
+                    if (!ui.try_get_element_rect("outliner_rows", out var restored_rows) ||
+                        !ui.try_get_element_rect("details", out var restored_details) ||
+                        MathF.Abs(restored_rows.height - panel_rows_height) > 1.0f ||
+                        MathF.Abs(restored_details.y - panel_details_y) > 1.0f) {
+                        return selftest_failure("re-showing the outliner did not restore its layout");
+                    }
+                    handle_menu_click("menu_window_details");
+                    panel_selftest_phase = 6;
+                    return script_status.success;
+                case 7:
+                    handle_menu_click("menu_window_details");
+                    panel_selftest_phase = 8;
+                    return script_status.success;
+                case 9:
+                    if (!ui.try_get_element_rect("details_title", out var revealed) ||
+                        MathF.Abs(revealed.width - panel_title_width) > 1.0f) {
+                        return selftest_failure("re-showing the details did not restore its layout");
+                    }
+                    handle_menu_click("menu_window_sidebar_side");
+                    handle_menu_click("menu_window_dock_side");
+                    handle_menu_click("menu_window_panel_order");
+                    panel_selftest_phase = 10;
+                    return script_status.success;
+                case 11:
+                    if (!ui.try_get_element_rect("right_column", out var sidebar) ||
+                        !ui.try_get_element_rect("viewport", out var viewport) ||
+                        !ui.try_get_element_rect("bottom_dock", out var dock) ||
+                        !ui.try_get_element_rect("outliner", out var outliner_area) ||
+                        !ui.try_get_element_rect("details", out var details_area) ||
+                        sidebar.x >= viewport.x || dock.y >= viewport.y || details_area.y >= outliner_area.y) {
+                        return selftest_failure("the rearranged workspace did not move all three panels");
+                    }
+                    begin_split_drag(new(rml_event_type.pointer_down, "split_right", "", sidebar.x + sidebar.width, sidebar.y));
+                    update_split_drag(new(rml_event_type.pointer_move, "split_right", "", sidebar.x + sidebar.width + 20, sidebar.y));
+                    finish_split_drag();
+                    panel_selftest_phase = 12;
+                    return script_status.success;
+                case 13:
+                    if (!ui.try_get_element_rect("right_column", out var widened) || MathF.Abs(widened.width - 370) > 1) {
+                        return selftest_failure("the left sidebar splitter did not widen to the right");
+                    }
+                    handle_menu_click("menu_window_reset_layout");
+                    panel_selftest_phase = 14;
+                    return script_status.success;
+                case 15:
+                    if (!ui.try_get_element_rect("right_column", out var reset) ||
+                        !ui.try_get_element_rect("viewport", out var reset_viewport) ||
+                        MathF.Abs(reset.width - 350) > 1 || reset.x <= reset_viewport.x) {
+                        return selftest_failure("Reset Layout did not restore the right sidebar");
+                    }
+                    panel_selftest_phase = 0;
+                    notice = "Panel self-test passed";
+                    host_logger.write("Editor selftest: panel visibility, rearrangement and reset passed");
+                    return script_status.success;
+                default:
+                    // Even phases are the frames that let a display change reach the element boxes.
+                    ++panel_selftest_phase;
+                    return script_status.success;
+            }
         }
 
         private static script_status selftest_failure(string message) {
@@ -1378,6 +2398,11 @@ namespace deren.editor {
                 }
                 if (before.name != after.name) {
                     mismatch = $"node '{before.name}' reloaded as '{after.name}'";
+                    return false;
+                }
+                if (before.asset != after.asset || before.pipeline != after.pipeline || before.script != after.script ||
+                    before.visible != after.visible || before.flags != after.flags) {
+                    mismatch = $"node '{before.name}' properties changed on reload";
                     return false;
                 }
                 if (!same_transform(before.local, after.local)) {

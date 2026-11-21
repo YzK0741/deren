@@ -30,6 +30,7 @@ internal sealed class scene_document
     /// True while the document has edits that are not saved.
     /// </summary>
     internal bool dirty { get; private set; }
+    private string? saved_content;
 
     /// <summary>
     /// The root nodes in outliner order.
@@ -49,15 +50,17 @@ internal sealed class scene_document
     /// </summary>
     internal void mark_dirty()
     {
-        this.dirty = true;
+        this.dirty = this.saved_content == null ||
+            !document_io.try_serialize(this, out var current, out _) || current != this.saved_content;
     }
 
     /// <summary>
     /// Records that the document was just written to <paramref name="path"/>.
     /// </summary>
-    internal void mark_saved(string path)
+    internal void mark_saved(string path, string content)
     {
         this.path = path;
+        this.saved_content = content;
         this.dirty = false;
     }
 
@@ -69,12 +72,36 @@ internal sealed class scene_document
         this.root_nodes.Add(node);
     }
 
+    internal void insert_root(int index, document_node node)
+    {
+        this.root_nodes.Insert(Math.Clamp(index, 0, this.root_nodes.Count), node);
+    }
+
     /// <summary>
     /// Removes a root node, returning false when it was not a root of this document.
     /// </summary>
     internal bool remove_root(document_node node)
     {
         return this.root_nodes.Remove(node);
+    }
+
+    internal document_node? find_runtime(node_id id)
+    {
+        return id.is_valid ? find_runtime_in(this.root_nodes, id) : null;
+    }
+
+    private static document_node? find_runtime_in(IReadOnlyList<document_node> nodes, node_id id)
+    {
+        foreach (var node in nodes) {
+            if (node.runtime.Equals(id)) {
+                return node;
+            }
+            var found = find_runtime_in(node.children, id);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     private static document_node? find_in(IReadOnlyList<document_node> nodes, Guid uid)

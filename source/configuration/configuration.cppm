@@ -122,6 +122,10 @@ namespace deren::app_config {
         std::int32_t window_width = 1080;
         std::int32_t window_height = 960;
         bool dark_window_frame = false;
+        // A captionless window whose title bar and window buttons belong to the application's UI
+        // ([render] borderless_window). The system still resizes and maximizes it; the editor draws
+        // its own menu bar in that space. Off by default: every other project keeps the system title.
+        bool borderless_window = false;
         deren::utility::vessel::string window_title = "deren";                       // GLFW window title
         bool vsync = true;                                                           // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                                        // 0 = uncapped; a positive value caps the render loop

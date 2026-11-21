@@ -4,6 +4,8 @@
    header #2f2f2f, input #0f0f0f and primary #0070e0. See UE StyleColors.cpp. */
 body { width: 100%; height: 100%; margin: 0; font-family: LatoLatin; font-size: 13dp; color: #c0c0c0; background-color: #151515; display: flex; flex-direction: column; }
 button { cursor: pointer; }
+input[type="text"] { color: #e0e0e0; line-height: 15dp; }
+input[type="text"]:placeholder-shown { color: #9a9fa5; }
 #menubar { box-sizing: border-box; display: flex; flex-direction: row; align-items: center; height: 30dp; flex-shrink: 0; padding: 0 12dp; background-color: #151515; border-bottom: 1dp #0f0f0f; }
 #brand { width: 76dp; color: #efefef; font-size: 16dp; letter-spacing: 1dp; pointer-events: none; }
 .menu { box-sizing: border-box; height: 26dp; padding: 0 12dp; font-size: 13dp; line-height: 26dp; color: #c0c0c0; border-radius: 3dp; }
@@ -20,9 +22,11 @@ button { cursor: pointer; }
 #toolbar #btn_new:hover { background-color: #2e714c; }
 #toolbar #btn_save { background-color: #0070e0; border-color: #0070e0; color: #ffffff; }
 #toolbar #btn_save:hover { background-color: #0e86ff; }
+#toolbar #btn_play { background-color: #22573a; border-color: #35734e; color: #d6f0df; }
+#toolbar #btn_play:hover { background-color: #2e714c; }
 #toolbar #btn_delete:hover { background-color: #673735; border-color: #9e4d49; }
 .toolbar_separator { width: 1dp; height: 24dp; margin: 0 12dp 0 6dp; background-color: #424242; }
-#rename_field { box-sizing: border-box; width: 200dp; height: 29dp; margin-right: 6dp; padding: 0 9dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; color: #e0e0e0; font-size: 13dp; }
+#rename_field { box-sizing: border-box; width: 200dp; height: 29dp; margin-right: 6dp; padding: 6dp 9dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; font-size: 13dp; }
 #toolbar_note { flex-grow: 1; text-align: right; font-size: 11dp; color: #787878; }
 #main { display: flex; flex-direction: row; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-height: 0; }
 #left_area { display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; flex-basis: 0; height: 100%; min-width: 0; }
@@ -31,8 +35,13 @@ button { cursor: pointer; }
 #viewport_toolbar button { box-sizing: border-box; height: 24dp; line-height: 22dp; margin-right: 3dp; padding: 0 11dp; background-color: #2a2a2a; border: 1dp #383838; border-radius: 3dp; color: #c0c0c0; font-size: 12dp; text-align: center; }
 #viewport_toolbar button:hover { background-color: #454545; color: #ffffff; }
 #viewport_mode { flex-grow: 1; font-size: 12dp; line-height: 30dp; text-align: right; color: #9b9b9b; }
-#viewport { display: flex; flex-direction: row; align-items: center; justify-content: center; flex-grow: 1; flex-shrink: 1; flex-basis: 0; overflow: hidden; background-color: #111111; }
+#viewport { position: relative; display: flex; flex-direction: row; align-items: center; justify-content: center; flex-grow: 1; flex-shrink: 1; flex-basis: 0; overflow: hidden; background-color: #111111; }
 #viewport_image { width: 100%; height: 100%; }
+.gizmo_axis { display: none; position: absolute; width: 58dp; height: 2dp; transform-origin: 0 50%; pointer-events: none; z-index: 2; }
+.gizmo_tip { position: absolute; right: 0; top: -3dp; width: 8dp; height: 8dp; border-radius: 2dp; pointer-events: none; }
+#gizmo_x, #gizmo_x .gizmo_tip { background-color: #ff6b69; }
+#gizmo_y, #gizmo_y .gizmo_tip { background-color: #78dc7d; }
+#gizmo_z, #gizmo_z .gizmo_tip { background-color: #6fb1ff; }
 .split_v { box-sizing: border-box; width: 5dp; height: 100%; background-color: #101010; cursor: e-resize; }
 .split_h { box-sizing: border-box; width: 100%; height: 5dp; flex-shrink: 0; background-color: #101010; cursor: n-resize; }
 .split_v:hover, .split_h:hover { background-color: #0070e0; }
@@ -45,7 +54,10 @@ button { cursor: pointer; }
 .dock_note { display: block; font-size: 13dp; color: #8c8c8c; }
 #browser_body { display: flex; flex-direction: column; height: 100%; }
 #browser_bar { display: flex; flex-direction: row; align-items: center; height: 28dp; flex-shrink: 0; margin-bottom: 12dp; }
-#browser_search { box-sizing: border-box; width: 280dp; height: 27dp; padding: 0 9dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; color: #e0e0e0; font-size: 12dp; }
+#browser_search { box-sizing: border-box; width: 280dp; height: 27dp; padding: 5dp 9dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; font-size: 12dp; }
+#browser_thumbnail { box-sizing: border-box; height: 27dp; margin-left: 8dp; padding: 0 10dp; line-height: 25dp; background-color: #303030; border: 1dp #414141; border-radius: 3dp; color: #d0d0d0; font-size: 12dp; }
+#browser_thumbnail:hover { background-color: #414141; color: #fff; }
+.asset_thumbnail { display: none; position: absolute; top: 4dp; left: 3dp; width: 112dp; height: 70dp; pointer-events: none; }
 #browser_count { flex-grow: 1; font-size: 12dp; line-height: 27dp; text-align: right; color: #929292; }
 #asset_grid { display: flex; flex-direction: row; flex-wrap: wrap; align-content: flex-start; flex-grow: 1; flex-shrink: 1; min-height: 0; flex-basis: 0; overflow: auto; }
 .browser_tile { box-sizing: border-box; width: 120dp; height: 124dp; margin: 0 10dp 10dp 0; background-color: #2d2d2d; border: 1dp #3c3c3c; border-bottom: 3dp #0070e0; border-radius: 3dp; cursor: pointer; }
@@ -59,7 +71,7 @@ button { cursor: pointer; }
 #outliner { box-sizing: border-box; display: flex; flex-direction: column; width: 100%; height: 254dp; flex-shrink: 0; overflow: hidden; background-color: #202020; }
 #outliner_header { box-sizing: border-box; display: flex; flex-direction: row; align-items: center; height: 34dp; flex-shrink: 0; padding: 0 11dp; font-size: 13dp; line-height: 34dp; color: #dedede; background-color: #2f2f2f; border-bottom: 1dp #101010; }
 #outliner_title { flex-grow: 1; }
-#outliner_search { box-sizing: border-box; width: 135dp; height: 23dp; padding: 0 7dp; background-color: #0f0f0f; border: 1dp #414141; border-radius: 3dp; color: #e0e0e0; font-size: 12dp; }
+#outliner_search { box-sizing: border-box; width: 135dp; height: 23dp; padding: 3dp 7dp; background-color: #0f0f0f; border: 1dp #414141; border-radius: 3dp; font-size: 12dp; }
 #outliner_columns { height: 24dp; flex-shrink: 0; padding: 0 12dp; font-size: 11dp; line-height: 24dp; color: #858585; background-color: #242424; border-bottom: 1dp #303030; pointer-events: none; }
 #outliner_rows { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-height: 0; overflow: auto; padding: 3dp 0; }
 .row { box-sizing: border-box; display: flex; flex-direction: row; align-items: center; height: 25dp; padding-left: 11dp; white-space: nowrap; border-bottom: 1dp #252525; }
@@ -74,8 +86,8 @@ button { cursor: pointer; }
 .detail_row { display: flex; flex-direction: row; align-items: center; box-sizing: border-box; height: 30dp; border-bottom: 1dp #2b2b2b; }
 .detail_label { box-sizing: border-box; width: 82dp; flex-shrink: 0; font-size: 12dp; line-height: 28dp; color: #a8a8a8; }
 .detail_text { box-sizing: border-box; flex-grow: 1; height: 23dp; font-size: 12dp; line-height: 23dp; padding: 0 7dp; color: #929292; background-color: #1a1a1a; border: 1dp #333333; border-radius: 2dp; white-space: nowrap; overflow: hidden; }
-#details input { box-sizing: border-box; flex-grow: 1; min-width: 0; height: 23dp; padding: 0 7dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 2dp; color: #dedede; font-size: 12dp; }
-#details .axis_input { width: 0; padding: 0 4dp; text-align: right; margin-right: 4dp; }
+#details input { box-sizing: border-box; flex-grow: 1; min-width: 0; height: 23dp; padding: 3dp 7dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 2dp; color: #dedede; font-size: 12dp; }
+#details .axis_input { width: 0; padding: 3dp 4dp; text-align: right; margin-right: 4dp; }
 .axis { width: 13dp; flex-shrink: 0; height: 23dp; font-size: 10dp; line-height: 23dp; text-align: center; color: #eeeeee; border-radius: 2dp; pointer-events: none; }
 .axis_x { background-color: #804444; }
 .axis_y { background-color: #4d7346; }
@@ -87,13 +99,33 @@ input:focus { border-color: #0070e0; }
 scrollbarvertical { width: 9dp; background-color: #191919; }
 scrollbarvertical sliderbar { background-color: #4b4b4b; border: 2dp #191919; border-radius: 4dp; }
 scrollbarvertical sliderbar:hover { background-color: #686868; }
-#unsaved_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; background-color: #000000b0; align-items: center; justify-content: center; }
-#unsaved_dialog { width: 440dp; padding: 24dp; background-color: #242424; border: 1dp #555555; border-radius: 5dp; }
-#unsaved_dialog h2 { display: block; margin: 0 0 16dp; color: #ededed; font-size: 20dp; }
-#unsaved_message { display: block; margin-bottom: 20dp; color: #bcbcbc; }
-#unsaved_dialog button { width: 112dp; height: 32dp; margin-right: 8dp; color: #dedede; background-color: #383838; border: 1dp #505050; border-radius: 3dp; text-align: center; }
-#unsaved_dialog button:hover { background-color: #505050; }
-#unsaved_dialog #unsaved_save { background-color: #0070e0; border-color: #0070e0; color: #ffffff; }
+#unsaved_prompt, #scene_path_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; background-color: #000000b0; align-items: center; justify-content: center; }
+#unsaved_dialog, #scene_path_dialog { box-sizing: border-box; width: 440dp; max-width: 94%; background-color: #242424; border: 1dp #4b4b4b; border-radius: 8dp; overflow: hidden; }
+#unsaved_body, #scene_path_body { display: block; padding: 22dp 24dp 22dp; }
+#unsaved_dialog h2, #scene_path_dialog h2 { display: block; margin: 0 0 8dp; color: #f0f0f0; font-size: 20dp; line-height: 26dp; }
+#unsaved_message, #scene_path_message { display: block; color: #bcbcbc; font-size: 13dp; line-height: 20dp; }
+#unsaved_actions, #scene_path_actions { display: flex; flex-direction: row; justify-content: flex-end; align-items: center; padding: 12dp 16dp; background-color: #1c1c1c; border-top: 1dp #363636; }
+#unsaved_actions button, #scene_path_actions button { display: block; box-sizing: border-box; width: 92dp; min-width: 0; height: 34dp; line-height: 32dp; margin-left: 8dp; padding: 0 8dp; color: #dedede; background-color: #303030; border: 1dp #484848; border-radius: 4dp; text-align: center; }
+#unsaved_actions button:hover, #unsaved_actions button:focus, #scene_path_actions button:hover, #scene_path_actions button:focus { background-color: #404040; border-color: #626262; color: #ffffff; }
+#unsaved_actions #unsaved_discard { color: #f0b5b0; }
+#unsaved_actions #unsaved_discard:hover, #unsaved_actions #unsaved_discard:focus { background-color: #522f2d; border-color: #90514d; }
+#unsaved_actions #unsaved_save, #scene_path_actions #scene_path_accept { background-color: #0070e0; border-color: #2088ed; color: #ffffff; }
+#unsaved_actions #unsaved_save:hover, #unsaved_actions #unsaved_save:focus, #scene_path_actions #scene_path_accept:hover, #scene_path_actions #scene_path_accept:focus { background-color: #0e82f2; border-color: #59abff; }
+#scene_path { display: block; box-sizing: border-box; width: 100%; height: 31dp; margin-top: 12dp; padding: 7dp 9dp; background-color: #101010; border: 1dp #4a4a4a; border-radius: 3dp; }
+#scene_path:focus { border-color: #0070e0; }
+#detail_pipeline { text-align: left; }
+#detail_pipeline:hover { border-color: #5a5a5a; }
+ /* Borderless window controls: the editor draws them because the project sets [render]
+   borderless_window - there is no system title bar to host them. The buttons sit flush with the
+   window edge (the menu bar's own padding is cancelled on the right), close turns red on hover. */
+#window_controls { display: flex; flex-direction: row; align-items: center; height: 30dp; flex-shrink: 0; margin-right: -12dp; }
+.win_button { box-sizing: border-box; display: flex; flex-direction: row; align-items: center; justify-content: center; width: 46dp; height: 30dp; padding: 0; margin: 0; border-width: 0dp; border-radius: 0; background-color: transparent; color: #d0d0d0; }
+.win_button:hover { background-color: #383838; }
+#win_close:hover { background-color: #c42b1c; }
+.win_glyph { pointer-events: none; }
+.win_glyph_min { width: 11dp; height: 1dp; background-color: #d0d0d0; }
+.win_glyph_max { box-sizing: border-box; width: 9dp; height: 9dp; border: 1dp #d0d0d0; }
+.win_glyph_close { width: 100%; height: 30dp; font-size: 15dp; line-height: 30dp; text-align: center; color: #d0d0d0; }
 </style></head>
 <body>
 <div id="menubar">
@@ -103,10 +135,17 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 <div id="menu_window" class="menu">Window</div>
 <div id="menu_help" class="menu">Help</div>
 <div id="project_label">deren editor</div>
+<div id="window_controls">
+<button id="win_minimize" class="win_button"><div class="win_glyph win_glyph_min"></div></button>
+<button id="win_maximize" class="win_button"><div class="win_glyph win_glyph_max"></div></button>
+<button id="win_close" class="win_button"><div class="win_glyph win_glyph_close">×</div></button>
+</div>
 </div>
 <div id="menu_file_items" class="menu_dropdown" style="visibility: hidden; left: 88dp;">
     <div id="menu_file_new" class="menu_item">New Scene</div>
+    <div id="menu_file_open" class="menu_item">Open Scene...</div>
     <div id="menu_file_save" class="menu_item">Save Scene</div>
+    <div id="menu_file_save_as" class="menu_item">Save Scene As...</div>
 </div>
 <div id="menu_edit_items" class="menu_dropdown" style="visibility: hidden; left: 137dp;">
     <div id="menu_edit_undo" class="menu_item">Undo</div>
@@ -118,6 +157,10 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
     <div id="menu_window_outliner" class="menu_item">World Outliner</div>
     <div id="menu_window_details" class="menu_item">Details</div>
     <div id="menu_window_browser" class="menu_item">Content Browser</div>
+    <div id="menu_window_sidebar_side" class="menu_item">Move Sidebar Left</div>
+    <div id="menu_window_dock_side" class="menu_item">Move Dock to Top</div>
+    <div id="menu_window_panel_order" class="menu_item">Place Details First</div>
+    <div id="menu_window_reset_layout" class="menu_item">Reset Layout</div>
 </div>
 <div id="menu_help_items" class="menu_dropdown" style="visibility: hidden; left: 268dp;">
     <div id="menu_help_about" class="menu_item">About deren editor</div>
@@ -129,6 +172,7 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 <button id="btn_save">Save</button>
 <button id="btn_undo">Undo</button>
 <button id="btn_redo">Redo</button>
+<button id="btn_play">Play</button>
 <div class="toolbar_separator"></div>
 <input id="rename_field" type="text" placeholder="Node name"/>
 <button id="btn_rename">Rename</button>
@@ -142,10 +186,15 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 <button id="vp_move">Move</button>
 <button id="vp_rotate">Rotate</button>
 <button id="vp_scale">Scale</button>
+<button id="vp_space">World</button>
+<button id="vp_focus">Focus (F)</button>
 <div id="viewport_mode">Perspective  /  Lit</div>
 </div>
 <div id="viewport">
     <img id="viewport_image" src="deren://scene"/>
+    <div id="gizmo_x" class="gizmo_axis"><div class="gizmo_tip"></div></div>
+    <div id="gizmo_y" class="gizmo_axis"><div class="gizmo_tip"></div></div>
+    <div id="gizmo_z" class="gizmo_axis"><div class="gizmo_tip"></div></div>
 </div>
 </div>
 <div id="split_bottom" class="split_h"></div>
@@ -158,33 +207,34 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 <div id="browser_body">
     <div id="browser_bar">
         <input id="browser_search" type="text" placeholder="Search assets"/>
+        <button id="browser_thumbnail">Build Thumbnail</button>
         <div id="browser_count"></div>
     </div>
     <div id="asset_grid">
-        <div id="asset_0" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_0_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_1" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_1_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_2" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_2_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_3" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_3_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_4" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_4_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_5" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_5_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_6" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_6_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_7" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_7_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_8" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_8_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_9" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_9_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_10" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_10_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_11" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_11_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_12" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_12_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_13" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_13_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_14" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_14_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_15" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_15_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_16" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_16_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_17" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_17_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_18" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_18_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_19" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_19_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_20" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_20_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_21" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_21_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_22" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_22_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_23" class="browser_tile" style="visibility: hidden;"><div class="asset_preview"><div class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_23_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_0" class="browser_tile" style="visibility: hidden;"><div id="asset_0_preview" class="asset_preview"><img id="asset_0_image" class="asset_thumbnail"/><div id="asset_0_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_0_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_1" class="browser_tile" style="visibility: hidden;"><div id="asset_1_preview" class="asset_preview"><img id="asset_1_image" class="asset_thumbnail"/><div id="asset_1_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_1_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_2" class="browser_tile" style="visibility: hidden;"><div id="asset_2_preview" class="asset_preview"><img id="asset_2_image" class="asset_thumbnail"/><div id="asset_2_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_2_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_3" class="browser_tile" style="visibility: hidden;"><div id="asset_3_preview" class="asset_preview"><img id="asset_3_image" class="asset_thumbnail"/><div id="asset_3_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_3_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_4" class="browser_tile" style="visibility: hidden;"><div id="asset_4_preview" class="asset_preview"><img id="asset_4_image" class="asset_thumbnail"/><div id="asset_4_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_4_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_5" class="browser_tile" style="visibility: hidden;"><div id="asset_5_preview" class="asset_preview"><img id="asset_5_image" class="asset_thumbnail"/><div id="asset_5_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_5_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_6" class="browser_tile" style="visibility: hidden;"><div id="asset_6_preview" class="asset_preview"><img id="asset_6_image" class="asset_thumbnail"/><div id="asset_6_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_6_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_7" class="browser_tile" style="visibility: hidden;"><div id="asset_7_preview" class="asset_preview"><img id="asset_7_image" class="asset_thumbnail"/><div id="asset_7_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_7_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_8" class="browser_tile" style="visibility: hidden;"><div id="asset_8_preview" class="asset_preview"><img id="asset_8_image" class="asset_thumbnail"/><div id="asset_8_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_8_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_9" class="browser_tile" style="visibility: hidden;"><div id="asset_9_preview" class="asset_preview"><img id="asset_9_image" class="asset_thumbnail"/><div id="asset_9_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_9_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_10" class="browser_tile" style="visibility: hidden;"><div id="asset_10_preview" class="asset_preview"><img id="asset_10_image" class="asset_thumbnail"/><div id="asset_10_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_10_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_11" class="browser_tile" style="visibility: hidden;"><div id="asset_11_preview" class="asset_preview"><img id="asset_11_image" class="asset_thumbnail"/><div id="asset_11_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_11_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_12" class="browser_tile" style="visibility: hidden;"><div id="asset_12_preview" class="asset_preview"><img id="asset_12_image" class="asset_thumbnail"/><div id="asset_12_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_12_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_13" class="browser_tile" style="visibility: hidden;"><div id="asset_13_preview" class="asset_preview"><img id="asset_13_image" class="asset_thumbnail"/><div id="asset_13_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_13_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_14" class="browser_tile" style="visibility: hidden;"><div id="asset_14_preview" class="asset_preview"><img id="asset_14_image" class="asset_thumbnail"/><div id="asset_14_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_14_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_15" class="browser_tile" style="visibility: hidden;"><div id="asset_15_preview" class="asset_preview"><img id="asset_15_image" class="asset_thumbnail"/><div id="asset_15_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_15_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_16" class="browser_tile" style="visibility: hidden;"><div id="asset_16_preview" class="asset_preview"><img id="asset_16_image" class="asset_thumbnail"/><div id="asset_16_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_16_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_17" class="browser_tile" style="visibility: hidden;"><div id="asset_17_preview" class="asset_preview"><img id="asset_17_image" class="asset_thumbnail"/><div id="asset_17_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_17_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_18" class="browser_tile" style="visibility: hidden;"><div id="asset_18_preview" class="asset_preview"><img id="asset_18_image" class="asset_thumbnail"/><div id="asset_18_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_18_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_19" class="browser_tile" style="visibility: hidden;"><div id="asset_19_preview" class="asset_preview"><img id="asset_19_image" class="asset_thumbnail"/><div id="asset_19_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_19_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_20" class="browser_tile" style="visibility: hidden;"><div id="asset_20_preview" class="asset_preview"><img id="asset_20_image" class="asset_thumbnail"/><div id="asset_20_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_20_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_21" class="browser_tile" style="visibility: hidden;"><div id="asset_21_preview" class="asset_preview"><img id="asset_21_image" class="asset_thumbnail"/><div id="asset_21_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_21_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_22" class="browser_tile" style="visibility: hidden;"><div id="asset_22_preview" class="asset_preview"><img id="asset_22_image" class="asset_thumbnail"/><div id="asset_22_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_22_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+        <div id="asset_23" class="browser_tile" style="visibility: hidden;"><div id="asset_23_preview" class="asset_preview"><img id="asset_23_image" class="asset_thumbnail"/><div id="asset_23_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_23_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
     </div>
     <div id="browser_empty" class="dock_note">No assets in the library.</div>
 </div>
@@ -279,16 +329,35 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
         <div class="detail_header">Actor</div>
         <div class="detail_row"><div class="detail_label">Visible</div><button id="detail_visible">Visible: yes</button></div>
         <div class="detail_row"><div class="detail_label">Flags</div><input id="detail_flags" type="text"/></div>
+        <div class="detail_row"><div class="detail_label">Script</div><input id="detail_script" type="text" placeholder="assembly.dll:Namespace.Type"/></div>
         <div class="detail_row"><div class="detail_label">Asset</div><div id="detail_asset" class="detail_text">-</div></div>
-        <div class="detail_row"><div class="detail_label">Pipeline</div><div id="detail_pipeline" class="detail_text">-</div></div>
+        <div class="detail_row"><div class="detail_label">Pipeline</div><button id="detail_pipeline" class="detail_text">-</button></div>
     </div>
 </div>
 </div>
 </div>
 <div id="status"></div>
 <div id="unsaved_prompt"><div id="unsaved_dialog">
-<h2>Unsaved changes</h2><div id="unsaved_message">Save your changes before creating a new scene?</div>
-<button id="unsaved_save">Save</button><button id="unsaved_discard">Discard</button><button id="unsaved_cancel">Cancel</button>
+    <div id="unsaved_body">
+        <h2>Unsaved changes</h2>
+        <div id="unsaved_message">Save your changes before creating a new scene?</div>
+    </div>
+    <div id="unsaved_actions">
+        <button id="unsaved_cancel">Cancel</button>
+        <button id="unsaved_discard">Discard</button>
+        <button id="unsaved_save">Save</button>
+    </div>
+</div></div>
+<div id="scene_path_prompt"><div id="scene_path_dialog">
+    <div id="scene_path_body">
+        <h2 id="scene_path_title">Open Scene</h2>
+        <div id="scene_path_message">Enter a path relative to the project's scenes folder, or an absolute path.</div>
+        <input id="scene_path" type="text" placeholder="example.scene.toml"/>
+    </div>
+    <div id="scene_path_actions">
+        <button id="scene_path_cancel">Cancel</button>
+        <button id="scene_path_accept">Open</button>
+    </div>
 </div></div>
 </body>
 </rml>

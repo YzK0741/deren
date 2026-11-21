@@ -215,6 +215,60 @@ namespace deren {
             return status == script_status.success;
         }
 
+        /// <summary>Gets the world bounds of the visible asset subtree, or its pivot when empty.</summary>
+        public unsafe bool try_get_bounds(node_id node, out vector_3 center, out float radius) {
+            center = default;
+            radius = 0;
+            if (!is_valid || !node.is_valid || !host_call_guard.host_calls_allowed) {
+                return false;
+            }
+            var table = get_node_bounds_api((uint)sizeof(nint));
+            if (table == null) {
+                return false;
+            }
+            var query = table->query;
+            vector_3 target = default;
+            float range = 0;
+            if (query == null || query(handle, node.handle, &target, &range) != script_status.success) {
+                return false;
+            }
+            center = target;
+            radius = range;
+            return true;
+        }
+
+        /// <summary>Tests a world-space ray against visible asset bounds. A miss returns a default node.</summary>
+        public unsafe bool try_pick_node(vector_3 origin, vector_3 direction, out node_id node) {
+            node = default;
+            if (!is_valid || !host_call_guard.host_calls_allowed) {
+                return false;
+            }
+            var table = get_node_bounds_api((uint)sizeof(node_bounds_api));
+            node_handle hit = default;
+            if (table == null || table->pick == null ||
+                table->pick(handle, &origin, &direction, &hit) != script_status.success) {
+                return false;
+            }
+            node = new node_id(hit);
+            return true;
+        }
+
+        private static unsafe node_bounds_api* get_node_bounds_api(uint required_size) {
+            var api = managed_bootstrap.core;
+            void* table = null;
+            uint size = 0;
+            return api.get_module != null &&
+                api.get_module((uint)native_module.node_bounds, &table, &size) == script_status.success &&
+                size >= required_size ? (node_bounds_api*)table : null;
+        }
+
+#pragma warning disable CS0649 // The native host populates the table.
+        private unsafe struct node_bounds_api {
+            public delegate* unmanaged<ulong, node_handle, vector_3*, float*, script_status> query;
+            public delegate* unmanaged<ulong, vector_3*, vector_3*, node_handle*, script_status> pick;
+        }
+#pragma warning restore CS0649
+
         /// <summary>
         /// Reads a node's local transform from this tree. Returns false for a stale or foreign node.
         /// </summary>

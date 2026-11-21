@@ -296,6 +296,22 @@ export namespace deren::app {
          * runtime yet. Passing 0 restores the window's aspect.
          */
         bool (*set_scene_aspect)(void* context, float aspect) = nullptr;
+        /**
+         * @brief ABI 43: the application window, for a project that draws its own caption.
+         *
+         * A borderless window has no system title bar, so the managed UI owns the minimise,
+         * maximise/restore and close buttons and the drag area. `window_minimize` and
+         * `window_toggle_maximize` change the window state directly; `window_is_maximized` writes
+         * 0 or 1; `window_close` raises the same close request the system button does; and
+         * `window_begin_drag` hands a caption press to the system move loop, BLOCKING until the
+         * button is released (false when the platform has no such loop). False means the host has
+         * no window (an offscreen capture, for example), so the UI treats every one as unavailable.
+         */
+        bool (*window_minimize)(void* context) = nullptr;
+        bool (*window_toggle_maximize)(void* context) = nullptr;
+        bool (*window_is_maximized)(void* context, std::uint8_t* maximized) = nullptr;
+        bool (*window_close)(void* context) = nullptr;
+        bool (*window_begin_drag)(void* context) = nullptr;
     };
 
     class script_scene {
@@ -348,6 +364,10 @@ export namespace deren::app {
         static script_scene* find_scene(std::uint64_t scene);
         static void log(char const* text, std::uint32_t length);
         static scripting::script_status get_module(std::uint32_t module, void const** table, std::uint32_t* byte_size);
+        static scripting::script_status pick_node(std::uint64_t tree, scripting::vector_3 const* origin,
+                                                  scripting::vector_3 const* direction, scripting::node_handle* hit);
+        static scripting::script_status query_node_bounds(std::uint64_t tree, scripting::node_handle node,
+                                                          scripting::vector_3* center, float* radius);
         static scripting::script_status abi_layout(scripting::abi_layout_entry* out, std::uint32_t capacity);
         /// The native_api entry that ends a frame-boundary wait; see managed_scene_host::notify_rendering.
         static scripting::script_status notify_rendering();
@@ -385,6 +405,12 @@ export namespace deren::app {
                                                       scripting::utf8_view name);
         /// ABI 41: the projection aspect the scene is drawn with; 0 restores the window's.
         static scripting::script_status set_scene_aspect(float aspect);
+        /// ABI 43: the request window controls; see managed_scene_host::window_minimize and friends.
+        static scripting::script_status window_minimize();
+        static scripting::script_status window_toggle_maximize();
+        static scripting::script_status window_is_maximized(std::uint8_t* maximized);
+        static scripting::script_status window_close();
+        static scripting::script_status window_begin_drag();
         static scripting::script_status get_node_flags(std::uint64_t tree, scripting::node_handle node,
                                                        std::uint32_t* flags);
         static scripting::script_status set_node_flags(std::uint64_t tree, scripting::node_handle node,

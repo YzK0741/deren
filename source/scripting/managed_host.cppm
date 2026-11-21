@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 42;
+    inline constexpr std::uint32_t managed_abi_version = 43;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -458,6 +458,19 @@ export namespace deren::scripting {
         // value applies from the next frame, and project_point/screen_ray answer in that same
         // projection. No active scene or no host yet is scene_not_found.
         script_status (*set_scene_aspect)(float aspect) = nullptr;
+        // ABI 43: THE APPLICATION WINDOW. A borderless window has no system caption, so the project's
+        // own UI draws the minimise/maximise/close buttons and the drag area. `window_minimize` and
+        // `window_toggle_maximize` change the window state; `window_is_maximized` writes 0 or 1;
+        // `window_close` requests the same shutdown the system close button does; `window_begin_drag`
+        // hands a caption press to the system move loop and BLOCKS until the button is released
+        // (false when the platform has no such loop). A null out-pointer, no window, or an
+        // unsupported platform is invalid_argument; a still-pending frame is fine - these act on the
+        // window, not on the scene, so they need no active scene and never touch frame data.
+        script_status (*window_minimize)() = nullptr;
+        script_status (*window_toggle_maximize)() = nullptr;
+        script_status (*window_is_maximized)(std::uint8_t* maximized) = nullptr;
+        script_status (*window_close)() = nullptr;
+        script_status (*window_begin_drag)() = nullptr;
     };
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is
@@ -548,7 +561,8 @@ export namespace deren::scripting {
         // ABI 31: the debug panel and the overlay state (ui_api).
         ui = 2,
         audio = 3,
-        rml_ui = 4
+        rml_ui = 4,
+        node_bounds = 5
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.

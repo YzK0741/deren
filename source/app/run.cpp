@@ -208,7 +208,7 @@ namespace deren::app {
         bool const offscreen = settings.render.offscreen || (capture.frames > 0 && !capture.windowed);
         glfw_window window{settings.render.window_width, settings.render.window_height,
                            settings.render.window_title.c_str(), capture.frames == 0, offscreen,
-                           settings.render.dark_window_frame};
+                           settings.render.dark_window_frame, settings.render.borderless_window};
         std::span<deren::input::action_binding const> const actions{project_actions.data(), project_actions.size()};
         deren::input::action_state action_state{actions};
         deren::app::startup_splash splash{capture.frames == 0 && !settings.render.offscreen};
@@ -491,6 +491,9 @@ namespace deren::app {
             std::vector<std::string> animation_names;
             std::mutex animation_mutex;
             std::vector<animation_command> animation_pending;
+            // ABI 43: the window the managed request controls act on; null for an offscreen capture,
+            // which must answer module_unavailable instead of pretending to move a window.
+            deren::app::glfw_window* window = nullptr;
         };
         managed_bind_context managed_binding{.starting = true,
                                              .render_runtime = &runtime,
@@ -517,7 +520,8 @@ namespace deren::app {
                                              .animation_state = {},
                                              .animation_names = {},
                                              .animation_mutex = {},
-                                             .animation_pending = {}};
+                                             .animation_pending = {},
+                                             .window = &window};
         // The snapshot every ABI 35 query reads. The frame thread writes it once per frame; a managed
         // thread reads it under the same lock, so a query never sees a half-built state.
         constexpr auto publish_animation_state = +[](managed_bind_context& context) {
@@ -890,6 +894,52 @@ namespace deren::app {
             context->scene_aspect = aspect;
             context->scene_aspect_pending = true;
             return true;
+        };
+        // The request window controls: a borderless project draws its own caption, so the managed UI
+        // asks the app's window to minimise, maximise/restore, report its state, close, or start a
+        // caption drag. They act on the window only - no scene or frame data is touched - so they are
+        // answered immediately instead of being queued with the scene writes. Every one starts from the
+        // same capability check: no context, no window, or an offscreen capture's null native handle
+        // answers false, which the managed side reports as module_unavailable.
+        auto const set_managed_window_minimize = +[](void* opaque) -> bool {
+            auto* const context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->window == nullptr || context->window->native_handle() == nullptr) {
+                return false;
+            }
+            context->window->minimize_window();
+            return true;
+        };
+        auto const set_managed_window_toggle_maximize = +[](void* opaque) -> bool {
+            auto* const context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->window == nullptr || context->window->native_handle() == nullptr) {
+                return false;
+            }
+            context->window->toggle_maximize_window();
+            return true;
+        };
+        auto const get_managed_window_is_maximized = +[](void* opaque, std::uint8_t* maximized) -> bool {
+            auto* const context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->window == nullptr || context->window->native_handle() == nullptr ||
+                maximized == nullptr) {
+                return false;
+            }
+            *maximized = context->window->is_maximized_window() ? 1 : 0;
+            return true;
+        };
+        auto const set_managed_window_close = +[](void* opaque) -> bool {
+            auto* const context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->window == nullptr || context->window->native_handle() == nullptr) {
+                return false;
+            }
+            context->window->request_close();
+            return true;
+        };
+        auto const set_managed_window_begin_drag = +[](void* opaque) -> bool {
+            auto* const context = static_cast<managed_bind_context*>(opaque);
+            if (context == nullptr || context->window == nullptr || context->window->native_handle() == nullptr) {
+                return false;
+            }
+            return context->window->begin_window_drag();
         };
         // ---- ABI 35: THE ANIMATION ENTRIES ----
         // The queries read the snapshot the frame thread publishes; the commands only queue work for
@@ -1431,6 +1481,43 @@ namespace deren::app {
                 }
                 return consumed; }, &ui_input);
         }
+        // ABI 31: THE WINDOW'S EVENTS BECOME THE GAME'S EVENTS. The action layer forwards every
+        // raw event here (it keeps its own named-action map untouched); this seam only renames the
+        // fields into the scripting ABI's flat record, so the app owns no input state either.
+        auto const forward_window_event = +[](void*, deren::app::window_event const& source) {
+            deren::scripting::input_event event{};
+            switch (source.type) {
+            case deren::app::window_event_type::mouse_move:
+                event.type = deren::scripting::input_event_type::mouse_move;
+                break;
+            case deren::app::window_event_type::mouse_button:
+                event.type = deren::scripting::input_event_type::mouse_button;
+                break;
+            case deren::app::window_event_type::scroll:
+                event.type = deren::scripting::input_event_type::scroll;
+                break;
+            case deren::app::window_event_type::key:
+                event.type = deren::scripting::input_event_type::key;
+                break;
+            case deren::app::window_event_type::character:
+                event.type = deren::scripting::input_event_type::character;
+                break;
+            case deren::app::window_event_type::focus_lost:
+                event.type = deren::scripting::input_event_type::focus_lost;
+                break;
+            }
+            event.button = source.button;
+            event.down = source.down ? 1U : 0U;
+            event.key = source.key;
+            event.x = source.x;
+            event.y = source.y;
+            event.dx = source.dx;
+            event.dy = source.dy;
+            event.wheel = source.wheel;
+            event.codepoint = source.codepoint;
+            script_scene::publish_input_event(event);
+        };
+        action_input.set_event_sink(forward_window_event, nullptr);
         managed_binding.ui_available = settings.gui.show && runtime.enable_debug_gui();
         if (managed_binding.ui_available) {
             deren::utility::log("gui: managed debug panel enabled (default {}x{})", settings.gui.panel_width,
@@ -1543,43 +1630,6 @@ namespace deren::app {
                 *value = context.render_runtime->debug_gui_wants_mouse() ? 1U : 0U;
                 return true;
             };
-            // ABI 31: THE WINDOW'S EVENTS BECOME THE GAME'S EVENTS. The action layer forwards every
-            // raw event here (it keeps its own named-action map untouched); this seam only renames the
-            // fields into the scripting ABI's flat record, so the app owns no input state either.
-            auto const forward_window_event = +[](void*, deren::app::window_event const& source) {
-                deren::scripting::input_event event{};
-                switch (source.type) {
-                case deren::app::window_event_type::mouse_move:
-                    event.type = deren::scripting::input_event_type::mouse_move;
-                    break;
-                case deren::app::window_event_type::mouse_button:
-                    event.type = deren::scripting::input_event_type::mouse_button;
-                    break;
-                case deren::app::window_event_type::scroll:
-                    event.type = deren::scripting::input_event_type::scroll;
-                    break;
-                case deren::app::window_event_type::key:
-                    event.type = deren::scripting::input_event_type::key;
-                    break;
-                case deren::app::window_event_type::character:
-                    event.type = deren::scripting::input_event_type::character;
-                    break;
-                case deren::app::window_event_type::focus_lost:
-                    event.type = deren::scripting::input_event_type::focus_lost;
-                    break;
-                }
-                event.button = source.button;
-                event.down = source.down ? 1U : 0U;
-                event.key = source.key;
-                event.x = source.x;
-                event.y = source.y;
-                event.dx = source.dx;
-                event.dy = source.dy;
-                event.wheel = source.wheel;
-                event.codepoint = source.codepoint;
-                script_scene::publish_input_event(event);
-            };
-            action_input.set_event_sink(forward_window_event, nullptr);
             // INSTALLED BEFORE start(): the game may build its first panel inside initialize(), and a ui
             // table published afterwards would report module_unavailable for that first frame.
             script_scene.install_ui(deren::app::managed_ui_host{
@@ -1637,7 +1687,12 @@ namespace deren::app {
                                            .gpu_timing_summary = query_gpu_timing_summary,
                                            .set_toon_rig = set_managed_toon_rig,
                                            .get_toon_rig = get_managed_toon_rig,
-                                           .set_scene_aspect = set_managed_scene_aspect},
+                                           .set_scene_aspect = set_managed_scene_aspect,
+                                           .window_minimize = set_managed_window_minimize,
+                                           .window_toggle_maximize = set_managed_window_toggle_maximize,
+                                           .window_is_maximized = get_managed_window_is_maximized,
+                                           .window_close = set_managed_window_close,
+                                           .window_begin_drag = set_managed_window_begin_drag},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{
                 .context = &managed_binding, .bind = bind_managed_asset, .before_remove = +[](void* opaque) {

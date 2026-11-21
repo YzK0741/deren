@@ -101,6 +101,7 @@ list(FILTER editor_sources EXCLUDE REGEX "[/\\\\](obj|bin)[/\\\\]")
 set(DEREN_EDITOR_SCENE "${editor_source_dir}/main.toml")
 set(DEREN_EDITOR_ASSEMBLY "${editor_assembly}")
 configure_file("${editor_source_dir}/deren.toml.in" "${editor_output}/deren.toml" @ONLY)
+configure_file("${editor_source_dir}/editor_worker.toml.in" "${editor_output}/editor_worker.toml" @ONLY)
 add_custom_command(OUTPUT "${editor_assembly}"
     COMMAND "${DOTNET_EXECUTABLE}" build "${editor_project}"
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet-editor"
