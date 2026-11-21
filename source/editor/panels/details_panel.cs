@@ -43,20 +43,23 @@ namespace deren.editor {
 
         private readonly rml_document ui;
         private Guid shown = Guid.Empty;
+        private int shown_revision = -1;
 
         internal details_panel(rml_document ui) {
             this.ui = ui;
         }
 
         /// <summary>
-        /// Rewrites every row from the selected node. The redraw is skipped unless the selection changed
-        /// or <paramref name="force"/> is set, so a frame cannot overwrite an in-progress edit.
+        /// Rewrites every row from the selected node. The redraw is skipped unless the selection moved,
+        /// the document changed under it, or <paramref name="force"/> is set, so a frame cannot
+        /// overwrite an in-progress edit while an undo or a drag still reaches the rows.
         /// </summary>
         internal void refresh(scene_document document, selection selection, bool force = false) {
-            if (!force && shown == selection.primary) {
+            if (!force && shown == selection.primary && shown_revision == document.revision) {
                 return;
             }
             shown = selection.primary;
+            shown_revision = document.revision;
             var node = selection.primary == Guid.Empty ? null : document.find(selection.primary);
             ui.set_visible(empty_id, node == null);
             ui.set_visible(form_id, node != null);

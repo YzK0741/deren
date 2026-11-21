@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -138,10 +139,19 @@ namespace deren.editor {
                 var log_path = Path.Combine(workspace!, "deren-debug.log");
                 try {
                     if (File.Exists(log_path)) {
+                        var script_lines = new List<string>();
                         foreach (string line in File.ReadLines(log_path)) {
-                            if (line.StartsWith("scripts: Editor play:", StringComparison.Ordinal)) {
-                                message = line["scripts: ".Length..];
+                            if (line.StartsWith("scripts: ", StringComparison.Ordinal)) {
+                                script_lines.Add(line["scripts: ".Length..]);
                             }
+                        }
+                        if (script_lines.Count > 0) {
+                            // The editor has no scrolling log tab yet, so the message has to carry the
+                            // script errors that explain the failure - the last one alone hides the
+                            // first error when a script cascade follows it.
+                            const int tail = 8;
+                            var first = Math.Max(0, script_lines.Count - tail);
+                            message = $"{message}\n{string.Join("\n", script_lines.GetRange(first, script_lines.Count - first))}";
                         }
                     }
                 } catch (IOException) { }

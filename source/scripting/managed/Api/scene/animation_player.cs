@@ -55,8 +55,15 @@ namespace deren {
             if (status != script_status.success) {
                 return false;
             }
+            if (state.available == 0) {
+                // A SUCCESS WITHOUT A PLAYER: the host answered, but no animated asset is bound yet.
+                // Returning true here would contradict the snapshot (all zeros) and the remarks, so
+                // this is the module_unavailable they promise, not a player with nothing playing.
+                status = script_status.module_unavailable;
+                return false;
+            }
             value = new animation_info {
-                available = state.available != 0,
+                available = true,
                 clip_count = checked((int)state.clip_count),
                 current_clip = checked((int)state.current_clip),
                 has_active = state.has_active != 0,
@@ -65,7 +72,7 @@ namespace deren {
                 duration = state.duration,
                 speed = state.speed
             };
-            return state.available != 0;
+            return true;
         }
 
         /// <summary>The number of clips the player holds.</summary>
@@ -126,29 +133,43 @@ namespace deren {
         }
 
         public static bool try_set_playing(bool playing) {
-            var status = scene_api.assign_animation_playing(playing ? (byte)1 : (byte)0);
+            return try_set_playing(playing, out _);
+        }
+
+        public static bool try_set_playing(bool playing, out script_status status) {
+            status = scene_api.assign_animation_playing(playing ? (byte)1 : (byte)0);
             report(status, playing ? "play" : "pause");
             return status == script_status.success;
         }
 
         /// <summary>Selects a clip by index; the host opens it at time 0 and keeps the current speed.</summary>
         public static bool try_select(int index) {
+            return try_select(index, out _);
+        }
+
+        public static bool try_select(int index, out script_status status) {
             if (index < 0) {
                 host_logger.write($"Game: animation clip {index} is out of range");
+                status = script_status.invalid_argument;
                 return false;
             }
-            var status = scene_api.assign_animation_select((uint)index);
+            status = scene_api.assign_animation_select((uint)index);
             report(status, $"select clip {index}");
             return status == script_status.success;
         }
 
         /// <summary>Sets the playback-rate multiplier (clamped by the host to <see cref="max_speed"/>).</summary>
         public static bool try_set_speed(float speed) {
+            return try_set_speed(speed, out _);
+        }
+
+        public static bool try_set_speed(float speed, out script_status status) {
             if (float.IsNaN(speed) || float.IsInfinity(speed) || speed < 0.0F) {
                 host_logger.write($"Game: animation speed {speed} is not a finite, non-negative number");
+                status = script_status.invalid_argument;
                 return false;
             }
-            var status = scene_api.assign_animation_speed(speed);
+            status = scene_api.assign_animation_speed(speed);
             report(status, $"speed {speed}");
             return status == script_status.success;
         }
@@ -158,11 +179,16 @@ namespace deren {
         /// clock; the host clamps the time into the clip.
         /// </summary>
         public static bool try_seek(float seconds) {
+            return try_seek(seconds, out _);
+        }
+
+        public static bool try_seek(float seconds, out script_status status) {
             if (float.IsNaN(seconds) || float.IsInfinity(seconds)) {
                 host_logger.write($"Game: animation time {seconds} is not a finite number");
+                status = script_status.invalid_argument;
                 return false;
             }
-            var status = scene_api.assign_animation_time(seconds);
+            status = scene_api.assign_animation_time(seconds);
             report(status, $"seek {seconds}");
             return status == script_status.success;
         }

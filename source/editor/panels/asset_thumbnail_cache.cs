@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
@@ -9,6 +10,10 @@ namespace deren.editor {
     /// <summary>Runs one offscreen preview capture at a time and publishes the completed PNG.</summary>
     internal sealed class asset_thumbnail_cache : IDisposable {
         private readonly string project_directory;
+        // Assets published during this session, mapped to the file name carrying their revision. A
+        // rebuilt thumbnail gets a new name instead of overwriting the old one: the RmlUi texture is
+        // cached by source, so re-assigning the same image source would keep showing the old picture.
+        private readonly Dictionary<string, string> published = new(StringComparer.Ordinal);
         private Process? worker;
         private string? job_directory;
         private string? asset_id;
@@ -18,19 +23,23 @@ namespace deren.editor {
         }
 
         internal string path_for(string asset) {
-            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(asset)));
-            return Path.Combine(project_directory, "ui", "thumbnails", key + ".png");
+            if (published.TryGetValue(asset, out var current)) {
+                return current;
+            }
+            var directory = Path.Combine(project_directory, "ui", "thumbnails");
+            return Path.Combine(directory, key_for(asset) + ".png");
         }
+
+        private static string key_for(string asset) =>
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(asset)));
 
         internal bool begin(string asset, out string message) {
             if (worker != null) {
                 message = $"Rendering thumbnail: {asset_id}";
                 return false;
             }
-            if (File.Exists(path_for(asset))) {
-                message = $"Thumbnail already cached: {asset}";
-                return false;
-            }
+            // A cached thumbnail is re-rendered instead of refused: that is the only way to refresh it
+            // after the asset itself changed, and poll() publishes the result under a new revision.
             try {
                 var executable = Environment.ProcessPath ??
                     throw new InvalidOperationException("The rendering executable path is unavailable.");
@@ -82,9 +91,30 @@ namespace deren.editor {
                 if (worker.ExitCode != 0 || images.Length != 1) {
                     throw new InvalidOperationException($"Renderer exited with {worker.ExitCode} and wrote {images.Length} capture(s).");
                 }
-                var path = path_for(asset);
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var directory = Path.Combine(project_directory, "ui", "thumbnails");
+                var key = key_for(asset);
+                // The revision in the name is what makes a rebuilt thumbnail reach the browser: a new
+                // source string is a new texture, while overwriting the old file would stay invisible.
+                var path = Path.Combine(directory, $"{key}-{DateTime.UtcNow.Ticks:x}.png");
+                Directory.CreateDirectory(directory);
                 File.Move(images[0], path, overwrite: true);
+                published.TryGetValue(asset, out var previous_revision);
+                published[asset] = path;
+                // The revisioned file supersedes the previous render and the legacy unrevisioned name;
+                // neither is read again, so leaving them behind would grow the cache folder forever.
+                var previous_path = Path.Combine(directory, key + ".png");
+                foreach (var stale in new[] { previous_revision, previous_path }) {
+                    if (stale == null || stale == path) {
+                        continue;
+                    }
+                    try {
+                        if (File.Exists(stale)) {
+                            File.Delete(stale);
+                        }
+                    } catch (Exception error) {
+                        host_logger.write($"Editor thumbnail: {error.Message}");
+                    }
+                }
                 message = $"Thumbnail ready: {asset}";
             } catch (Exception error) {
                 host_logger.write($"Editor thumbnail '{asset}': {error.Message}");

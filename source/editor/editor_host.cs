@@ -46,6 +46,11 @@ namespace deren.editor {
         private float applied_aspect = -1.0f;
         private readonly viewport_camera viewport_navigation = new();
         private readonly viewport_gizmo gizmo = new();
+        // Child -> parent for the current document, rebuilt on demand from the root list. Building it
+        // once keeps the per-ancestor walk in layout_gizmo O(1) instead of a full tree scan per level,
+        // which made a deep selection cost O(depth * nodes) every frame.
+        private readonly Dictionary<document_node, document_node?> parents = new();
+        private scene_document? parents_document;
         private bool gizmo_local;
         private bool cancel_gizmo_requested;
         private float viewport_height;
@@ -104,6 +109,9 @@ namespace deren.editor {
         private bool outliner_shown = true;
         private bool details_shown = true;
         private bool dock_shown = true;
+        // Nullable so the first refresh writes the style even when the history starts empty.
+        private bool? undo_button_state;
+        private bool? redo_button_state;
 
         public script_status preinit(startup_options* options, int argc, byte** argv) {
             if (options == null || argc < 0 || (argc > 0 && argv == null)) {
@@ -114,10 +122,7 @@ namespace deren.editor {
                 args[i] = argv[i] == null ? string.Empty : Marshal.PtrToStringUTF8((IntPtr)argv[i]) ?? string.Empty;
             }
             for (var i = 1; i < args.Length; ++i) {
-                var argument = args[i];
-                var separator = argument.IndexOf('=');
-                var name = separator < 0 ? argument : argument[..separator];
-                var inline_value = separator < 0 ? null : argument[(separator + 1)..];
+                split_argument(args[i], out var name, out var inline_value);
                 switch (name) {
                     case "--scene":
                         requested_scene = inline_value ?? take_value(args, ref i);
@@ -162,6 +167,17 @@ namespace deren.editor {
         private static string take_value(string[] args, ref int index) =>
             index + 1 < args.Length ? args[++index] : string.Empty;
 
+        /// <summary>
+        /// Splits <c>--name=value</c> at the FIRST '='. The value may itself contain '=', and the option
+        /// name must stay whole for the switch below: splitting at the last '=' would turn
+        /// <c>--scene=levels=/a.toml</c> into the unknown option <c>--scene=levels</c>.
+        /// </summary>
+        internal static void split_argument(string argument, out string name, out string? value) {
+            var separator = argument.IndexOf('=');
+            name = separator < 0 ? argument : argument[..separator];
+            value = separator < 0 ? null : argument[(separator + 1)..];
+        }
+
         public script_status initialize(native_api* api, managed_api* scripts) {
             if (api == null || scripts == null || instance != null) {
                 return script_status.invalid_argument;
@@ -196,8 +212,24 @@ namespace deren.editor {
                 play_stop_marker = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(requested_play))!, "stop.request");
                 var camera_path = Path.Combine(Path.GetDirectoryName(play_stop_marker)!, "camera.json");
                 if (File.Exists(camera_path)) {
-                    var pose = System.Text.Json.JsonSerializer.Deserialize<orbit_camera>(File.ReadAllText(camera_path), play_session.camera_json);
-                    pose.try_apply();
+                    // A stale or hand-edited camera file must not keep the play session from starting:
+                    // an unreadable or empty pose falls back to the editor's default view instead.
+                    try {
+                        var pose = System.Text.Json.JsonSerializer.Deserialize<orbit_camera?>(
+                            File.ReadAllText(camera_path), play_session.camera_json);
+                        if (pose is { } camera) {
+                            // The ABI refuses a non-finite pose or a degenerate distance, so a bad
+                            // file must not be applied silently after it parsed: say why the view
+                            // stayed where it was.
+                            if (!camera.try_apply(out var camera_status)) {
+                                host_logger.write($"Editor: '{camera_path}' could not be applied ({camera_status}); keeping the default view");
+                            }
+                        } else {
+                            host_logger.write($"Editor: '{camera_path}' holds no camera pose, using the default view");
+                        }
+                    } catch (Exception error) {
+                        host_logger.write($"Editor: cannot read '{camera_path}': {error.GetBaseException().Message}");
+                    }
                 }
                 instance = this;
                 scripts->update = &update;
@@ -238,7 +270,13 @@ namespace deren.editor {
             thumbnails = new asset_thumbnail_cache(managed_bootstrap.project_directory);
             playing = new play_session(managed_bootstrap.project_directory);
             browser = new content_browser_panel(opened_document, thumbnails);
-            assets = asset_manager.list();
+            // An empty library and a failed query look the same in the grid, so ask for the status and
+            // report the failure instead of presenting it as "this project has no assets".
+            assets = asset_manager.list(out var assets_status);
+            if (assets_status != script_status.success) {
+                host_logger.write($"Editor: the asset library could not be listed ({assets_status})");
+                notice = "Asset library unavailable";
+            }
             apply_tool_style();
             refresh_browser();
             opened_document.set_text(project_label_id, project_title());
@@ -673,19 +711,46 @@ namespace deren.editor {
                 ui?.try_set_element_style("unsaved_prompt", "display", "flex");
                 return false;
             }
-            var roots = new List<document_node>(document.roots);
-            for (var index = 0; index < roots.Count; index++) {
-                destroy_runtime(roots[index]);
-            }
-            document = create_default_document();
-            selection_state?.clear();
-            undo_history?.clear();
-            browser?.clear_selection();
-            if (!create_subtree(null, document.roots[0])) {
+            // BUILD THE NEW SCENE BEFORE DESTROYING THE OLD ONE. The runtime nodes of the two scenes are
+            // independent, so the new subtree can be created while the old one still exists; the old
+            // roots are only destroyed once the new scene is known to work. The other order loses the
+            // old scene when the create fails and has nothing to fall back to.
+            var previous = document;
+            var next = create_default_document();
+            document = next;
+            if (!create_subtree(null, next.roots[0])) {
+                // Drop whatever runtime nodes the failed attempt created and keep the old document,
+                // whose runtime counterpart is still alive.
+                for (var index = 0; index < next.roots.Count; ++index) {
+                    if (next.roots[index].runtime.is_valid) {
+                        destroy_runtime(next.roots[index]);
+                    }
+                }
+                document = previous;
+                notice = "Could not create the new scene";
                 refresh_panels(force_details: true);
                 return false;
             }
-            document.mark_dirty();
+            var kept = new List<document_node>();
+            for (var index = 0; index < previous.roots.Count; ++index) {
+                var root = previous.roots[index];
+                if (!destroy_runtime(root) && root.runtime.is_valid) {
+                    kept.Add(root);
+                }
+            }
+            // A node whose runtime counterpart refused to be destroyed stays in the document: dropping
+            // it would leave a live scene node the editor can no longer reach.
+            for (var index = 0; index < kept.Count; ++index) {
+                next.insert_root(next.roots.Count, kept[index]);
+            }
+            if (kept.Count > 0) {
+                host_logger.write($"Editor: new scene kept {kept.Count} node(s) whose runtime nodes could not be destroyed");
+                notice = $"Could not discard {kept.Count} node(s)";
+            }
+            selection_state?.clear();
+            undo_history?.clear();
+            browser?.clear_selection();
+            next.mark_dirty();
             refresh_panels(force_details: true);
             return true;
         }
@@ -864,19 +929,25 @@ namespace deren.editor {
                 refresh_panels();
                 return false;
             }
+            // Both branches select the new node: a created node that the outliner does not show as
+            // selected looks like the click did nothing, and every later edit would target the old one.
+            selection_state?.select(node.uid);
             if (asset_id != null) {
-                selection_state?.select(node.uid);
                 notice = $"Added asset: {asset_id}";
             }
             document.mark_dirty();
             record_undo(asset_id == null ? "Create" : "Add Asset",
                 () => {
-                    if (!destroy_runtime(node)) { return false; }
-                    remove_document_node(parent, node);
-                    if (asset_id != null) {
-                        if (document.find(previous_selection) != null) { selection_state?.select(previous_selection); }
-                        else { selection_state?.clear(); }
+                    // The document goes first so a refused destroy cannot orphan a runtime node.
+                    if (!remove_document_node(parent, node)) { return false; }
+                    if (!destroy_runtime(node)) {
+                        if (!insert_document_node(parent, index, node)) {
+                            host_logger.write($"Editor: lost node '{node.name}' while aborting an undo");
+                        }
+                        return false;
                     }
+                    if (document.find(previous_selection) != null) { selection_state?.select(previous_selection); }
+                    else { selection_state?.clear(); }
                     mark_dirty_and_refresh();
                     return true;
                 },
@@ -888,11 +959,11 @@ namespace deren.editor {
                         refresh_panels(force_details: true);
                         return false;
                     }
-                    if (asset_id != null) { selection_state?.select(node.uid); }
+                    selection_state?.select(node.uid);
                     mark_dirty_and_refresh();
                     return true;
                 });
-            refresh_panels(force_details: asset_id != null);
+            refresh_panels(force_details: true);
             return true;
         }
 
@@ -908,10 +979,18 @@ namespace deren.editor {
             if (node == null || !locate_node(node, out var parent, out var index)) {
                 return false;
             }
-            if (!destroy_runtime(node)) {
+            // REMOVE FROM THE DOCUMENT BEFORE DESTROYING THE RUNTIME NODE. The document removal is the
+            // only step that can still be taken back cheaply, so it happens first: a failed destroy can
+            // then put the node back exactly where it was instead of leaving a document node whose
+            // runtime counterpart is already gone.
+            if (!remove_document_node(parent, node)) {
                 return false;
             }
-            if (!remove_document_node(parent, node)) {
+            if (!destroy_runtime(node)) {
+                if (!insert_document_node(parent, index, node)) {
+                    host_logger.write($"Editor: lost node '{node.name}' while aborting a delete");
+                }
+                refresh_panels();
                 return false;
             }
             document.mark_dirty();
@@ -927,15 +1006,21 @@ namespace deren.editor {
                         refresh_panels(force_details: true);
                         return false;
                     }
-                    document.mark_dirty();
                     mark_dirty_and_refresh();
                     return true;
                 },
                 () => {
-                    if (!destroy_runtime(node) || !remove_document_node(parent, node)) {
+                    // Same order as the original delete: the document goes first so a refused destroy
+                    // cannot orphan a runtime node, and the node is put back at its captured index.
+                    if (!remove_document_node(parent, node)) {
                         return false;
                     }
-                    document.mark_dirty();
+                    if (!destroy_runtime(node)) {
+                        if (!insert_document_node(parent, index, node)) {
+                            host_logger.write($"Editor: lost node '{node.name}' while aborting a delete");
+                        }
+                        return false;
+                    }
                     mark_dirty_and_refresh();
                     return true;
                 });
@@ -982,6 +1067,14 @@ namespace deren.editor {
             if (trimmed.Length == 0 || trimmed == node.name) {
                 return false;
             }
+            // The runtime rename entry counts UTF-8 bytes, not characters, and refuses anything over
+            // the shared limit. Validate here so the document never holds a name the scene cannot show.
+            var bytes = scene_sync.name_utf8_byte_count(trimmed);
+            if (bytes > scene_sync.max_name_utf8_bytes) {
+                notice = $"Cannot rename: {bytes} UTF-8 bytes, the limit is {scene_sync.max_name_utf8_bytes}";
+                refresh_panels(force_details: true);
+                return false;
+            }
             var previous = node.name;
             node.name = trimmed;
             if (!push_runtime(node)) {
@@ -1017,6 +1110,13 @@ namespace deren.editor {
                 case detail_field.name: {
                     var trimmed = text.Trim();
                     if (trimmed.Length != 0 && trimmed != node.name) {
+                        // Same UTF-8 byte limit as the rename field; the details row must not accept a
+                        // name the runtime would refuse while the document keeps it.
+                        var name_bytes = scene_sync.name_utf8_byte_count(trimmed);
+                        if (name_bytes > scene_sync.max_name_utf8_bytes) {
+                            notice = $"Cannot rename: {name_bytes} UTF-8 bytes, the limit is {scene_sync.max_name_utf8_bytes}";
+                            break;
+                        }
                         node.name = trimmed;
                         changed = true;
                     }
@@ -1186,15 +1286,49 @@ namespace deren.editor {
             refresh_panels(force_details: true);
         }
 
+        /// <summary>
+        /// Parent of <paramref name="node"/> in one dictionary lookup, or null for a root. The map is
+        /// built from the current document once and dropped whenever the structure changes, so the
+        /// per-frame caller never pays for a tree scan.
+        /// </summary>
+        private bool try_parent(document_node node, out document_node? parent) {
+            if (document == null) {
+                parent = null;
+                return false;
+            }
+            if (!ReferenceEquals(parents_document, document)) {
+                parents.Clear();
+                parents_document = document;
+                collect_parents(document.roots, null);
+            }
+            return parents.TryGetValue(node, out parent);
+        }
+
+        private void collect_parents(IReadOnlyList<document_node> nodes, document_node? parent) {
+            foreach (var node in nodes) {
+                parents[node] = parent;
+                if (node.children.Count != 0) {
+                    collect_parents(node.children, node);
+                }
+            }
+        }
+
+        private void forget_parents() {
+            parents.Clear();
+            parents_document = null;
+        }
+
         private bool insert_document_node(document_node? parent, int index, document_node node) {
             if (document == null) {
                 return false;
             }
             if (parent != null) {
                 parent.children.Insert(Math.Clamp(index, 0, parent.children.Count), node);
+                forget_parents();
                 return true;
             }
             document.insert_root(index, node);
+            forget_parents();
             return true;
         }
 
@@ -1202,10 +1336,11 @@ namespace deren.editor {
             if (document == null) {
                 return false;
             }
-            if (parent != null) {
-                return parent.children.Remove(node);
+            var removed = parent != null ? parent.children.Remove(node) : document.remove_root(node);
+            if (removed) {
+                forget_parents();
             }
-            return document.remove_root(node);
+            return removed;
         }
 
         /// <summary>Creates the runtime subtree top-down: a parent must exist before its children.</summary>
@@ -1429,6 +1564,30 @@ namespace deren.editor {
             outliner.refresh(document, selection_state, outliner_filter);
             details?.refresh(document, selection_state, force_details);
             status_line.refresh(document, selection_state, notice);
+            update_history_buttons();
+        }
+
+        /// <summary>
+        /// Dims Undo/Redo while their history side is empty. The document bridge has no enable flag, so
+        /// the button is shown as unavailable and loses its pointer events; the styles are only written
+        /// when the state flips, because <see cref="refresh_panels"/> runs every frame.
+        /// </summary>
+        private void update_history_buttons() {
+            if (ui == null) {
+                return;
+            }
+            bool can_undo = undo_history?.can_undo == true;
+            bool can_redo = undo_history?.can_redo == true;
+            if (undo_button_state != can_undo) {
+                undo_button_state = can_undo;
+                ui.try_set_element_style("btn_undo", "color", can_undo ? "#e8e8e8" : "#6a6a6a");
+                ui.try_set_element_style("btn_undo", "pointer-events", can_undo ? "auto" : "none");
+            }
+            if (redo_button_state != can_redo) {
+                redo_button_state = can_redo;
+                ui.try_set_element_style("btn_redo", "color", can_redo ? "#e8e8e8" : "#6a6a6a");
+                ui.try_set_element_style("btn_redo", "pointer-events", can_redo ? "auto" : "none");
+            }
         }
 
         private void refresh_browser() {
@@ -1446,7 +1605,9 @@ namespace deren.editor {
                     node = null;
                     break;
                 }
-                locate_node(ancestor, out var parent, out _);
+                if (!try_parent(ancestor, out var parent)) {
+                    break;
+                }
                 if (parent != null) {
                     parent_world *= viewport_gizmo.local_matrix(parent.local);
                 }
@@ -1861,9 +2022,15 @@ namespace deren.editor {
                 }
                 if (behaviours == null && document != null) {
                     behaviours = new play_behaviours(Path.Combine(managed_bootstrap.project_directory, "scripts"));
-                    behaviours.attach_nodes(document.roots, frame->scene);
-                    if (animation_player.try_get_info(out _)) {
-                        animation_player.try_play();
+                    if (behaviours.try_attach_nodes(document.roots, frame->scene, out var attach_message)) {
+                        if (animation_player.try_get_info(out _)) {
+                            animation_player.try_play();
+                        }
+                    } else {
+                        // The instance stays assigned so a broken scene is not retried every frame;
+                        // every behaviour it attached was already detached in the failure path.
+                        host_logger.write(attach_message);
+                        notice = attach_message;
                     }
                 }
                 behaviours?.update(frame->delta_time);
@@ -1913,6 +2080,7 @@ namespace deren.editor {
             var directory = Path.Combine(AppContext.BaseDirectory, "captures");
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, $"editor-selftest-{Guid.NewGuid():N}.scene.toml");
+            var selftest_document = document;
             var original_path = document.path;
             try {
                 if (!document_io.try_save(document, path, out var save_error)) {
@@ -1974,6 +2142,43 @@ namespace deren.editor {
                     return selftest_failure("rename through the button path failed");
                 }
                 host_logger.write("Editor selftest: renamed the root through the button path");
+
+                // THE RUNTIME CAPS A NAME IN UTF-8 BYTES, not in characters, so the editor has to count
+                // bytes too: a name kept only in the document is silently lost by the next push.
+                if (apply_rename(new string('x', 300)) || root.name != "selftest-root") {
+                    return selftest_failure("a rename past the 256-byte name cap was accepted");
+                }
+                // 200 characters of a two-byte code point are 400 bytes: a character count would pass.
+                if (apply_rename(new string((char)0xE9, 200)) || root.name != "selftest-root") {
+                    return selftest_failure("a name over the byte cap passed on a character count");
+                }
+                // Exactly at the cap is allowed; one byte less in a multi-byte tail would be too few.
+                var cap_name = new string('y', 254) + "\u00e9";
+                if (scene_sync.name_utf8_byte_count(cap_name) != scene_sync.max_name_utf8_bytes) {
+                    return selftest_failure("the 256-byte name fixture is not 256 bytes");
+                }
+                if (!apply_rename(cap_name) || root.name != cap_name) {
+                    return selftest_failure("a name at the 256-byte cap was refused");
+                }
+                if (apply_detail_change(detail_field.name, new string('z', 300)) || root.name != cap_name) {
+                    return selftest_failure("the details name field bypassed the 256-byte cap");
+                }
+                if (!apply_rename("selftest-root") || root.name != "selftest-root") {
+                    return selftest_failure("the root could not be renamed back after the cap checks");
+                }
+                notice = string.Empty;
+                host_logger.write("Editor selftest: the 256-byte name cap is enforced before the runtime push");
+
+                // `--name=value` SPLITS AT THE FIRST '=' so a value may itself contain '=' (a scene
+                // path with a query, for example); splitting at the last one would break the switch.
+                split_argument("--scene=levels=/a.toml", out var argument_name, out var argument_value);
+                if (argument_name != "--scene" || argument_value != "levels=/a.toml") {
+                    return selftest_failure($"--scene=value split into '{argument_name}' and '{argument_value}'");
+                }
+                split_argument("--editor-selftest", out argument_name, out argument_value);
+                if (argument_name != "--editor-selftest" || argument_value != null) {
+                    return selftest_failure("a bare flag was parsed as a value");
+                }
 
                 root.visible = false;
                 root.flags = 5;
@@ -2148,7 +2353,12 @@ namespace deren.editor {
                 host_logger.write("Editor selftest: passed");
                 return script_status.success;
             } finally {
-                document.path = original_path;
+                // Only the document the test started with keeps its original path. A phase that creates
+                // a new scene replaces the document, and writing the old path onto the replacement would
+                // claim the new scene was saved to the old file.
+                if (ReferenceEquals(document, selftest_document)) {
+                    selftest_document.path = original_path;
+                }
                 try {
                     File.Delete(path);
                 } catch (Exception) {

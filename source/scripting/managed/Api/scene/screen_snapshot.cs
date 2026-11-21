@@ -12,6 +12,11 @@ namespace deren {
             api = *value;
         }
 
+        /// <summary>Drops the borrowed table: no request may reach a host that is tearing down.</summary>
+        internal static void shutdown() {
+            api = default;
+        }
+
         /// <summary>
         /// Requests a screenshot of the next rendered frame. The native side saves it under
         /// [paths] screenshot_dir with a timestamped name. Returns false when the host does not
@@ -22,6 +27,14 @@ namespace deren {
         }
 
         public static bool try_request(out script_status status) {
+            // THIS CALL GOES STRAIGHT TO native_api, NOT THROUGH scene_api, so it does not inherit the
+            // guard scene_api.is_ready applies: a non-blocking batch must still not reach host state
+            // the record pass is using, and the refusal must be counted like the other tables'.
+            if (!host_call_guard.host_calls_allowed) {
+                host_call_guard.note_refusal();
+                status = script_status.module_unavailable;
+                return false;
+            }
             var request = api.request_screenshot;
             if (request == null) {
                 status = script_status.module_unavailable;

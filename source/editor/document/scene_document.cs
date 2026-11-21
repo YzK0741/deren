@@ -30,6 +30,13 @@ internal sealed class scene_document
     /// True while the document has edits that are not saved.
     /// </summary>
     internal bool dirty { get; private set; }
+
+    /// <summary>
+    /// Bumped by every edit that marks the document dirty. Panels use it to notice a value change
+    /// that did not move the selection, such as a transform drag or an undo.
+    /// </summary>
+    internal int revision { get; private set; }
+
     private string? saved_content;
 
     /// <summary>
@@ -50,6 +57,7 @@ internal sealed class scene_document
     /// </summary>
     internal void mark_dirty()
     {
+        this.revision++;
         this.dirty = this.saved_content == null ||
             !document_io.try_serialize(this, out var current, out _) || current != this.saved_content;
     }

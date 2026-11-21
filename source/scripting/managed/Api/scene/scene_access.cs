@@ -30,6 +30,13 @@ namespace deren {
             if (status != script_status.success) {
                 return false;
             }
+            // A SUCCESS MUST CARRY A NODE: handle 0 is not a spawn result but the ABI's "nothing
+            // written", and a node_id built from it would be permanently invalid while every later
+            // call reported invalid_node instead of the real failure. Same rule as try_create_node.
+            if (handle.value == 0) {
+                status = script_status.script_failure;
+                return false;
+            }
             target = new node_id(handle, owner);
             return true;
         }

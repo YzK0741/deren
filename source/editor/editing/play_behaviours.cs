@@ -29,16 +29,40 @@ namespace deren.editor {
             }
         }
 
-        internal void attach_nodes(IReadOnlyList<document_node> nodes, ulong scene) {
+        /// <summary>
+        /// Attaches every declared behaviour. On failure the behaviours attached so far are detached
+        /// again, so a failed start never leaves a half-populated scene running.
+        /// </summary>
+        internal bool try_attach_nodes(IReadOnlyList<document_node> nodes, ulong scene, out string message) {
+            try {
+                attach_all(nodes, scene);
+            } catch (Exception error) {
+                message = $"Editor play: script attach failed ({error.GetBaseException().Message})";
+                detach_all();
+                return false;
+            }
+            message = string.Empty;
+            return true;
+        }
+
+        private void attach_all(IReadOnlyList<document_node> nodes, ulong scene) {
             foreach (var node in nodes) {
                 if (node.script != null) {
                     var behaviour = create(node.script);
-                    behaviour.attach(scene, node.runtime.handle);
+                    // Registered before attach, because a throw from attach or on_create must still
+                    // find the half-attached object and release its node.
                     attached.Add(behaviour);
-                    behaviour.on_create();
+                    try {
+                        behaviour.attach(scene, node.runtime.handle);
+                        behaviour.on_create();
+                    } catch {
+                        attached.Remove(behaviour);
+                        detach(behaviour, destroy: false);
+                        throw;
+                    }
                     host_logger.write($"Editor play: attached {node.script} to {node.name}");
                 }
-                attach_nodes(node.children, scene);
+                attach_all(node.children, scene);
             }
         }
 
@@ -70,18 +94,34 @@ namespace deren.editor {
             }
         }
 
-        public void Dispose() {
-            for (int index = attached.Count - 1; index >= 0; --index) {
-                var behaviour = attached[index];
+        /// <summary>
+        /// Releases one behaviour. Neither callback is trusted: a script that throws here must not stop
+        /// the remaining behaviours from being released.
+        /// </summary>
+        private static void detach(script_base behaviour, bool destroy) {
+            if (destroy) {
                 try {
                     behaviour.on_destroy();
                 } catch (Exception error) {
                     host_logger.write($"Editor play: script shutdown failed ({error.GetBaseException().Message})");
-                } finally {
-                    behaviour.detach();
                 }
             }
+            try {
+                behaviour.detach();
+            } catch (Exception error) {
+                host_logger.write($"Editor play: script detach failed ({error.GetBaseException().Message})");
+            }
+        }
+
+        private void detach_all() {
+            for (int index = attached.Count - 1; index >= 0; --index) {
+                detach(attached[index], destroy: true);
+            }
             attached.Clear();
+        }
+
+        public void Dispose() {
+            detach_all();
         }
     }
 }
