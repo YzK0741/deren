@@ -325,10 +325,15 @@ namespace deren::app {
         // project's initialize (see deren::project_config), so the C# game owns them and can move
         // them any frame. What stays native is what must exist before the project's scripts run:
         // the swapchain and its creation parameters, the shadow cascade/map sizing, the GPU-driven
-        // paths, the render scale, and the pipeline / toon stage selection below.
+        // paths, the render scale, the upscale filter that resolves it, and the pipeline / toon stage
+        // selection below.
         runtime.set_default_pipeline(settings.render.unlit ? "unlit" : "pbr");
         app_renderer.set_unlit(settings.render.unlit);
         app_renderer.set_gbuffer_channel(settings.render.gbuffer_channel);
+        // THE FILTER THAT RESOLVES THE SCALED CHAIN ([render] upscale). The key is documented and the
+        // pass has always taken a filter, but nothing ever handed the config's value over, so the frame
+        // was always resolved with EASU no matter what the file said - a setting that selected nothing.
+        app_renderer.set_upscale_filter(settings.render.upscale);
         runtime.set_character_forward(settings.render.character_forward);
         runtime.set_game_toon(settings.render.game_toon);
 
