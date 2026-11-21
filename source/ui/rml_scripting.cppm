@@ -180,8 +180,7 @@ export namespace deren::ui {
                 ++active->pointer_cursor;
                 return status::invalid_argument;
             }
-            auto const type = event.type == pointer_type::down ? 3U : event.type == pointer_type::move ? 4U
-                                                                                                       : 5U;
+            auto const type = 3U + static_cast<std::uint32_t>(event.type);
             *result = {type, static_cast<std::uint32_t>(event.id.size()), 0, event.x, event.y, event.button, event.modifiers};
             if (!buffer) {
                 return capacity == 0 ? status::success : status::invalid_argument;

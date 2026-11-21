@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace deren.editor {
     /// <summary>
@@ -12,11 +13,14 @@ namespace deren.editor {
         internal const int tile_capacity = 24;
 
         private readonly rml_document ui;
+        private readonly asset_thumbnail_cache thumbnails;
+        private readonly string?[] displayed_thumbnails = new string?[tile_capacity];
         private readonly List<string> visible = new(tile_capacity);
         private string selected = string.Empty;
 
-        internal content_browser_panel(rml_document ui) {
+        internal content_browser_panel(rml_document ui, asset_thumbnail_cache thumbnails) {
             this.ui = ui;
+            this.thumbnails = thumbnails;
         }
 
         /// <summary>Asset id of the last picked tile, or an empty string when nothing is picked.</summary>
@@ -46,6 +50,23 @@ namespace deren.editor {
             selected = string.Empty;
         }
 
+        private void update_thumbnail(int tile, string asset) {
+            var path = thumbnails.path_for(asset);
+            string? image = File.Exists(path) ? path : null;
+            if (displayed_thumbnails[tile] == image) {
+                return;
+            }
+            var slot = $"asset_{tile}";
+            var image_id = $"{slot}_image";
+            bool shown = image != null && ui.set_value(image_id, $"thumbnails/{Path.GetFileName(image)}");
+            ui.try_set_element_style(image_id, "display", shown ? "block" : "none");
+            if (!shown) {
+                ui.set_value(image_id, string.Empty);
+            }
+            ui.set_visible($"{slot}_placeholder", !shown);
+            displayed_thumbnails[tile] = shown ? image : null;
+        }
+
         /// <summary>Rewrites every slot from the asset library and the search filter.</summary>
         internal void refresh(IReadOnlyList<string> assets, string filter) {
             visible.Clear();
@@ -66,6 +87,7 @@ namespace deren.editor {
                 ui.try_set_element_style(slot, "display", "block");
                 ui.try_set_element_style(slot, "background-color", id == selected ? "#224c78" : "#2d2d2d");
                 ui.set_text($"{slot}_name", id);
+                update_thumbnail(tile, id);
                 ui.try_set_element_style(slot, "border-color", id == selected ? "#0070e0" : "#3c3c3c");
             }
             ui.set_text("browser_count", $"{visible.Count} / {assets.Count} asset(s)");

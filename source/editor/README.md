@@ -69,33 +69,60 @@ column with the World Outliner above the Details panel. The three splitters (`sp
 the id of the nearest element with one, and `editor_host` resizes the neighbouring panel by writing
 `width`/`height` in dp through `try_set_element_style`. The bottom dock switches between the Content
 Browser and Output Log tabs by toggling the visibility of both bodies; there is no tab tearing, dock
-dragging or floating window. Picking (a click resolving to a node) and gizmos are not implemented: the
-outliner still selects and the details panel still transforms.
+dragging or floating window. A viewport click picks the nearest visible asset bounds or clears the
+selection on a miss. The outliner and Details panel share that selection. Use the Details panel to
+edit the selected node's transform.
 
 ## Editor shell additions
 
 - **Menu bar.** `File` (New Scene, Save Scene), `Edit` (Undo, Redo, Delete Node, Rename Node),
   `Window` (World Outliner, Details, Content Browser) and `Help` (About). The four dropdowns are
   authored once in `ui/editor.rml` and toggled by `visibility`; a click on any non-menu element closes
-  them first. The Window entries toggle a panel with `display: none`/`block` (the details and browser
-  bodies are `flex`), so hiding a panel does not leave its column reserved.
+  them first. The Window entries toggle a panel with its authored display value (`flex` for the
+  outliner and the content browser column, `block` for the details body) and hide the splitter that
+  only mattered while both neighbours were visible, so hiding a panel does not leave its space
+  reserved and the remaining handle cannot resize an invisible column.
+- **Borderless caption.** With `[render] borderless_window = true` in the project's `main.toml` the
+  editor window is created without the system frame and draws its own caption: `#win_minimize`,
+  `#win_maximize` and `#win_close` at the right of the menu bar, a press-and-drag on the empty menu
+  bar strip (or the brand/project label) moves the window through the system move loop, and a second
+  press inside the double-click window maximises or restores it. All of it goes through
+  `deren.window_control` (ABI 43), not through faked window state: the buttons forward to the real
+  window, and the close button runs the same unsaved-changes prompt as New Scene before it asks the
+  window to close. The window is resizable from its edges because the caption installs a thin
+  hit-test band; maximising honours the monitor work area. The default is off, so other projects keep
+  their decorated window and the dark `dark_window_frame` frame.
 - **Content browser.** `asset_manager.list()` is read once at startup and rendered into the 24 authored
   tiles (`asset_0` .. `asset_23`); `#browser_search` filters the id list (`OrdinalIgnoreCase`) and
   `#browser_count` reports "shown / total". A tile click moves a `#4a9eff` border to that tile and
-  writes `asset: <id>` into the status bar. Tiles use placeholder glyphs instead of thumbnails;
+  writes `asset: <id>` into the status bar. **Build Thumbnail** renders the selected asset offscreen
+  and caches the resulting image in the editor output's `ui/thumbnails` folder. An asset without a
+  cached image shows a placeholder glyph.
   double-click adds the asset as a root node at the origin, selects it, and records an undoable edit.
 - **World Outliner.** `#outliner_search` keeps a node when its own name or any descendant name contains
   the filter, so typing a child still reveals its parent chain; the selected row is still marked with
   a `"> "` prefix. Each row has a `#row_N_vis` glyph that toggles the runtime node's visibility (and
   records one `Show Node`/`Hide Node` undo command).
-- **Viewport toolbar.** `Select`/`Move`/`Rotate`/`Scale` highlight the active tool button and report
-  `tool: <name>` in the status bar; they do not change the gizmo yet because there is no gizmo.
+- **Scene files.** File > Open Scene and Save Scene As accept an absolute path or a path relative to
+  the project's scenes folder. Opening a scene with unsaved edits prompts before replacing it.
+  Undo and redo update the dirty indicator relative to the most recent save.
+- **Asset placement.** Drag an asset tile into the viewport to place it on the construction plane.
+  Click Pipeline in Details to change between the selected asset's supported pipelines.
+- **Play / Stop.** Play starts a separate renderer process from a temporary copy of the scene and
+  the editor camera. It runs bundled animation and optional node scripts. Stop closes the play
+  process and returns to the editor with the open document and undo history intact.
+- **Viewport toolbar.** `Move`, `Rotate` and `Scale` expose X/Y/Z handles at the selected node's
+  pivot. Drag along the handle to move or scale, or across the handle to rotate. `World`/`Local`
+  switches the move and rotate axes. Scale uses the node's local axes. Each drag records one undo
+  entry. Esc or loss of pointer focus cancels the drag.
 - **Status bar.** The notice suffix (`tool:`, `asset:`, the About line) is set by these interactions and
   cleared by the next click, on top of the existing `dirty`, node count and selection fields.
 
 `--editor-selftest` exercises the same handlers in-process (the shell is not interactive yet when it
 runs): outliner filtering and the visibility glyph, asset selection from a tile and from its label, the
-viewport tool highlight, opening/closing a menu and both dock tabs.
+viewport tool highlight, opening/closing a menu and both dock tabs, and the Window-menu panel toggles
+(the layout shots check that a hidden panel really releases its column and that showing it again
+restores the same boxes). The caption buttons need a real window and are verified by hand.
 
 ## Layout
 
@@ -146,15 +173,23 @@ block per node in depth-first order, where a parent always appears before its ch
 `uid` and `name` are required; `parent` (a parent uid), `asset`, and `pipeline` are optional. Floats
 are written so they round-trip exactly.
 
+To attach a C# behaviour, build a DLL against `Deren.Managed` and put it and its managed
+dependencies in the built editor's `scripts` folder. In Details, set the node's **Script**
+value to `YourAssembly.dll:your_namespace.your_behaviour`. The type derives from `script_base`
+and has a public parameterless constructor. Play calls `on_create`, `on_update` and
+`on_destroy` in the play process. The declaration is optional and is saved as `script` in
+the scene file.
+
 ## Limits
 
 One open document, 64 visible outliner rows, 24 asset tiles, a fixed set of details rows (no
-add/remove property, no asset picker), no viewport picking or gizmo, no Play/Stop, and the Output Log
+add/remove property, no asset picker), and the Output Log
 body is still a placeholder (no engine log feed). The content browser supports double-click placement but has no
-rendered thumbnail, asset rename, file import or drag-to-scene. The shell is a fixed five-region layout with draggable
-splitters, not a dock system: panels cannot be undocked, torn out, tabbed into each other or floated,
-and the Window menu only hides and shows the three authored panels. Those are the next milestones; the
-document model, `scene_sync` and the snapshot undo commands are the seams they will attach to.
+asset rename or file import. The Window menu moves the sidebar between left and right, puts the
+browser and log dock above or below the viewport, and swaps the order of Outliner and Details.
+Splitters keep working in each arrangement. Panel sizes and positions are saved in the editor
+output's `editor-layout.json`. Reset Layout restores the default arrangement. The panels are docked
+inside the editor window.
 
 ## Visual style
 
@@ -178,3 +213,8 @@ Selecting this pipeline enables the character/game-toon stages even if the edito
 Editor imports pause bundled animation before the next frame, including reload/redo; they remain
 at the selected clip's initial frame rather than starting playback. Game projects retain their
 existing playback behavior. Use `--editor-selftest-asset laevatain` to exercise this path.
+
+
+The viewport supports right-drag to orbit, middle-drag to pan, and the scroll wheel to zoom.
+Select a node and press F or click Focus to frame its visible assets, including child nodes.
+A node without visible assets focuses its world-space pivot.

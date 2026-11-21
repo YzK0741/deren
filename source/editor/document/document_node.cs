@@ -35,6 +35,9 @@ internal sealed class document_node
     /// </summary>
     internal string? pipeline;
 
+    /// <summary>The optional assembly.dll:Namespace.Type behaviour played on this node.</summary>
+    internal string? script;
+
     /// <summary>
     /// The local transform relative to the parent node.
     /// </summary>

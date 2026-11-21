@@ -224,6 +224,7 @@ namespace deren::app {
             std::array<float, 3> import_shift{};
             std::array<float, 3> scene_center{};
             float scene_radius = 0.0f;
+            glm::vec3 bounds_half_extent{};
             std::string default_pipeline;
             utility::vessel::vector<std::string> pipelines;
             unsigned references = 0;
@@ -232,6 +233,8 @@ namespace deren::app {
         /** Marks a bind_asset() wrapper root and remembers the pipelines it may switch to. */
         struct pipeline_binding {
             utility::vessel::vector<std::string> pipelines;
+            glm::vec3 bounds_center{};
+            glm::vec3 bounds_half_extent{};
         };
 
         struct asset_state {
@@ -1393,6 +1396,16 @@ namespace deren::app {
         }
         *table = nullptr;
         *byte_size = 0;
+        if (module == static_cast<std::uint32_t>(scripting::native_module::node_bounds)) {
+            struct node_bounds_api {
+                decltype(&script_scene::query_node_bounds) query;
+                decltype(&script_scene::pick_node) pick;
+            };
+            static node_bounds_api const bounds{query_node_bounds, pick_node};
+            *table = &bounds;
+            *byte_size = sizeof(bounds);
+            return scripting::script_status::success;
+        }
         if (module == static_cast<std::uint32_t>(scripting::native_module::rml_ui)) {
             auto const* owner = current_owner();
             if (!owner || !owner->document_ui) {
@@ -1499,7 +1512,12 @@ namespace deren::app {
             .set_toon_rig = set_toon_rig,
             .get_toon_rig = get_toon_rig,
             .set_node_name = set_node_name,
-            .set_scene_aspect = set_scene_aspect};
+            .set_scene_aspect = set_scene_aspect,
+            .window_minimize = window_minimize,
+            .window_toggle_maximize = window_toggle_maximize,
+            .window_is_maximized = window_is_maximized,
+            .window_close = window_close,
+            .window_begin_drag = window_begin_drag};
         *table = &scene_api;
         *byte_size = sizeof(scene_api);
         return scripting::script_status::success;
@@ -1669,6 +1687,122 @@ namespace deren::app {
             return scripting::script_status::invalid_node;
         }
         *node = handle;
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::pick_node(std::uint64_t tree, scripting::vector_3 const* origin,
+                                                     scripting::vector_3 const* direction,
+                                                     scripting::node_handle* hit) {
+        if (!origin || !direction || !hit) {
+            return scripting::script_status::invalid_argument;
+        }
+        *hit = {};
+        auto const* scene = find_managed_tree(tree);
+        if (!scene) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto const finite_vector = [](glm::vec3 const& vector) {
+            return std::isfinite(vector.x) && std::isfinite(vector.y) && std::isfinite(vector.z);
+        };
+        glm::vec3 const ray_origin{origin->x, origin->y, origin->z};
+        glm::vec3 const ray_direction{direction->x, direction->y, direction->z};
+        if (!finite_vector(ray_origin) || !finite_vector(ray_direction) ||
+            glm::dot(ray_direction, ray_direction) == 0.0F) {
+            return scripting::script_status::invalid_argument;
+        }
+
+        auto nearest = std::numeric_limits<float>::infinity();
+        auto visit = [&](auto&& self, engine::scene_tree::scene_node const& node, glm::mat4 const& parent) -> void {
+            if (!node.visible) {
+                return;
+            }
+            glm::mat4 const world = parent * node.local;
+            if (auto const* bound = engine::scene_tree::components().try_get<pipeline_binding>(node.node_id);
+                bound && glm::determinant(world) != 0.0F) {
+                glm::mat4 const inverse = glm::inverse(world);
+                glm::vec3 const local_origin = glm::vec3(inverse * glm::vec4(ray_origin, 1.0F)) - bound->bounds_center;
+                // Keep the direction unnormalized so the ray parameter is comparable across nodes.
+                glm::vec3 const local_direction = glm::vec3(inverse * glm::vec4(ray_direction, 0.0F));
+                float entry = 0.0F;
+                float exit = nearest;
+                for (int axis = 0; axis < 3 && entry <= exit; ++axis) {
+                    float const extent = bound->bounds_half_extent[axis];
+                    float const start = local_origin[axis];
+                    float const travel = local_direction[axis];
+                    if (travel == 0.0F) {
+                        if (std::abs(start) > extent) {
+                            exit = -1.0F;
+                        }
+                        continue;
+                    }
+                    float const first = (-extent - start) / travel;
+                    float const last = (extent - start) / travel;
+                    entry = std::max(entry, std::min(first, last));
+                    exit = std::min(exit, std::max(first, last));
+                }
+                if (entry <= exit && entry < nearest &&
+                    finite_vector(local_origin) && finite_vector(local_direction)) {
+                    nearest = entry;
+                    *hit = to_handle(node.node_id);
+                }
+            }
+            for (auto const& child : node.children) {
+                self(self, child, world);
+            }
+        };
+        for (auto const& root : scene->roots) {
+            visit(visit, root, glm::mat4{1.0F});
+        }
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::query_node_bounds(std::uint64_t tree, scripting::node_handle node,
+                                                             scripting::vector_3* center, float* radius) {
+        if (!center || !radius) {
+            return scripting::script_status::invalid_argument;
+        }
+        auto const* scene = find_managed_tree(tree);
+        if (!scene) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto const id = to_entity(node);
+        glm::vec3 low{}, high{}, pivot{};
+        bool found = false;
+        bool has_bounds = false;
+        auto collect = [&](auto&& self, engine::scene_tree::scene_node const& current,
+                           glm::mat4 const& parent, bool selected, bool visible) -> void {
+            glm::mat4 const world = parent * current.local;
+            if (current.node_id == id) {
+                pivot = glm::vec3(world[3]);
+                found = true;
+                selected = true;
+            }
+            visible = visible && current.visible;
+            if (selected && visible) {
+                if (auto const* bound = engine::scene_tree::components().try_get<pipeline_binding>(current.node_id);
+                    bound && glm::dot(bound->bounds_half_extent, bound->bounds_half_extent) > 0.0F) {
+                    glm::vec3 const c = glm::vec3(world * glm::vec4(bound->bounds_center, 1.0F));
+                    glm::vec3 const extent = glm::abs(glm::vec3(world[0])) * bound->bounds_half_extent.x +
+                                             glm::abs(glm::vec3(world[1])) * bound->bounds_half_extent.y +
+                                             glm::abs(glm::vec3(world[2])) * bound->bounds_half_extent.z;
+                    low = has_bounds ? glm::min(low, c - extent) : c - extent;
+                    high = has_bounds ? glm::max(high, c + extent) : c + extent;
+                    has_bounds = true;
+                }
+            }
+            for (auto const& child : current.children) {
+                self(self, child, world, selected, visible);
+            }
+        };
+        for (auto const& root : scene->roots) {
+            collect(collect, root, glm::mat4{1.0F}, false, true);
+        }
+        if (!found) {
+            return scripting::script_status::invalid_node;
+        }
+        glm::vec3 const target = has_bounds ? (low + high) * 0.5F : pivot;
+        *center = {.x = target.x, .y = target.y, .z = target.z};
+        *radius = has_bounds ? glm::length(high - low) * 0.5F : 0.0F;
         return scripting::script_status::success;
     }
 
@@ -1876,6 +2010,75 @@ namespace deren::app {
         }
         return owner->host.set_scene_aspect(owner->host.context, aspect) ? scripting::script_status::success
                                                                          : scripting::script_status::script_failure;
+    }
+
+    // ABI 43: the request window controls. All five forward to the app's window; a missing host entry
+    // or a host without a window (offscreen capture) is module_unavailable, so a managed UI can tell
+    // "this project cannot move the window" apart from "the call failed".
+    scripting::script_status script_scene::window_minimize() {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.window_minimize == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.window_minimize(owner->host.context) ? scripting::script_status::success
+                                                                : scripting::script_status::module_unavailable;
+    }
+
+    scripting::script_status script_scene::window_toggle_maximize() {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.window_toggle_maximize == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.window_toggle_maximize(owner->host.context) ? scripting::script_status::success
+                                                                       : scripting::script_status::module_unavailable;
+    }
+
+    scripting::script_status script_scene::window_is_maximized(std::uint8_t* const maximized) {
+        if (maximized == nullptr) {
+            return scripting::script_status::invalid_argument;
+        }
+        *maximized = 0;
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.window_is_maximized == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.window_is_maximized(owner->host.context, maximized) ? scripting::script_status::success
+                                                                               : scripting::script_status::module_unavailable;
+    }
+
+    scripting::script_status script_scene::window_close() {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.window_close == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        return owner->host.window_close(owner->host.context) ? scripting::script_status::success
+                                                             : scripting::script_status::module_unavailable;
+    }
+
+    scripting::script_status script_scene::window_begin_drag() {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        if (owner->host.window_begin_drag == nullptr) {
+            return scripting::script_status::module_unavailable;
+        }
+        // The call blocks until the native move loop ends; a false answer means this platform has no
+        // such loop, which is a capability gap rather than a failed request.
+        return owner->host.window_begin_drag(owner->host.context) ? scripting::script_status::success
+                                                                  : scripting::script_status::module_unavailable;
     }
 
     scripting::script_status script_scene::get_node_flags(std::uint64_t const tree, scripting::node_handle const node,
@@ -2172,6 +2375,7 @@ namespace deren::app {
                                                  .import_shift = import_shift,
                                                  .scene_center = scene_center,
                                                  .scene_radius = cloud_radius,
+                                                 .bounds_half_extent = (high - low) * 0.5F,
                                                  .default_pipeline = {},
                                                  .pipelines = {},
                                                  .references = 1});
@@ -2317,6 +2521,7 @@ namespace deren::app {
             .import_shift = import_shift,
             .scene_center = scene_center,
             .scene_radius = radius,
+            .bounds_half_extent = (bounds.max - bounds.min) * 0.5F,
             .default_pipeline = entry->default_pipeline,
             .pipelines = std::move(pipelines),
             .references = 1});
@@ -2380,8 +2585,13 @@ namespace deren::app {
             scene->destroy_node(wrapper->node_id);
             return scripting::script_status::invalid_node;
         }
-        if (engine::scene_tree::components().try_emplace<pipeline_binding>(to_entity(wrapper_handle),
-                                                                           pipeline_binding{source->pipelines}) == nullptr) {
+        glm::vec3 center{source->scene_center[0], source->scene_center[1], source->scene_center[2]};
+        if (source->cloud) {
+            // Clouds are staged without the model import's centering shift.
+            center -= glm::vec3{source->import_shift[0], source->import_shift[1], source->import_shift[2]};
+        }
+        if (engine::scene_tree::components().try_emplace<pipeline_binding>(
+                to_entity(wrapper_handle), pipeline_binding{source->pipelines, center, source->bounds_half_extent}) == nullptr) {
             scene->destroy_node(wrapper->node_id);
             return scripting::script_status::invalid_node;
         }

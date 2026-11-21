@@ -125,7 +125,8 @@ export namespace deren::app {
     // The application's complete GLFW surface: window lifecycle, queries and input callbacks.
     // The engine only receives native_handle(); it never owns a window.
     struct glfw_window {
-        glfw_window(int width, int height, char const* title, bool visible, bool offscreen = false, [[maybe_unused]] bool dark_frame = false)
+        glfw_window(int width, int height, char const* title, bool visible, bool offscreen = false, [[maybe_unused]] bool dark_frame = false,
+                    [[maybe_unused]] bool borderless = false)
             : window_(nullptr) {
             if (offscreen) {
                 return;
@@ -136,12 +137,20 @@ export namespace deren::app {
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
             glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+            if (borderless) {
+                // An undecorated window has no system caption or resize frame; the subclass installed
+                // below gives it back the resize band and lets the managed UI draw its own caption.
+                glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+            }
             window_ = glfwCreateWindow(width, height, title, nullptr, nullptr);
             if (window_ == nullptr) {
                 deren::utility::panic("glfwCreateWindow failed");
             }
 #ifdef _WIN32
-            if (dark_frame) {
+            if (borderless) {
+                install_borderless_frame();
+                borderless_ = true;
+            } else if (dark_frame) {
                 auto const hwnd = glfwGetWin32Window(window_);
                 BOOL const dark = TRUE;
                 COLORREF const caption = RGB(21, 21, 21);
@@ -165,6 +174,11 @@ export namespace deren::app {
 
         ~glfw_window() {
             if (window_ != nullptr) {
+#ifdef _WIN32
+                if (borderless_) {
+                    remove_borderless_frame();
+                }
+#endif
                 glfwDestroyWindow(window_);
                 glfwTerminate();
             }
@@ -172,6 +186,55 @@ export namespace deren::app {
 
         GLFWwindow* native_handle() const noexcept {
             return window_;
+        }
+
+        /// Hides the window in the taskbar the way the system minimize button does.
+        void minimize_window() const noexcept {
+            if (window_ != nullptr) {
+                glfwIconifyWindow(window_);
+            }
+        }
+
+        /// Maximizes a restored window and restores a maximized one.
+        void toggle_maximize_window() const noexcept {
+            if (window_ == nullptr) {
+                return;
+            }
+            if (glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE) {
+                glfwRestoreWindow(window_);
+            } else {
+                glfwMaximizeWindow(window_);
+            }
+        }
+
+        bool is_maximized_window() const noexcept {
+            return window_ != nullptr && glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
+        }
+
+        /// Asks the main loop to stop, exactly like the window's own close request.
+        void request_close() const noexcept {
+            if (window_ != nullptr) {
+                glfwSetWindowShouldClose(window_, GLFW_TRUE);
+            }
+        }
+
+        /// Hands a caption-area press to the system move loop, so the window follows the pointer
+        /// until the button comes up. This call blocks for the duration of the drag.
+        bool begin_window_drag() const noexcept {
+#ifdef _WIN32
+            if (window_ == nullptr) {
+                return false;
+            }
+            auto const hwnd = glfwGetWin32Window(window_);
+            if (hwnd == nullptr) {
+                return false;
+            }
+            ReleaseCapture();
+            SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            return true;
+#else
+            return false;
+#endif
         }
 
         void window_size(int& width, int& height) const noexcept {
@@ -214,6 +277,161 @@ export namespace deren::app {
 
     private:
         GLFWwindow* window_;
+        bool borderless_ = false;
+
+#ifdef _WIN32
+        // The subclassed window procedure and the procedure it replaced. A subclass keeps working
+        // after its GLFWwindow is destroyed (the HWND is gone, so in practice it never runs again),
+        // which is why the slot is only cleared when the state moves out of the table here.
+        struct frame_state {
+            HWND hwnd;
+            WNDPROC previous;
+        };
+
+        static constexpr unsigned frame_capacity = 4;
+
+        static frame_state* find_frame(HWND hwnd) noexcept {
+            for (unsigned index = 0; index < frame_count; ++index) {
+                if (frames[index].hwnd == hwnd) {
+                    return &frames[index];
+                }
+            }
+            return nullptr;
+        }
+
+        // THE CLIENT RECT THIS PROCEDURE ANSWERS WITH, decided by the PROPOSED WINDOW RECT alone.
+        // A maximized window with a resize frame is inflated past the screen edges, so its client stops
+        // at the monitor work area and keeps the content fully visible. Anything smaller is the proposed
+        // rect itself: the client covers the whole window. THE ZOOM STATE IS DELIBERATELY NOT CONSULTED
+        // (no IsZoomed): ShowWindow(SW_RESTORE) sends WM_NCCALCSIZE while the window still answers
+        // IsZoomed() == true, and trusting that answer left a restored window with a MAXIMIZED-SIZE
+        // CLIENT - bigger than the window it belonged to - so the UI stayed laid out for the old extent
+        // and the window showed only its top-left corner, with no resize ever reported to the swapchain.
+        static RECT borderless_client_rect(RECT const& proposed) noexcept {
+            MONITORINFO monitor_info{};
+            monitor_info.cbSize = sizeof(monitor_info);
+            HMONITOR const monitor = MonitorFromRect(&proposed, MONITOR_DEFAULTTONEAREST);
+            if (GetMonitorInfoW(monitor, &monitor_info) == 0) {
+                return proposed;
+            }
+            RECT const work = monitor_info.rcWork;
+            bool const covers_work_area =
+                proposed.left <= work.left && proposed.top <= work.top && proposed.right >= work.right && proposed.bottom >= work.bottom;
+            return covers_work_area ? work : proposed;
+        }
+
+        // THE FRAME THE SYSTEM CANNOT DRAW: an undecorated window has no caption, no resize border
+        // and no maximize animation, so this procedure hands those behaviours back. The client covers
+        // the whole window (WM_NCCALCSIZE), the window keeps WS_THICKFRAME for resizing and the
+        // taskbar, and WM_NCHITTEST defines the 6 dp band the user can grab.
+        static LRESULT CALLBACK frame_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+            frame_state* state = find_frame(hwnd);
+            if (state == nullptr) {
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            }
+            switch (message) {
+            case WM_NCCALCSIZE: {
+                if (wparam == FALSE) {
+                    // lParam is a plain RECT holding the proposed window rect: turn it into the client.
+                    RECT window_rect{};
+                    GetWindowRect(hwnd, &window_rect);
+                    *reinterpret_cast<RECT*>(lparam) = borderless_client_rect(window_rect);
+                    return 0;
+                }
+                auto* parameters = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+                // THE PROPOSED RECT IS rgrc[0], NOT rgrc[1]. rgrc[0] is the NEW window rectangle,
+                // rgrc[1] is the OLD one and rgrc[2] the old client. Answering with rgrc[1] left the
+                // client one resize behind, which looked harmless while the user kept resizing and
+                // became the reported bug on a restore: the client stayed at the maximized size, the
+                // document kept the old extent, and the window showed only its top-left corner with no
+                // out-of-date ever reported to the swapchain.
+                RECT const proposed = parameters->rgrc[0];
+                parameters->rgrc[0] = borderless_client_rect(proposed);
+                return 0;
+            }
+            case WM_NCHITTEST: {
+                LRESULT const result = CallWindowProcW(state->previous, hwnd, message, wparam, lparam);
+                if (result != HTCLIENT || IsZoomed(hwnd) != 0) {
+                    return result;
+                }
+                int const border = 6;
+                int const x = static_cast<short>(static_cast<unsigned short>(lparam & 0xFFFFU));
+                int const y = static_cast<short>(static_cast<unsigned short>((lparam >> 16) & 0xFFFFU));
+                RECT rect{};
+                GetWindowRect(hwnd, &rect);
+                bool const left = x >= rect.left && x < rect.left + border;
+                bool const right = x < rect.right && x >= rect.right - border;
+                bool const top = y >= rect.top && y < rect.top + border;
+                bool const bottom = y < rect.bottom && y >= rect.bottom - border;
+                if (top && left) {
+                    return HTTOPLEFT;
+                }
+                if (top && right) {
+                    return HTTOPRIGHT;
+                }
+                if (bottom && left) {
+                    return HTBOTTOMLEFT;
+                }
+                if (bottom && right) {
+                    return HTBOTTOMRIGHT;
+                }
+                if (left) {
+                    return HTLEFT;
+                }
+                if (right) {
+                    return HTRIGHT;
+                }
+                if (top) {
+                    return HTTOP;
+                }
+                if (bottom) {
+                    return HTBOTTOM;
+                }
+                return HTCLIENT;
+            }
+            default:
+                return CallWindowProcW(state->previous, hwnd, message, wparam, lparam);
+            }
+        }
+
+        void install_borderless_frame() noexcept {
+            auto const hwnd = glfwGetWin32Window(window_);
+            if (hwnd == nullptr || frame_count >= frame_capacity || find_frame(hwnd) != nullptr) {
+                return;
+            }
+            // An undecorated GLFW window is WS_POPUP: it has no resize frame and no taskbar entry.
+            // The thick frame supplies both; the subclass above hides what it would otherwise draw.
+            auto const style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            SetWindowLongPtrW(hwnd, GWL_STYLE,
+                              style | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+            auto const previous = reinterpret_cast<WNDPROC>(
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&glfw_window::frame_proc)));
+            frames[frame_count] = frame_state{.hwnd = hwnd, .previous = previous};
+            ++frame_count;
+            // The style change invalidates the frame; recompute it now so the first frame is correct.
+            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
+        void remove_borderless_frame() noexcept {
+            auto const hwnd = glfwGetWin32Window(window_);
+            frame_state* state = find_frame(hwnd);
+            if (state == nullptr) {
+                return;
+            }
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(state->previous));
+            // Compact the table: the last slot takes this one's place and the tail is cleared.
+            auto const slot = static_cast<unsigned>(state - frames);
+            for (unsigned index = slot; index + 1 < frame_count; ++index) {
+                frames[index] = frames[index + 1];
+            }
+            --frame_count;
+            frames[frame_count] = frame_state{};
+        }
+
+        inline static frame_state frames[frame_capacity] = {};
+        inline static unsigned frame_count = 0;
+#endif
     };
 
     // The app owns one GLFW window. The GUI chains these callbacks and restores them on teardown.

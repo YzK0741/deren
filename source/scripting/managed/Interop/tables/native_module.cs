@@ -3,6 +3,7 @@ namespace deren.scripting {
         scene = 1,
         ui = 2,
         audio = 3,
-        rml_ui = 4
+        rml_ui = 4,
+        node_bounds = 5
     }
 }

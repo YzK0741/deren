@@ -113,6 +113,20 @@ int main() {
         }
     }
     CHECK(inside);
+    CHECK(document.set_style("corner", "transform", "rotate(90deg)") == style_status::success);
+    float min_x = 640.0F, min_y = 480.0F, max_x = 0.0F, max_y = 0.0F;
+    for (auto const& draw : document.paint(640, 480)) {
+        for (auto const& vertex : draw.vertices) {
+            float const x = vertex.x + draw.offset_x;
+            float const y = vertex.y + draw.offset_y;
+            min_x = std::min(min_x, x);
+            min_y = std::min(min_y, y);
+            max_x = std::max(max_x, x);
+            max_y = std::max(max_y, y);
+        }
+    }
+    CHECK(std::abs(max_x - min_x - 60.0F) < 0.1F);
+    CHECK(std::abs(max_y - min_y - 120.0F) < 0.1F);
     document.close();
     CHECK(second.open(demo / "hud.rml", demo / "LatoLatin-Regular.ttf"));
     second.close();

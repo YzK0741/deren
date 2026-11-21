@@ -185,6 +185,14 @@ namespace deren.scripting {
         private static delegate* unmanaged<ulong, node_handle, utf8_view, script_status> set_node_name;
         // ABI 41: the projection aspect the scene is rendered with; optional like the entries above.
         private static delegate* unmanaged<float, script_status> set_scene_aspect;
+        // ABI 43: the application window. A borderless project draws its own caption, so the managed
+        // UI owns the minimise, maximise/restore and close buttons and the drag area. Optional; a
+        // host without a window answers module_unavailable.
+        private static delegate* unmanaged<script_status> window_minimize;
+        private static delegate* unmanaged<script_status> window_toggle_maximize;
+        private static delegate* unmanaged<byte*, script_status> window_is_maximized;
+        private static delegate* unmanaged<script_status> window_close;
+        private static delegate* unmanaged<script_status> window_begin_drag;
 
         internal static bool is_ready() {
             if (!host_call_guard.host_calls_allowed) {
@@ -272,6 +280,11 @@ namespace deren.scripting {
             get_toon_rig = null;
             set_node_name = null;
             set_scene_aspect = null;
+            window_minimize = null;
+            window_toggle_maximize = null;
+            window_is_maximized = null;
+            window_close = null;
+            window_begin_drag = null;
 
             void* table = null;
             uint byte_size = 0;
@@ -365,6 +378,11 @@ namespace deren.scripting {
             get_toon_rig = resolved.get_toon_rig;
             set_node_name = resolved.set_node_name;
             set_scene_aspect = resolved.set_scene_aspect;
+            window_minimize = resolved.window_minimize;
+            window_toggle_maximize = resolved.window_toggle_maximize;
+            window_is_maximized = resolved.window_is_maximized;
+            window_close = resolved.window_close;
+            window_begin_drag = resolved.window_begin_drag;
             return script_status.success;
         }
 
@@ -760,6 +778,38 @@ namespace deren.scripting {
                 ? set_scene_aspect(aspect)
                 : script_status.module_unavailable;
         }
+
+        // ---- ABI 43: the application window -------------------------------------------------------
+
+        internal static script_status request_window_minimize() {
+            return is_ready() && window_minimize != null
+                ? window_minimize()
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status request_window_toggle_maximize() {
+            return is_ready() && window_toggle_maximize != null
+                ? window_toggle_maximize()
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status query_window_is_maximized(byte* maximized) {
+            return is_ready() && window_is_maximized != null
+                ? window_is_maximized(maximized)
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status request_window_close() {
+            return is_ready() && window_close != null
+                ? window_close()
+                : script_status.module_unavailable;
+        }
+
+        internal static script_status request_window_begin_drag() {
+            return is_ready() && window_begin_drag != null
+                ? window_begin_drag()
+                : script_status.module_unavailable;
+        }
     }
 
     /// <summary>
@@ -855,6 +905,13 @@ namespace deren.scripting {
         // ABI 41: the projection aspect the scene is rendered with. The render still covers the window;
         // the projection is built for the shape the game stretches the image to. 0 restores the window's.
         public delegate* unmanaged<float, script_status> set_scene_aspect;
+        // ABI 43: the application window for a project that draws its own caption. All five are
+        // optional like the entries above; a host without a window answers module_unavailable.
+        public delegate* unmanaged<script_status> window_minimize;
+        public delegate* unmanaged<script_status> window_toggle_maximize;
+        public delegate* unmanaged<byte*, script_status> window_is_maximized;
+        public delegate* unmanaged<script_status> window_close;
+        public delegate* unmanaged<script_status> window_begin_drag;
 
         public readonly bool is_valid() {
             return get_transform != null && set_transform != null && try_spawn != null && try_despawn != null &&

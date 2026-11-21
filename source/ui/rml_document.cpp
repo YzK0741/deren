@@ -35,6 +35,15 @@ namespace deren::ui {
         using compiled_geometry = rml_document::compiled_geometry;
         using generated_texture = rml_document::generated_texture;
         rml_document* document = nullptr;
+        std::optional<Rml::Matrix4f> transform;
+
+        void SetTransform(Rml::Matrix4f const* value) override {
+            if (value) {
+                this->transform = *value;
+            } else {
+                this->transform.reset();
+            }
+        }
 
         Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<Rml::Vertex const> vertices,
                                                     Rml::Span<int const> indices) override {
@@ -69,7 +78,24 @@ namespace deren::ui {
             } else if (auto const* data = reinterpret_cast<generated_texture const*>(texture_handle)) {
                 texture = {data->width, data->height, data->pixels};
             }
-            this->document->draws.push_back({geometry.vertices, geometry.indices, texture, offset.x, offset.y, clip.Left(),
+            auto const* vertices = &geometry.vertices;
+            if (this->transform) {
+                auto transformed = std::make_unique<compiled_geometry>();
+                transformed->vertices.reserve(geometry.vertices.size());
+                for (auto vertex : geometry.vertices) {
+                    auto const position = *this->transform * Rml::Vector4f{vertex.x + offset.x, vertex.y + offset.y, 0.0F, 1.0F};
+                    if (std::abs(position.w) < 1.0e-6F) {
+                        return;
+                    }
+                    vertex.x = position.x / position.w;
+                    vertex.y = position.y / position.w;
+                    transformed->vertices.push_back(vertex);
+                }
+                vertices = &transformed->vertices;
+                this->document->retired_geometry.push_back(std::move(transformed));
+                offset = {};
+            }
+            this->document->draws.push_back({*vertices, geometry.indices, texture, offset.x, offset.y, clip.Left(),
                                              clip.Top(), clip.Width(), clip.Height()});
         }
 
@@ -274,6 +300,7 @@ namespace deren::ui {
             return {};
         }
 
+        render_interface.SetTransform(nullptr);
         this->rendering = true;
         bool const rendered = context->Render();
         this->rendering = false;
@@ -301,6 +328,10 @@ namespace deren::ui {
         // `textarea` and `select` derive from ElementFormControl - and then made with static_cast, the same
         // idiom text() uses for `#text` nodes.
         auto const& tag = element->GetTagName();
+        if (tag == "img") {
+            element->SetAttribute("src", Rml::String(value));
+            return true;
+        }
         if (tag != "input" && tag != "textarea" && tag != "select") {
             return false;
         }
@@ -372,20 +403,25 @@ namespace deren::ui {
         result.swap(this->pointer_events);
         return result;
     }
-    void rml_document::push_pointer(pointer_type type, int x, int y, int button, unsigned modifiers, std::string_view id) {
+    void rml_document::push_pointer(pointer_type type, int x, int y, int button, unsigned modifiers, std::string_view id, float wheel) {
         // A session that never polls must not grow this without bound; such a session also reports no
         // pointer feedback to anyone, so dropping the newest event loses nothing anyone reads.
         constexpr std::size_t max_pointer_events = 256;
         if (this->pointer_events.size() >= max_pointer_events) {
-            return;
+            if (type != pointer_type::up && type != pointer_type::cancel) {
+                return;
+            }
+            this->pointer_events.erase(this->pointer_events.begin());
         }
         auto const ratio = this->density_independent_pixel_ratio;
         pointer_event event;
         event.type = type;
-        event.id.assign(id.data(), id.size());
+        if (!id.empty()) {
+            event.id.assign(id.data(), id.size());
+        }
         // The managed side authors in dp, so the framebuffer pixels the window reports are divided
         // here once, and pointer coordinates and rects then share a unit.
-        event.x = static_cast<float>(x) / ratio;
+        event.x = type == pointer_type::wheel ? wheel : static_cast<float>(x) / ratio;
         event.y = static_cast<float>(y) / ratio;
         event.button = button;
         event.modifiers = modifiers;
@@ -473,6 +509,8 @@ namespace deren::ui {
         bool const keyboard = this->wants_keyboard();
         switch (event.type) {
         case input_type::move:
+            this->pointer_x = event.x;
+            this->pointer_y = event.y;
             context->ProcessMouseMove(event.x, event.y, event.modifiers);
             // ABI 42: every forwarded move is reported, including the moves of a drag that has left
             // the element it started on, because the editor locks its target on pointer_down.
@@ -488,17 +526,19 @@ namespace deren::ui {
                     this->pressed_buttons |= 1u << event.button;
                 }
                 context->ProcessMouseButtonDown(event.button, event.modifiers);
-                this->push_pointer(pointer_type::down, event.x, event.y, event.button,
+                this->push_pointer(pointer_type::down, this->pointer_x, this->pointer_y, event.button,
                                    static_cast<unsigned>(event.modifiers), hit_id(context->GetHoverElement(), context->GetRootElement()));
             } else {
                 context->ProcessMouseButtonUp(event.button, event.modifiers);
                 this->pressed_buttons &= ~(1u << event.button);
-                this->push_pointer(pointer_type::up, event.x, event.y, event.button,
+                this->push_pointer(pointer_type::up, this->pointer_x, this->pointer_y, event.button,
                                    static_cast<unsigned>(event.modifiers), hit_id(context->GetHoverElement(), context->GetRootElement()));
             }
             return mouse;
         case input_type::wheel:
             context->ProcessMouseWheel(Rml::Vector2f{0, -event.wheel}, event.modifiers);
+            this->push_pointer(pointer_type::wheel, 0, 0, 0, static_cast<unsigned>(event.modifiers),
+                               hit_id(context->GetHoverElement(), context->GetRootElement()), event.wheel);
             return mouse;
         case input_type::character:
             if (!keyboard) {
@@ -580,6 +620,7 @@ namespace deren::ui {
             context->ProcessMouseLeave();
             return this->has_mouse_capture();
         case input_type::focus_lost:
+            this->push_pointer(pointer_type::cancel, 0, 0, 0, 0, {});
             this->pressed_buttons = 0;
             if (auto* focus = context->GetFocusElement()) {
                 focus->Blur();

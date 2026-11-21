@@ -63,6 +63,12 @@ int main() {
         CHECK(event.type == 5 && std::string_view(payload, event.id_length) == "apply");
         CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
         CHECK(event.type == 0);
+        document.input({.type = input_type::wheel, .wheel = 1.5F});
+        document.input({.type = input_type::focus_lost});
+        CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
+        CHECK(event.type == 6 && event.x == 1.5F && std::string_view(payload, event.id_length) == "apply");
+        CHECK(api.poll_event(id, &event, payload, sizeof(payload)) == script_status::success);
+        CHECK(event.type == 7 && event.id_length == 0);
         script_status worker_result = script_status::success;
         std::thread worker([&] { worker_result = api.set_text(id, {"status", 6}, {}); });
         worker.join();

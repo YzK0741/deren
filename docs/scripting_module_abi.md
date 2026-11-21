@@ -1,6 +1,6 @@
 # C# Module ABI
 
-Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v42.
+Status: implemented for the `scene`, `ui`, `audio` and `rml_ui` modules; managed ABI v43.
 
 Baseline: `feature/csharp-scene-tree`. Native code owns rendering, the Vulkan runtime, the
 module resolver, and primitive/scene import. Managed code owns scene construction, asset
@@ -294,6 +294,12 @@ struct scene_api {
     set_node_name;          // (uint64 tree, node_handle node, utf8_view name)
     // ABI 41: the projection aspect the scene is rendered with; 0 follows the window again.
     set_scene_aspect;       // (float aspect)
+    // ABI 43: the application window, for a project that draws its own caption.
+    window_minimize;        // ()
+    window_toggle_maximize; // ()
+    window_is_maximized;    // (uint8* maximized)
+    window_close;           // ()
+    window_begin_drag;      // ()
 };
 ```
 
@@ -415,6 +421,18 @@ leaves the pointer null, and the C# wrapper reports `module_unavailable`.
   presentation extent's aspect, and anything else is `invalid_argument`; the value applies from the
   next frame and `project_point`/`screen_ray` answer in the same projection. Optional: a host that
   predates v41 answers `module_unavailable`.
+- The five window entries (`window_minimize`, `window_toggle_maximize`, `window_is_maximized`,
+  `window_close`, `window_begin_drag`) let a project that sets `[render] borderless_window` draw its
+  own caption. The host forwards each to the running window, so the UI asks for the same action the
+  system title bar would perform instead of faking it: minimise and maximise/restore go through the
+  window manager, close only sets the window's close request (the app still decides whether the run
+  ends), and `is_maximized` writes `1`/`0` so the caption glyph can follow the state. They are
+  capability queries as much as actions: an offscreen capture has no window and every entry answers
+  `module_unavailable`, which is why the C# wrappers return `false` instead of pretending. A null
+  `maximized` pointer is `invalid_argument`. `window_begin_drag` blocks until the pointer button is
+  released, because the system owns the move loop; the frame rendered before the press stays on
+  screen. Optional like the entries before them: a host that predates v43 answers
+  `module_unavailable`.
 - `get_node_flags`/`set_node_flags` are 32 opaque bits per node. Nothing in the renderer reads them:
   they are storage the game can use for its own marking (layers, selection, gameplay tags) that
   survives the graph rebuild a scene replacement performs. `set_node_flags` writes
@@ -860,7 +878,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 42.
+- One global `managed_abi_version`, currently 43.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -1050,6 +1068,16 @@ Status values are returned through the ABI; no exception crosses the native boun
   `module_invalid`) and the managed wrappers report `module_unavailable` for those calls only.
   `abi_type::rml_ui_event` (28 bytes) joined the layout check, because the table passes that record
   by pointer.
+- v43 let a borderless project own its caption: `scene_api` gained five optional entries at its tail
+  - `window_minimize()`, `window_toggle_maximize()`, `window_is_maximized(uint8* maximized)`,
+  `window_close()` and `window_begin_drag()`. The host binds them to the running window, so a
+  `[render] borderless_window` project can draw the minimise/maximise/close buttons and the drag
+  strip itself without faking a window action: `window_begin_drag` hands the move loop to the system
+  and blocks until the button is released, `window_close` only raises the window's close request, and
+  `window_is_maximized` answers the state so the glyph can follow. With no window (an offscreen
+  capture) or on a platform without the move loop every entry answers `module_unavailable`; a null
+  output pointer is `invalid_argument`. The C# wrapper is `deren.window_control`; the editor uses it
+  from its own caption buttons instead of relying on the system title bar.
 
 ## Audio module
 

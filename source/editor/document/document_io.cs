@@ -42,6 +42,26 @@ internal static class document_io
             return false;
         }
 
+        if (!try_serialize(document, out var text, out error)) {
+            return false;
+        }
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try {
+            File.WriteAllText(temporary, text, utf8);
+            File.Move(temporary, path, overwrite: true);
+        } catch (Exception exception) when (is_io_error(exception)) {
+            error = exception.Message;
+            return false;
+        } finally {
+            try { File.Delete(temporary); } catch (Exception exception) when (is_io_error(exception)) { }
+        }
+        document.mark_saved(path, text);
+        return true;
+    }
+
+    internal static bool try_serialize(scene_document document, out string content, out string? error)
+    {
+        content = string.Empty;
         var text = new StringBuilder();
         text.Append("[document]\n");
         text.Append("    version = ").Append(format_version.ToString(CultureInfo.InvariantCulture)).Append('\n');
@@ -52,14 +72,7 @@ internal static class document_io
             return false;
         }
 
-        try {
-            File.WriteAllText(path, text.ToString(), utf8);
-        } catch (Exception exception) when (is_io_error(exception)) {
-            error = exception.Message;
-            return false;
-        }
-
-        document.mark_saved(path);
+        content = text.ToString();
         return true;
     }
 
@@ -185,7 +198,10 @@ internal static class document_io
             return false;
         }
 
-        built.path = path;
+        if (!try_serialize(built, out var saved, out error)) {
+            return false;
+        }
+        built.mark_saved(path, saved);
         document = built;
         return true;
     }
@@ -210,6 +226,9 @@ internal static class document_io
             }
             if (node.pipeline != null) {
                 text.Append("    pipeline = ").Append(quote(node.pipeline)).Append('\n');
+            }
+            if (node.script != null) {
+                text.Append("    script = ").Append(quote(node.script)).Append('\n');
             }
             text.Append("    visible = ").Append(node.visible ? "true" : "false").Append('\n');
             text.Append("    flags = ").Append(node.flags.ToString(CultureInfo.InvariantCulture)).Append('\n');
@@ -246,6 +265,7 @@ internal static class document_io
             name = builder.name,
             asset = builder.asset,
             pipeline = builder.pipeline,
+            script = builder.script,
             local = builder.local,
             visible = builder.visible,
             flags = builder.flags,
@@ -300,6 +320,13 @@ internal static class document_io
                 return false;
             }
             builder.asset = asset;
+            return true;
+        }
+        if (key == "script") {
+            if (!parse_quoted(value, path, number, out var script, out error)) {
+                return false;
+            }
+            builder.script = string.IsNullOrWhiteSpace(script) ? null : script;
             return true;
         }
         if (key == "pipeline") {
@@ -650,6 +677,7 @@ internal static class document_io
         internal bool has_parent;
         internal string? asset;
         internal string? pipeline;
+        internal string? script;
         internal bool visible = true;
         internal uint flags;
         internal deren.transform_value local = new() {

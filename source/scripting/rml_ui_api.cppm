@@ -8,7 +8,8 @@ export namespace deren::scripting {
     struct rml_ui_event {
         // ABI 42: 3-5 report what the forwarded mouse input did, not what RmlUi dispatched, so a
         // drag keeps reporting move events after the pointer leaves the element it started on.
-        // 0: empty, 1: click, 2: change, 3: pointer_down, 4: pointer_move, 5: pointer_up.
+        // 0: empty, 1: click, 2: change, 3: pointer_down, 4: pointer_move, 5: pointer_up,
+        // 6: pointer_wheel (x carries scroll steps), 7: pointer_cancel.
         std::uint32_t type = 0;
         std::uint32_t id_length = 0;
         std::uint32_t value_length = 0; // Pointer events carry no value.

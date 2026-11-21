@@ -11,6 +11,9 @@ screenshot_dir = "captures"
 [render]
 window_title = "deren editor"
 dark_window_frame = true
+# The editor draws its own title bar: the menu bar becomes the caption (window buttons on the right,
+# a drag area everywhere else). Only this project opts in; other projects keep the system title bar.
+borderless_window = true
 window_width = 1600
 window_height = 900
 fxaa = true

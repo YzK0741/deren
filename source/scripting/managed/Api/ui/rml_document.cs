@@ -4,13 +4,16 @@ using System.Threading;
 using deren.scripting;
 
 namespace deren {
-    public enum rml_event_type : uint { click = 1, change = 2, pointer_down = 3, pointer_move = 4, pointer_up = 5 }
+    public enum rml_event_type : uint { click = 1, change = 2, pointer_down = 3, pointer_move = 4, pointer_up = 5, pointer_wheel = 6, pointer_cancel = 7 }
     /// <summary>
     /// One UI event. <c>x</c>/<c>y</c>, <c>button</c> and <c>modifiers</c> are ABI 42 pointer-event
-    /// payload, in density-independent pixels; click and change leave them at zero.
+    /// payload, in density-independent pixels. For a wheel event, use <see cref="wheel"/>.
     /// </summary>
     public readonly record struct rml_event(rml_event_type type, string id, string value,
-                                            float x = 0.0f, float y = 0.0f, int button = 0, uint modifiers = 0);
+                                            float x = 0.0f, float y = 0.0f, int button = 0, uint modifiers = 0) {
+        /// <summary>Vertical scroll steps for a wheel event.</summary>
+        public float wheel => type == rml_event_type.pointer_wheel ? x : 0;
+    }
     /// <summary>ABI 42: one element's border box in density-independent pixels.</summary>
     public readonly record struct rml_rect(float x, float y, float width, float height);
 
@@ -68,6 +71,7 @@ namespace deren {
         private static bool valid_text(string? text, bool allow_empty = true) => text != null &&
             (allow_empty || text.Length != 0) && text.Length <= 1024 * 1024 && !text.Contains('\0');
         public bool set_text(string id, string text) => set_text(id, text, out _);
+        /// <summary>Sets a form control's value or an image element's source.</summary>
         public bool set_value(string id, string text) => set_value(id, text, out _);
         public bool set_text(string id, string text, out script_status status) => set_content(id, text, false, out status);
         public bool set_value(string id, string text, out script_status status) => set_content(id, text, true, out status);
@@ -153,7 +157,7 @@ namespace deren {
             status = rml_ui_api.table.poll_event(handle, &info, null, 0);
             if (status != script_status.success || info.type == 0) { return false; }
             var size = (ulong)info.id_length + info.value_length;
-            if (size > 1024 * 1024 || info.type is < 1 or > 5) {
+            if (size > 1024 * 1024 || info.type is < 1 or > 7) {
                 status = script_status.module_invalid;
                 return false;
             }
@@ -162,7 +166,7 @@ namespace deren {
                 status = rml_ui_api.table.poll_event(handle, &info, buffer, (uint)bytes.Length);
             }
             if (status != script_status.success) { return false; }
-            if (info.type is < 1 or > 5 || (ulong)info.id_length + info.value_length > (ulong)bytes.Length) {
+            if (info.type is < 1 or > 7 || (ulong)info.id_length + info.value_length > (ulong)bytes.Length) {
                 status = script_status.module_invalid;
                 return false;
             }
