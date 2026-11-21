@@ -61,8 +61,8 @@ namespace deren.editor {
             shown = selection.primary;
             shown_revision = document.revision;
             var node = selection.primary == Guid.Empty ? null : document.find(selection.primary);
-            ui.set_visible(empty_id, node == null);
-            ui.set_visible(form_id, node != null);
+            // display is the single mechanism for this panel: visibility hides an element but keeps its
+            // box in the layout, so the empty hint and the whole form would both claim vertical space.
             ui.try_set_element_style(empty_id, "display", node == null ? "block" : "none");
             ui.try_set_element_style(form_id, "display", node != null ? "block" : "none");
             if (node == null) {
