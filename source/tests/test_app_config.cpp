@@ -929,6 +929,68 @@ namespace {
         std::filesystem::remove(full_profile);
     }
 
+    // EVERY SCALAR READER HAS TO SAY WHAT IT DOES WITH A NON-FINITE FLOAT. `nan`, `inf` and `-inf` all
+    // parse as valid TOML floats, and `std::clamp` cannot reject one (every comparison against NaN is
+    // false, so it hands the NaN straight back). The readers that still did a bare `static_cast<float>`
+    // let them through into the settings: one NaN in a frame UBO, a shader constant or a pacing divisor
+    // poisons everything that reads it. A non-finite key now keeps the compiled default, like a missing one.
+    void test_nonfinite_scalars_keep_the_default() {
+        std::ofstream("nonfinite-scalars.toml") << "[render]\n"
+                                                   "max_fps = nan\n"
+                                                   "render_scale = inf\n"
+                                                   "ssao_radius = -inf\n"
+                                                   "ssao_intensity = nan\n"
+                                                   "taa_blend_static = nan\n"
+                                                   "taa_blend_min = inf\n"
+                                                   "shadow_bias_constant = nan\n"
+                                                   "shadow_bias_slope = -inf\n"
+                                                   "animation_time = nan\n"
+                                                   "shadow_cascade_blend = nan\n"
+                                                   "sun_intensity = nan\n"
+                                                   "clear_color = [nan, 0.25, inf]\n"
+                                                   "[debug]\n"
+                                                   "demo_light_radius = inf\n";
+        auto const nonfinite = deren::app_config::load_settings("nonfinite-scalars.toml");
+        auto const defaults = deren::app_config::load_settings("nonfinite-scalars-missing.toml");
+        CHECK(nonfinite.render.max_fps == defaults.render.max_fps);
+        CHECK(nonfinite.render.render_scale == defaults.render.render_scale);
+        CHECK(nonfinite.render.ssao_radius == defaults.render.ssao_radius);
+        CHECK(nonfinite.render.ssao_intensity == defaults.render.ssao_intensity);
+        CHECK(nonfinite.render.taa_blend_static == defaults.render.taa_blend_static);
+        CHECK(nonfinite.render.taa_blend_min == defaults.render.taa_blend_min);
+        CHECK(nonfinite.render.shadow_bias_constant == defaults.render.shadow_bias_constant);
+        CHECK(nonfinite.render.shadow_bias_slope == defaults.render.shadow_bias_slope);
+        CHECK(nonfinite.render.animation_time == defaults.render.animation_time);
+        CHECK(nonfinite.render.shadow_cascade_blend == defaults.render.shadow_cascade_blend);
+        CHECK(nonfinite.render.sun_intensity == defaults.render.sun_intensity);
+        // ONE NON-FINITE CHANNEL IS NOT A REASON TO DROP THE WHOLE COLOUR: `clear_color` fills channel by
+        // channel, so the finite 0.25 lands and only the poisoned ones keep their default. `clear_color` is
+        // RGB (three channels), which is what the example config documents.
+        CHECK(nonfinite.render.clear_color[0] == defaults.render.clear_color[0]);
+        CHECK(nonfinite.render.clear_color[1] == 0.25f);
+        CHECK(nonfinite.render.clear_color[2] == defaults.render.clear_color[2]);
+        CHECK(nonfinite.lighting.demo_light_radius == defaults.lighting.demo_light_radius);
+        std::filesystem::remove("nonfinite-scalars.toml");
+
+        // THE FINITE ONES STILL LAND, so the guard is a guard and not a reader that rejects everything.
+        std::ofstream("finite-scalars.toml") << "[render]\n"
+                                                "ssao_radius = 0.75\n"
+                                                "shadow_bias_slope = 2.5\n"
+                                                "taa_blend_min = 0.25\n"
+                                                "animation_time = 1.5\n"
+                                                "clear_color = [0.1, 0.2, 0.3]\n"
+                                                "[debug]\n"
+                                                "demo_light_radius = 0.5\n";
+        auto const finite = deren::app_config::load_settings("finite-scalars.toml");
+        CHECK(finite.render.ssao_radius == 0.75f);
+        CHECK(finite.render.shadow_bias_slope == 2.5f);
+        CHECK(finite.render.taa_blend_min == 0.25f);
+        CHECK(finite.render.animation_time == 1.5f);
+        CHECK(finite.render.clear_color[0] == 0.1f && finite.render.clear_color[2] == 0.3f);
+        CHECK(finite.lighting.demo_light_radius == 0.5f);
+        std::filesystem::remove("finite-scalars.toml");
+    }
+
     // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<std::int32_t>` is a
     // modulo conversion, so 2^32 + 2 used to arrive at a 1..4 check looking like a valid 2, and 2^32 + 5000
     // used to become a plausible 5000-pixel window. Out-of-range values now saturate (and are then clamped
@@ -1038,6 +1100,7 @@ std::int32_t main() {
     test_rt_reflection_samples_parses_rounds_and_clamps();
     test_toon_rig_rejects_nonfinite_and_clamps();
     test_vectors_and_colours_are_three_numbers_or_nothing();
+    test_nonfinite_scalars_keep_the_default();
     test_integer_options_do_not_wrap_when_narrowed();
     test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
