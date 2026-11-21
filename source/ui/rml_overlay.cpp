@@ -102,6 +102,14 @@ namespace deren::ui {
             }
             frame.scene_group = std::move(*group);
             frame.scene_image = scene_color.image;
+            this->scene_missing_logged = false;
+        } else if (!scene_color.image) {
+            // NO RESOLVED IMAGE THIS FRAME: drop the group instead of sampling the previous resolved
+            // frame. The old behaviour froze the viewport on its last resolved picture (and kept the
+            // image alive past the swapchain generation that owned it), while the document is supposed
+            // to draw nothing when there is nothing to draw (see this module's header).
+            frame.scene_group = {};
+            frame.scene_image = {};
         }
         for (auto const& draw : this->document.paint(width, height)) {
             rhi::resource_group_ref texture_group;
@@ -133,6 +141,9 @@ namespace deren::ui {
                         .initial_bytes = texture.pixels,
                     });
                     if (!image) {
+                        // A NULL ENTRY MEANS "SEEN BEFORE" TO try_emplace, so a failed creation has to
+                        // take its key back out or every later frame would silently reuse the hole.
+                        this->textures.erase(texture_entry);
                         return false;
                     }
                     rhi::resource_group_entry const entries[] = {
@@ -141,6 +152,7 @@ namespace deren::ui {
                     };
                     auto group = this->core.resources->create_resource_group({.entries = entries});
                     if (!group) {
+                        this->textures.erase(texture_entry);
                         return false;
                     }
                     texture_entry->second = std::move(*group);

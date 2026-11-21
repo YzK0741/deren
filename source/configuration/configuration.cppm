@@ -60,13 +60,10 @@ import deren.utility;
  * window_title  = "deren"
  * vsync = true     # true = FIFO_LATEST_READY (vsync), false = mailbox (uncapped)
  * max_fps = 0      # 0 = uncapped (what a throughput measurement needs), else a frame rate cap
- * clear_color = [0.02, 0.02, 0.03]  # background clear color, RGB in 0..1
- * camera_fit = "exterior"  # "exterior" fits the whole model from outside; "interior" stands inside
- *                          # and looks down the longest horizontal axis (a hall / nave / corridor)
+ * clear_color = [0.02, 0.02, 0.03]  # background clear color: exactly 3 channels, each clamped to 0..1
  * fxaa   = false   # anti-alias the final image (adds one fullscreen pass; needs fxaa.frag.spv)
  * taa = false            # temporal anti-aliasing (jitter + resolved history)
  * rt_shadows = false    # ray-traced sun shadows (needs a device with ray queries; else ignored)
- * animation_time = -1.0 # pin a keyframe animation at N seconds (-1 = play it; playback is wall-clock)
  *
  * [debug]
  * grid_side = 0          # > 1 enables the instancing stress grid (0 = off)
@@ -84,8 +81,8 @@ import deren.utility;
  *
  * [gui]
  * show         = true    # show the Dear ImGui debug overlay by default
- * panel_width  = 380     # default debug-panel width (0 = auto-size)
- * panel_height = 140     # default debug-panel height (0 = auto-size)
+ * panel_width  = 380     # default debug-panel width in pixels (0 = auto-size); may be fractional
+ * panel_height = 140     # default debug-panel height in pixels (0 = auto-size); may be fractional
  *
  * [lighting]
  * environment_hdr = "" # equirect HDR image used as the IBL instead of the procedural sky ("" = the sky)
@@ -129,16 +126,7 @@ namespace deren::app_config {
         deren::utility::vessel::string window_title = "deren";                       // GLFW window title
         bool vsync = true;                                                           // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                                        // 0 = uncapped; a positive value caps the render loop
-        deren::utility::vessel::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (RGB, 0..1)
-        // Initial camera framing ([render] camera_fit): how main() aims the orbit camera at the
-        // imported scene. "exterior" (default) fits the WHOLE model from outside - the right answer
-        // for a compact object, and what every earlier version did. "interior" stands inside the
-        // scene and looks along its longest horizontal axis, because that is the axis a hall, a nave
-        // or a corridor runs down; a building framed from outside is a facade and nothing else, which
-        // makes it useless as a global-illumination reference (there is no interior to bounce in).
-        // See the log's "initial camera" line for the numbers this resolves to, and use
-        // --capture-camera to pin an exact pose.
-        deren::utility::vessel::string camera_fit = "exterior";
+        deren::utility::vessel::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (exactly 3 channels, each clamped to 0..1)
         // The raster sun shadow term ([render] shadow): the runtime's `shadow_enabled` flag, which decides
         // whether the cascaded shadow maps are rendered and sampled at all. true by default (every frame
         // before this key was reachable from a file had it on). A measurement that wants no shadow
@@ -242,13 +230,6 @@ namespace deren::app_config {
         // It is the one reference in this project that no separate estimator can flatter, because it is not
         // an estimator. Off by default, and off is byte-exact.
         bool furnace = false;
-        // Pin the keyframe animation at a time in seconds ([render] animation_time), or -1 to play it: a
-        // NEGATIVE value is the default and plays as always. Playback is driven by the wall clock
-        // (frame_clock::delta_seconds), so a capture of an animated scene is NOT reproducible - two runs of
-        // one config differ, measured - and anything that has to compare two captures of one pose (the
-        // skinned-mesh ray-tracing work is the first) needs this. It scrubs and pauses, which is what the
-        // debug overlay's time slider does, so the pose is a function of the value alone.
-        float animation_time = -1.0f;
         bool ssao = true;
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
@@ -366,37 +347,6 @@ namespace deren::app_config {
         // frame the previous chain produces. When both model flags are on, `game_toon` wins (the frame's
         // three-way choice is where that precedence lives); a normal run asks for one model at a time.
         bool game_toon = false;
-        /**
-         * HOW MANY COPIES OF THE GAME-TOON CHARACTER TO STAGE ([render] game_toon_copies, 1..16).
-         *
-         * The character stage already draws a list of leaves; what this exercises is the per-character head
-         * frame, so every copy is the SAME imported model at a different X offset with its head basis. One
-         * is the shipping path and must stay byte-identical. Values outside the range are clamped by `main.cpp`,
-         * which is where `max_game_toon_characters` lives; the option is ignored unless `game_toon` is on.
-         */
-        std::int32_t game_toon_copies = 1;
-        /**
-         * THE FRAME'S STATIC SURROUND AS A SECOND MODEL ([render] background_glb): the path of a glTF/GLB
-         * whose geometry is the environment rather than the subject. Empty by default and that default is the
-         * feature's contract: with no path the frame is exactly the frame this renderer produced before the
-         * key existed (one import, one leaf set), which is what the render gate's recorded references are.
-         *
-         * THE PATH IS RESOLVED LIKE THE MODEL'S: a relative path is taken relative to the executable's
-         * directory (see `deren::utility::executable_directory()`), which is where the assets live, so the shipped
-         * config can name `chars/...` or a path under the build directory without being absolute.
-         *
-         * WHAT IT DOES, IN ONE SENTENCE: the same importer (`runtime::import_scene`) runs a second time into
-         * the same scene tree with `environment = true`, which flags every leaf it creates
-         * (`primitive::environment`) so the toon character stage skips it and it never casts a shadow - while
-         * the scene pass draws it through the ordinary PBR/unlit path, where a matte ground and a glTF
-         * emissive backdrop belong. Nothing else about the frame changes.
-         *
-         * THE OFFSET IS DERIVED, NOT CONFIGURED: the imported roots are translated so the background's
-         * y = 0 plane (the author's ground) lands on the SUBJECT's lowest point after the subject's
-         * centering shift - see the import in `main.cpp`. A background whose ground is not at y = 0 would need
-         * its shift, which is why this is stated here rather than hidden in the loader.
-         */
-        deren::utility::vessel::string background_glb = {};
         bool validation_layers = default_validation_layers; // Vulkan validation layers + debug messenger ([render])
     };
 
@@ -587,9 +537,12 @@ namespace deren::app_config {
      */
     export struct gui_settings {
         deren::utility::vessel::string rml_document, rml_font, rml_fallback_font;
-        bool show = true;            // show the Dear ImGui debug overlay by default
-        float panel_width = 380.0f;  // default debug-panel width (0 = ImGui auto-size)
-        float panel_height = 140.0f; // default debug-panel height (0 = ImGui auto-size)
+        bool show = true; // show the Dear ImGui debug overlay by default
+        // Pixels, so fractional values are meaningful (a DPI-scaled 380.5 is a real request): the reader
+        // takes the numeric branch of the TOML node, and both forms - `380` and `380.5` - read alike.
+        // A negative value clamps to 0 at the end of the config analysis; 0 is ImGui's auto-size.
+        float panel_width = 380.0f;  // default debug-panel width in pixels (0 = ImGui auto-size)
+        float panel_height = 140.0f; // default debug-panel height in pixels (0 = ImGui auto-size)
     };
 
     /**
@@ -667,8 +620,7 @@ namespace deren::app_config {
      * `pbr`, `unlit` and `default` objects stay on the deferred path and never enter the character stage.
      * `game_toon` objects are routed to the character-forward stage; each such object gets its
      * character index, up to `max_game_toon_characters`. `gaussian` objects are .ply clouds and are
-     * staged together in the shared splat pass. The historic GameToon X staging (`game_toon_copies`)
-     * remains its path when the object list is empty.
+     * staged together in the shared splat pass.
      */
     export struct scene_object_settings {
         deren::utility::vessel::string name = {};
@@ -830,9 +782,12 @@ namespace deren::app_config {
      * @ingroup app_config
      * @brief validate the arguments of `deren run <project-directory>`
      *
-     * Capture flags are removed before this sees argv. The project command owns its own scene and
-     * manifest, so preview-only options (`--config`, `--asset`, `--asset-library`, ...) are rejected
-     * with a message instead of being treated as extra positionals or silently dropped.
+     * The engine owns exactly the head of the command: `deren run <project-directory>`. Everything
+     * after the directory is forwarded untouched to the project's managed preinit (capture flags,
+     * selftest switches - whatever the game defines), so those arguments are not this function's
+     * business. A command that does not start with `run`, or that names no project directory, is
+     * refused: the engine used to hunt for `run` anywhere in argv, which quietly accepted and then
+     * ignored anything placed before it.
      */
     export std::expected<void, std::string> validate_project_arguments(std::int32_t argc, char const* const* argv);
 

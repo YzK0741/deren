@@ -13,18 +13,34 @@ namespace deren {
         /// Returns the loadable asset ids in sorted order. The native ids are borrowed for the
         /// duration of the call, so each one is copied into managed memory.
         /// </summary>
-        public static unsafe string[] list() {
+        public static string[] list() {
+            return list(out _);
+        }
+
+        /// <summary>
+        /// Same call, reporting why: an empty array is the honest answer for an asset library with
+        /// nothing in it, so the status is what tells that apart from an unavailable scene module or
+        /// a library that failed to scan.
+        /// </summary>
+        public static unsafe string[] list(out script_status status) {
             if (!scene_api.is_ready()) {
+                // The table can be missing (module_unavailable) or refuse this thread; is_ready
+                // already counted a refusal, and both leave the caller with nothing to read.
+                status = script_status.module_unavailable;
                 return [];
             }
             var ids = new List<string>();
             for (uint index = 0;; ++index) {
                 utf8_view view;
-                var status = scene_api.list_scene_asset(index, &view);
+                status = scene_api.list_scene_asset(index, &view);
                 if (status == script_status.asset_not_found) {
+                    status = script_status.success;
                     return [.. ids];
                 }
                 if (status != script_status.success || view.data == null) {
+                    if (status == script_status.success) {
+                        status = script_status.invalid_argument;
+                    }
                     return [];
                 }
                 ids.Add(Encoding.UTF8.GetString(view.data, checked((int)view.length)));
@@ -75,7 +91,8 @@ namespace deren {
 
         public static bool release(asset_handle asset, out script_status status) {
             if (!asset.is_valid) {
-                status = script_status.invalid_argument;
+                // Doc section 7: a zero or stale handle is asset_invalid, not a malformed argument.
+                status = script_status.asset_invalid;
                 return false;
             }
             status = scene_api.release_scene_asset(asset.value);
@@ -87,17 +104,34 @@ namespace deren {
         /// asset has no named pipeline (a gaussian splat) or the handle is invalid.
         /// </summary>
         public static unsafe string[] supported_pipelines(asset_handle asset) {
+            return supported_pipelines(asset, out _);
+        }
+
+        /// <summary>
+        /// Same call, reporting why: a gaussian asset genuinely declares no pipeline and answers an
+        /// empty array with <see cref="script_status.success"/>, while a stale handle or a failed
+        /// query answers an empty array with the status that says so.
+        /// </summary>
+        public static unsafe string[] supported_pipelines(asset_handle asset, out script_status status) {
+            status = script_status.success;
             if (!asset.is_valid) {
+                status = script_status.asset_invalid;
                 return [];
             }
             uint count = 0;
-            if (scene_api.query_asset_pipeline_count(asset.value, &count) != script_status.success) {
+            status = scene_api.query_asset_pipeline_count(asset.value, &count);
+            if (status != script_status.success) {
                 return [];
             }
             var pipelines = new List<string>((int)count);
             for (uint index = 0; index < count; ++index) {
                 utf8_view view;
-                if (scene_api.query_asset_pipeline(asset.value, index, &view) != script_status.success || view.data == null) {
+                status = scene_api.query_asset_pipeline(asset.value, index, &view);
+                if (status != script_status.success) {
+                    return [];
+                }
+                if (view.data == null) {
+                    status = script_status.invalid_argument;
                     return [];
                 }
                 pipelines.Add(Encoding.UTF8.GetString(view.data, checked((int)view.length)));

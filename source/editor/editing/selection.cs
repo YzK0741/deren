@@ -8,16 +8,11 @@ namespace deren.editor;
 /// </summary>
 /// <remarks>
 /// The selection stores uids only and never resolves them against a document, so the caller decides
-/// what an unknown uid means. Every mutation raises <see cref="changed"/> exactly once.
+/// what an unknown uid means.
 /// </remarks>
 internal sealed class selection
 {
     private readonly List<Guid> uids = [];
-
-    /// <summary>
-    /// Raised after the selection changed.
-    /// </summary>
-    internal event Action? changed;
 
     /// <summary>
     /// The node the inspector shows, or <see cref="Guid.Empty"/> when nothing is selected.
@@ -38,24 +33,6 @@ internal sealed class selection
         this.uids.Clear();
         this.uids.Add(uid);
         this.primary = uid;
-        this.changed?.Invoke();
-    }
-
-    /// <summary>
-    /// Adds <paramref name="uid"/> when it is not selected and removes it otherwise. The primary
-    /// moves to the toggled node on select and to the next remaining node on deselect.
-    /// </summary>
-    internal void toggle(Guid uid)
-    {
-        if (this.uids.Remove(uid)) {
-            if (this.primary == uid) {
-                this.primary = this.uids.Count > 0 ? this.uids[0] : Guid.Empty;
-            }
-        } else {
-            this.uids.Add(uid);
-            this.primary = uid;
-        }
-        this.changed?.Invoke();
     }
 
     /// <summary>
@@ -68,6 +45,5 @@ internal sealed class selection
         }
         this.uids.Clear();
         this.primary = Guid.Empty;
-        this.changed?.Invoke();
     }
 }

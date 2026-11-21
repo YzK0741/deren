@@ -115,8 +115,13 @@ namespace deren {
     /// why `available` exists: a game that must know can ask once instead of testing each call.
     /// </summary>
     public static unsafe class debug_ui {
-        /// <summary>Whether the host resolved the panel table (the plugin may still be off).</summary>
-        public static bool available => ui_api.is_ready();
+        /// <summary>
+        /// Whether the host resolved the panel table (the plugin may still be off). This answers
+        /// "is there a panel module this session", NOT "may I call it right now": a call from a
+        /// non-blocking batch answers <see cref="script_status.module_unavailable"/> even while this
+        /// is true, because the record pass owns the host state.
+        /// </summary>
+        public static bool available => ui_api.is_resolved();
 
         public static bool begin_panel(string title) {
             return begin_panel(title, 0.0f, 0.0f);

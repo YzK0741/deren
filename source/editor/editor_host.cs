@@ -15,7 +15,7 @@ namespace deren.editor {
     /// tree with scene_sync.create_one/destroy_one/push - the native host only allows activating a
     /// tree while the project scene is starting, so a rebuild is never repeated after startup.
     /// </summary>
-    internal sealed unsafe class editor_host : game_entry {
+    internal sealed unsafe partial class editor_host : game_entry {
         private const int event_budget = 128;
         private const string rename_field_id = "rename_field";
         private const string project_label_id = "project_label";
@@ -46,6 +46,11 @@ namespace deren.editor {
         private float applied_aspect = -1.0f;
         private readonly viewport_camera viewport_navigation = new();
         private readonly viewport_gizmo gizmo = new();
+        // Child -> parent for the current document, rebuilt on demand from the root list. Building it
+        // once keeps the per-ancestor walk in layout_gizmo O(1) instead of a full tree scan per level,
+        // which made a deep selection cost O(depth * nodes) every frame.
+        private readonly Dictionary<document_node, document_node?> parents = new();
+        private scene_document? parents_document;
         private bool gizmo_local;
         private bool cancel_gizmo_requested;
         private float viewport_height;
@@ -104,6 +109,9 @@ namespace deren.editor {
         private bool outliner_shown = true;
         private bool details_shown = true;
         private bool dock_shown = true;
+        // Nullable so the first refresh writes the style even when the history starts empty.
+        private bool? undo_button_state;
+        private bool? redo_button_state;
 
         public script_status preinit(startup_options* options, int argc, byte** argv) {
             if (options == null || argc < 0 || (argc > 0 && argv == null)) {
@@ -114,10 +122,7 @@ namespace deren.editor {
                 args[i] = argv[i] == null ? string.Empty : Marshal.PtrToStringUTF8((IntPtr)argv[i]) ?? string.Empty;
             }
             for (var i = 1; i < args.Length; ++i) {
-                var argument = args[i];
-                var separator = argument.IndexOf('=');
-                var name = separator < 0 ? argument : argument[..separator];
-                var inline_value = separator < 0 ? null : argument[(separator + 1)..];
+                split_argument(args[i], out var name, out var inline_value);
                 switch (name) {
                     case "--scene":
                         requested_scene = inline_value ?? take_value(args, ref i);
@@ -162,6 +167,17 @@ namespace deren.editor {
         private static string take_value(string[] args, ref int index) =>
             index + 1 < args.Length ? args[++index] : string.Empty;
 
+        /// <summary>
+        /// Splits <c>--name=value</c> at the FIRST '='. The value may itself contain '=', and the option
+        /// name must stay whole for the switch below: splitting at the last '=' would turn
+        /// <c>--scene=levels=/a.toml</c> into the unknown option <c>--scene=levels</c>.
+        /// </summary>
+        internal static void split_argument(string argument, out string name, out string? value) {
+            var separator = argument.IndexOf('=');
+            name = separator < 0 ? argument : argument[..separator];
+            value = separator < 0 ? null : argument[(separator + 1)..];
+        }
+
         public script_status initialize(native_api* api, managed_api* scripts) {
             if (api == null || scripts == null || instance != null) {
                 return script_status.invalid_argument;
@@ -196,8 +212,24 @@ namespace deren.editor {
                 play_stop_marker = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(requested_play))!, "stop.request");
                 var camera_path = Path.Combine(Path.GetDirectoryName(play_stop_marker)!, "camera.json");
                 if (File.Exists(camera_path)) {
-                    var pose = System.Text.Json.JsonSerializer.Deserialize<orbit_camera>(File.ReadAllText(camera_path), play_session.camera_json);
-                    pose.try_apply();
+                    // A stale or hand-edited camera file must not keep the play session from starting:
+                    // an unreadable or empty pose falls back to the editor's default view instead.
+                    try {
+                        var pose = System.Text.Json.JsonSerializer.Deserialize<orbit_camera?>(
+                            File.ReadAllText(camera_path), play_session.camera_json);
+                        if (pose is { } camera) {
+                            // The ABI refuses a non-finite pose or a degenerate distance, so a bad
+                            // file must not be applied silently after it parsed: say why the view
+                            // stayed where it was.
+                            if (!camera.try_apply(out var camera_status)) {
+                                host_logger.write($"Editor: '{camera_path}' could not be applied ({camera_status}); keeping the default view");
+                            }
+                        } else {
+                            host_logger.write($"Editor: '{camera_path}' holds no camera pose, using the default view");
+                        }
+                    } catch (Exception error) {
+                        host_logger.write($"Editor: cannot read '{camera_path}': {error.GetBaseException().Message}");
+                    }
                 }
                 instance = this;
                 scripts->update = &update;
@@ -232,10 +264,19 @@ namespace deren.editor {
             status_line = new status_bar(opened_document);
             undo_history = new undo_stack();
             selection_state = new selection();
+            // A crashed editor cannot run the cooperative stop that removes its play/thumbnail
+            // workspaces, so the next launch sweeps whatever an earlier process left behind.
+            play_session.sweep_stale_workspaces(managed_bootstrap.project_directory);
             thumbnails = new asset_thumbnail_cache(managed_bootstrap.project_directory);
             playing = new play_session(managed_bootstrap.project_directory);
             browser = new content_browser_panel(opened_document, thumbnails);
-            assets = asset_manager.list();
+            // An empty library and a failed query look the same in the grid, so ask for the status and
+            // report the failure instead of presenting it as "this project has no assets".
+            assets = asset_manager.list(out var assets_status);
+            if (assets_status != script_status.success) {
+                host_logger.write($"Editor: the asset library could not be listed ({assets_status})");
+                notice = "Asset library unavailable";
+            }
             apply_tool_style();
             refresh_browser();
             opened_document.set_text(project_label_id, project_title());
@@ -670,19 +711,46 @@ namespace deren.editor {
                 ui?.try_set_element_style("unsaved_prompt", "display", "flex");
                 return false;
             }
-            var roots = new List<document_node>(document.roots);
-            for (var index = 0; index < roots.Count; index++) {
-                destroy_runtime(roots[index]);
-            }
-            document = create_default_document();
-            selection_state?.clear();
-            undo_history?.clear();
-            browser?.clear_selection();
-            if (!create_subtree(null, document.roots[0])) {
+            // BUILD THE NEW SCENE BEFORE DESTROYING THE OLD ONE. The runtime nodes of the two scenes are
+            // independent, so the new subtree can be created while the old one still exists; the old
+            // roots are only destroyed once the new scene is known to work. The other order loses the
+            // old scene when the create fails and has nothing to fall back to.
+            var previous = document;
+            var next = create_default_document();
+            document = next;
+            if (!create_subtree(null, next.roots[0])) {
+                // Drop whatever runtime nodes the failed attempt created and keep the old document,
+                // whose runtime counterpart is still alive.
+                for (var index = 0; index < next.roots.Count; ++index) {
+                    if (next.roots[index].runtime.is_valid) {
+                        destroy_runtime(next.roots[index]);
+                    }
+                }
+                document = previous;
+                notice = "Could not create the new scene";
                 refresh_panels(force_details: true);
                 return false;
             }
-            document.mark_dirty();
+            var kept = new List<document_node>();
+            for (var index = 0; index < previous.roots.Count; ++index) {
+                var root = previous.roots[index];
+                if (!destroy_runtime(root) && root.runtime.is_valid) {
+                    kept.Add(root);
+                }
+            }
+            // A node whose runtime counterpart refused to be destroyed stays in the document: dropping
+            // it would leave a live scene node the editor can no longer reach.
+            for (var index = 0; index < kept.Count; ++index) {
+                next.insert_root(next.roots.Count, kept[index]);
+            }
+            if (kept.Count > 0) {
+                host_logger.write($"Editor: new scene kept {kept.Count} node(s) whose runtime nodes could not be destroyed");
+                notice = $"Could not discard {kept.Count} node(s)";
+            }
+            selection_state?.clear();
+            undo_history?.clear();
+            browser?.clear_selection();
+            next.mark_dirty();
             refresh_panels(force_details: true);
             return true;
         }
@@ -861,20 +929,27 @@ namespace deren.editor {
                 refresh_panels();
                 return false;
             }
+            // Both branches select the new node: a created node that the outliner does not show as
+            // selected looks like the click did nothing, and every later edit would target the old one.
+            selection_state?.select(node.uid);
             if (asset_id != null) {
-                selection_state?.select(node.uid);
                 notice = $"Added asset: {asset_id}";
             }
             document.mark_dirty();
             record_undo(asset_id == null ? "Create" : "Add Asset",
                 () => {
-                    if (!destroy_runtime(node)) { return; }
-                    remove_document_node(parent, node);
-                    if (asset_id != null) {
-                        if (document.find(previous_selection) != null) { selection_state?.select(previous_selection); }
-                        else { selection_state?.clear(); }
+                    // The document goes first so a refused destroy cannot orphan a runtime node.
+                    if (!remove_document_node(parent, node)) { return false; }
+                    if (!destroy_runtime(node)) {
+                        if (!insert_document_node(parent, index, node)) {
+                            host_logger.write($"Editor: lost node '{node.name}' while aborting an undo");
+                        }
+                        return false;
                     }
+                    if (document.find(previous_selection) != null) { selection_state?.select(previous_selection); }
+                    else { selection_state?.clear(); }
                     mark_dirty_and_refresh();
+                    return true;
                 },
                 () => {
                     if (!insert_document_node(parent, index, node) || !create_subtree(parent, node)) {
@@ -882,12 +957,13 @@ namespace deren.editor {
                         remove_document_node(parent, node);
                         notice = $"Cannot recreate node: {node.name}";
                         refresh_panels(force_details: true);
-                        return;
+                        return false;
                     }
-                    if (asset_id != null) { selection_state?.select(node.uid); }
+                    selection_state?.select(node.uid);
                     mark_dirty_and_refresh();
+                    return true;
                 });
-            refresh_panels(force_details: asset_id != null);
+            refresh_panels(force_details: true);
             return true;
         }
 
@@ -903,23 +979,50 @@ namespace deren.editor {
             if (node == null || !locate_node(node, out var parent, out var index)) {
                 return false;
             }
-            if (!destroy_runtime(node)) {
+            // REMOVE FROM THE DOCUMENT BEFORE DESTROYING THE RUNTIME NODE. The document removal is the
+            // only step that can still be taken back cheaply, so it happens first: a failed destroy can
+            // then put the node back exactly where it was instead of leaving a document node whose
+            // runtime counterpart is already gone.
+            if (!remove_document_node(parent, node)) {
                 return false;
             }
-            if (!remove_document_node(parent, node)) {
+            if (!destroy_runtime(node)) {
+                if (!insert_document_node(parent, index, node)) {
+                    host_logger.write($"Editor: lost node '{node.name}' while aborting a delete");
+                }
+                refresh_panels();
                 return false;
             }
             document.mark_dirty();
             record_undo("Delete",
                 () => {
-                    insert_document_node(parent, index, node);
-                    create_subtree(parent, node);
+                    // THE UNDO OF A DELETE IS A CREATE, and a create can fail (the asset the node
+                    // names may be gone). Reporting it keeps the entry on the undo side instead of
+                    // leaving a node in the document that the scene has no runtime counterpart for.
+                    if (!insert_document_node(parent, index, node) || !create_subtree(parent, node)) {
+                        if (node.runtime.is_valid) { destroy_runtime(node); }
+                        remove_document_node(parent, node);
+                        notice = $"Cannot restore node: {node.name}";
+                        refresh_panels(force_details: true);
+                        return false;
+                    }
                     mark_dirty_and_refresh();
+                    return true;
                 },
                 () => {
-                    remove_document_node(parent, node);
-                    destroy_runtime(node);
+                    // Same order as the original delete: the document goes first so a refused destroy
+                    // cannot orphan a runtime node, and the node is put back at its captured index.
+                    if (!remove_document_node(parent, node)) {
+                        return false;
+                    }
+                    if (!destroy_runtime(node)) {
+                        if (!insert_document_node(parent, index, node)) {
+                            host_logger.write($"Editor: lost node '{node.name}' while aborting a delete");
+                        }
+                        return false;
+                    }
                     mark_dirty_and_refresh();
+                    return true;
                 });
             selection_state.clear();
             refresh_panels();
@@ -964,6 +1067,14 @@ namespace deren.editor {
             if (trimmed.Length == 0 || trimmed == node.name) {
                 return false;
             }
+            // The runtime rename entry counts UTF-8 bytes, not characters, and refuses anything over
+            // the shared limit. Validate here so the document never holds a name the scene cannot show.
+            var bytes = scene_sync.name_utf8_byte_count(trimmed);
+            if (bytes > scene_sync.max_name_utf8_bytes) {
+                notice = $"Cannot rename: {bytes} UTF-8 bytes, the limit is {scene_sync.max_name_utf8_bytes}";
+                refresh_panels(force_details: true);
+                return false;
+            }
             var previous = node.name;
             node.name = trimmed;
             if (!push_runtime(node)) {
@@ -972,16 +1083,8 @@ namespace deren.editor {
             }
             document.mark_dirty();
             record_undo("Rename",
-                () => {
-                    node.name = previous;
-                    push_runtime(node);
-                    mark_dirty_and_refresh();
-                },
-                () => {
-                    node.name = trimmed;
-                    push_runtime(node);
-                    mark_dirty_and_refresh();
-                });
+                () => apply_node_name(node, previous),
+                () => apply_node_name(node, trimmed));
             rename_field = string.Empty;
             ui?.set_value(rename_field_id, string.Empty);
             refresh_panels(force_details: true);
@@ -1007,6 +1110,13 @@ namespace deren.editor {
                 case detail_field.name: {
                     var trimmed = text.Trim();
                     if (trimmed.Length != 0 && trimmed != node.name) {
+                        // Same UTF-8 byte limit as the rename field; the details row must not accept a
+                        // name the runtime would refuse while the document keeps it.
+                        var name_bytes = scene_sync.name_utf8_byte_count(trimmed);
+                        if (name_bytes > scene_sync.max_name_utf8_bytes) {
+                            notice = $"Cannot rename: {name_bytes} UTF-8 bytes, the limit is {scene_sync.max_name_utf8_bytes}";
+                            break;
+                        }
                         node.name = trimmed;
                         changed = true;
                     }
@@ -1111,17 +1221,43 @@ namespace deren.editor {
             return true;
         }
 
+        /// <summary>
+        /// Writes one name onto the document node and the runtime node. When the runtime refuses the
+        /// name the document is put back, so the outliner never shows a label the scene does not have.
+        /// </summary>
+        private bool apply_node_name(document_node node, string name) {
+            var previous = node.name;
+            node.name = name;
+            if (!push_runtime(node)) {
+                node.name = previous;
+                return false;
+            }
+            mark_dirty_and_refresh();
+            return true;
+        }
+
         /// <summary>Writes a snapshot back onto the document node and the runtime node.</summary>
-        private void restore_node(document_node node, node_snapshot snapshot, bool mark_dirty) {
+        private bool restore_node(document_node node, node_snapshot snapshot, bool mark_dirty) {
+            var previous = new node_snapshot(node);
             node.name = snapshot.name;
             node.local = snapshot.local;
             node.visible = snapshot.visible;
             node.flags = snapshot.flags;
             node.script = snapshot.script;
-            push_runtime(node);
+            if (!push_runtime(node)) {
+                // THE RUNTIME REFUSED THE SNAPSHOT: putting the document back keeps the two sides
+                // equal, and returning false keeps the history entry where it was.
+                node.name = previous.name;
+                node.local = previous.local;
+                node.visible = previous.visible;
+                node.flags = previous.flags;
+                node.script = previous.script;
+                return false;
+            }
             if (mark_dirty) {
                 mark_dirty_and_refresh();
             }
+            return true;
         }
 
         /// <summary>The editable values of one node, captured before and after an edit.</summary>
@@ -1141,7 +1277,7 @@ namespace deren.editor {
             internal readonly string? script;
         }
 
-        private void record_undo(string label, Action undo, Action redo) {
+        private void record_undo(string label, Func<bool> undo, Func<bool> redo) {
             undo_history?.push(new delegate_undo_command(label, undo, redo));
         }
 
@@ -1150,15 +1286,49 @@ namespace deren.editor {
             refresh_panels(force_details: true);
         }
 
+        /// <summary>
+        /// Parent of <paramref name="node"/> in one dictionary lookup, or null for a root. The map is
+        /// built from the current document once and dropped whenever the structure changes, so the
+        /// per-frame caller never pays for a tree scan.
+        /// </summary>
+        private bool try_parent(document_node node, out document_node? parent) {
+            if (document == null) {
+                parent = null;
+                return false;
+            }
+            if (!ReferenceEquals(parents_document, document)) {
+                parents.Clear();
+                parents_document = document;
+                collect_parents(document.roots, null);
+            }
+            return parents.TryGetValue(node, out parent);
+        }
+
+        private void collect_parents(IReadOnlyList<document_node> nodes, document_node? parent) {
+            foreach (var node in nodes) {
+                parents[node] = parent;
+                if (node.children.Count != 0) {
+                    collect_parents(node.children, node);
+                }
+            }
+        }
+
+        private void forget_parents() {
+            parents.Clear();
+            parents_document = null;
+        }
+
         private bool insert_document_node(document_node? parent, int index, document_node node) {
             if (document == null) {
                 return false;
             }
             if (parent != null) {
                 parent.children.Insert(Math.Clamp(index, 0, parent.children.Count), node);
+                forget_parents();
                 return true;
             }
             document.insert_root(index, node);
+            forget_parents();
             return true;
         }
 
@@ -1166,10 +1336,11 @@ namespace deren.editor {
             if (document == null) {
                 return false;
             }
-            if (parent != null) {
-                return parent.children.Remove(node);
+            var removed = parent != null ? parent.children.Remove(node) : document.remove_root(node);
+            if (removed) {
+                forget_parents();
             }
-            return document.remove_root(node);
+            return removed;
         }
 
         /// <summary>Creates the runtime subtree top-down: a parent must exist before its children.</summary>
@@ -1393,6 +1564,30 @@ namespace deren.editor {
             outliner.refresh(document, selection_state, outliner_filter);
             details?.refresh(document, selection_state, force_details);
             status_line.refresh(document, selection_state, notice);
+            update_history_buttons();
+        }
+
+        /// <summary>
+        /// Dims Undo/Redo while their history side is empty. The document bridge has no enable flag, so
+        /// the button is shown as unavailable and loses its pointer events; the styles are only written
+        /// when the state flips, because <see cref="refresh_panels"/> runs every frame.
+        /// </summary>
+        private void update_history_buttons() {
+            if (ui == null) {
+                return;
+            }
+            bool can_undo = undo_history?.can_undo == true;
+            bool can_redo = undo_history?.can_redo == true;
+            if (undo_button_state != can_undo) {
+                undo_button_state = can_undo;
+                ui.try_set_element_style("btn_undo", "color", can_undo ? "#e8e8e8" : "#6a6a6a");
+                ui.try_set_element_style("btn_undo", "pointer-events", can_undo ? "auto" : "none");
+            }
+            if (redo_button_state != can_redo) {
+                redo_button_state = can_redo;
+                ui.try_set_element_style("btn_redo", "color", can_redo ? "#e8e8e8" : "#6a6a6a");
+                ui.try_set_element_style("btn_redo", "pointer-events", can_redo ? "auto" : "none");
+            }
         }
 
         private void refresh_browser() {
@@ -1410,7 +1605,9 @@ namespace deren.editor {
                     node = null;
                     break;
                 }
-                locate_node(ancestor, out var parent, out _);
+                if (!try_parent(ancestor, out var parent)) {
+                    break;
+                }
                 if (parent != null) {
                     parent_world *= viewport_gizmo.local_matrix(parent.local);
                 }
@@ -1468,18 +1665,28 @@ namespace deren.editor {
             if (!cancel && !before.Equals(after)) {
                 document?.mark_dirty();
                 record_undo(label,
-                    () => { apply_gizmo_transform(node, before); mark_dirty_and_refresh(); },
-                    () => { apply_gizmo_transform(node, after); mark_dirty_and_refresh(); });
+                    () => {
+                        if (!apply_gizmo_transform(node, before)) { return false; }
+                        mark_dirty_and_refresh();
+                        return true;
+                    },
+                    () => {
+                        if (!apply_gizmo_transform(node, after)) { return false; }
+                        mark_dirty_and_refresh();
+                        return true;
+                    });
             } else if (cancel && !before.Equals(after)) {
                 apply_gizmo_transform(node, before);
             }
             refresh_panels(force_details: true);
         }
 
-        private void apply_gizmo_transform(document_node node, transform_value value) {
-            if (tree?.try_set_transform(node.runtime, value) == true) {
-                node.local = value;
+        private bool apply_gizmo_transform(document_node node, transform_value value) {
+            if (tree?.try_set_transform(node.runtime, value) != true) {
+                return false;
             }
+            node.local = value;
+            return true;
         }
 
         private void show_scene_path(bool saving) {
@@ -1599,7 +1806,10 @@ namespace deren.editor {
                 if (pipelines.Length < 2) {
                     return;
                 }
-                var before = node.pipeline ?? pipelines[0];
+                // A node with no explicit pipeline runs its asset's declared default, so that is what
+                // "before" has to mean: the cycle starts from the default and undo restores the null
+                // that says "ask the asset" instead of pinning the default into the document.
+                var before = node.pipeline;
                 string pipeline = pipelines[(Array.IndexOf(pipelines, node.pipeline) + 1) % pipelines.Length];
                 if (!tree.try_set_pipeline(node.runtime, pipeline)) {
                     return;
@@ -1613,11 +1823,34 @@ namespace deren.editor {
             }
         }
 
-        private void restore_pipeline(document_node node, string pipeline) {
-            if (tree?.try_set_pipeline(node.runtime, pipeline) == true) {
-                node.pipeline = pipeline;
-                mark_dirty_and_refresh();
+        /// <summary>
+        /// Writes a pipeline back onto the runtime node and the document. A null pipeline means "the
+        /// asset's declared default": the runtime is still given the concrete name it needs, while the
+        /// document records the absence so a save keeps the scene as it was authored.
+        /// </summary>
+        private bool restore_pipeline(document_node node, string? pipeline) {
+            if (tree == null) {
+                return false;
             }
+            var target = pipeline;
+            if (target == null) {
+                if (node.asset == null || !asset_manager.try_load(node.asset, out var asset)) {
+                    return false;
+                }
+                try {
+                    if (!asset_manager.try_get_default_pipeline(asset, out target) || target == null) {
+                        return false;
+                    }
+                } finally {
+                    asset_manager.release(asset);
+                }
+            }
+            if (!tree.try_set_pipeline(node.runtime, target)) {
+                return false;
+            }
+            node.pipeline = pipeline;
+            mark_dirty_and_refresh();
+            return true;
         }
 
         private bool handle_asset_drag(rml_event input) {
@@ -1789,9 +2022,15 @@ namespace deren.editor {
                 }
                 if (behaviours == null && document != null) {
                     behaviours = new play_behaviours(Path.Combine(managed_bootstrap.project_directory, "scripts"));
-                    behaviours.attach_nodes(document.roots, frame->scene);
-                    if (animation_player.try_get_info(out _)) {
-                        animation_player.try_play();
+                    if (behaviours.try_attach_nodes(document.roots, frame->scene, out var attach_message)) {
+                        if (animation_player.try_get_info(out _)) {
+                            animation_player.try_play();
+                        }
+                    } else {
+                        // The instance stays assigned so a broken scene is not retried every frame;
+                        // every behaviour it attached was already detached in the failure path.
+                        host_logger.write(attach_message);
+                        notice = attach_message;
                     }
                 }
                 behaviours?.update(frame->delta_time);
@@ -1829,612 +2068,6 @@ namespace deren.editor {
                 tree = null;
             }
             document = null;
-        }
-
-        private script_status run_selftest() {
-            if (document == null) {
-                return selftest_failure("there is no document");
-            }
-            // The temp file lives beside the project assembly, not in the system temp directory: a
-            // sandboxed run may deny writes there while the project directory is always writable
-            // (the editor itself saves scenes under scenes/).
-            var directory = Path.Combine(AppContext.BaseDirectory, "captures");
-            Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, $"editor-selftest-{Guid.NewGuid():N}.scene.toml");
-            var original_path = document.path;
-            try {
-                if (!document_io.try_save(document, path, out var save_error)) {
-                    return selftest_failure($"save to a temp path failed: {save_error}");
-                }
-                host_logger.write($"Editor selftest: saved {count_nodes(document.roots)} node(s)");
-                if (!document_io.try_load(path, out var reloaded, out var load_error) || reloaded == null) {
-                    return selftest_failure($"reload failed: {load_error}");
-                }
-                host_logger.write("Editor selftest: reloaded the document");
-                if (!same_document(document, reloaded, out var mismatch)) {
-                    return selftest_failure($"reload mismatch: {mismatch}");
-                }
-                host_logger.write("Editor selftest: uid/name/transform of every node match");
-
-                var root = document.roots.Count != 0 ? document.roots[0] : null;
-                if (root == null || selection_state == null) {
-                    return selftest_failure("the document has no root to edit");
-                }
-                selection_state.select(root.uid);
-                if (!apply_rename("selftest-root") || root.name != "selftest-root") {
-                    return selftest_failure("rename through the button path failed");
-                }
-                host_logger.write("Editor selftest: renamed the root through the button path");
-
-                root.visible = false;
-                root.flags = 5;
-                if (!push_runtime(root)) {
-                    return selftest_failure("could not prepare hidden node with custom flags");
-                }
-                selection_state.select(root.uid);
-                if (!delete_selected() || document.find(root.uid) != null) {
-                    return selftest_failure("delete did not remove the root subtree");
-                }
-                host_logger.write("Editor selftest: deleted the root subtree");
-
-                if (undo_history == null || !undo_history.try_undo()) {
-                    return selftest_failure("undo failed");
-                }
-                if (document.find(root.uid) == null || root.name != "selftest-root") {
-                    return selftest_failure("undo did not restore the renamed root");
-                }
-                if (tree == null || !tree.try_get_flags(root.runtime, out var restored_flags) || restored_flags != 5) {
-                    return selftest_failure("undo did not restore runtime flags");
-                }
-                root.visible = true;
-                root.flags = 0;
-                if (!push_runtime(root)) { return selftest_failure("could not restore test node properties"); }
-                host_logger.write("Editor selftest: undo restored the root and its runtime flags");
-
-                selection_state.select(root.uid);
-                if (!apply_detail_change(detail_field.position_x, "2.5") || root.local.position.x != 2.5F) {
-                    return selftest_failure("the details panel did not edit the transform");
-                }
-                if (tree == null || !tree.try_get_transform(root.runtime, out var runtime_transform) ||
-                    runtime_transform.position.x != 2.5F) {
-                    return selftest_failure("the details edit did not reach the runtime transform");
-                }
-                host_logger.write("Editor selftest: details edit reached the runtime node");
-
-                if (undo_history == null || !undo_history.try_undo() || root.local.position.x != 0.0F) {
-                    return selftest_failure("undo did not restore the transform");
-                }
-                host_logger.write("Editor selftest: undo restored the transform");
-
-                // The panels below are driven here the same way a click would drive them (the editor
-                // self-test runs in-process, before the window is interactive).
-                refresh_panels();
-                var visible_outliner = outliner;
-                if (visible_outliner == null || visible_outliner.visible_rows != 1) {
-                    return selftest_failure($"the outliner shows {visible_outliner?.visible_rows ?? -1} row(s) for 1 node");
-                }
-                outliner_filter = "missing-node";
-                refresh_panels();
-                if (visible_outliner.visible_rows != 0) {
-                    return selftest_failure("the outliner filter did not hide every row");
-                }
-                outliner_filter = "selftest-root";
-                refresh_panels();
-                if (visible_outliner.visible_rows != 1) {
-                    return selftest_failure("the outliner filter did not keep the matching row");
-                }
-                outliner_filter = string.Empty;
-                refresh_panels();
-                host_logger.write("Editor selftest: outliner filter");
-
-                if (!toggle_row_visibility("row_0_vis") || root.visible) {
-                    return selftest_failure("the outliner visibility glyph did not hide the node");
-                }
-                if (!toggle_row_visibility("row_0_vis") || !root.visible) {
-                    return selftest_failure("the outliner visibility glyph did not restore the node");
-                }
-                host_logger.write("Editor selftest: outliner visibility");
-
-                var expected_asset = assets.Length != 0 ? assets[0] : null;
-                if (expected_asset != null) {
-                    if (!select_asset("asset_0") || browser?.selected_asset != expected_asset) {
-                        return selftest_failure("the content browser did not select the first asset");
-                    }
-                    if (!select_asset("asset_0_name") || browser?.selected_asset != expected_asset) {
-                        return selftest_failure("the content browser did not select the asset from its label");
-                    }
-                    browser?.clear_selection();
-                    refresh_browser();
-                    host_logger.write($"Editor selftest: content browser selected '{expected_asset}'");
-                } else {
-                    host_logger.write("Editor selftest: content browser has no assets to select");
-                }
-
-                set_active_tool("vp_move");
-                if (active_tool != "vp_move") {
-                    return selftest_failure("the viewport tool did not change");
-                }
-                set_active_tool(tool_select_id);
-                host_logger.write("Editor selftest: viewport tool mode");
-
-                toggle_menu("menu_help_items");
-                if (open_menu != "menu_help_items") {
-                    return selftest_failure("the help menu did not open");
-                }
-                close_menus();
-                if (open_menu.Length != 0) {
-                    return selftest_failure("the menu did not close");
-                }
-                host_logger.write("Editor selftest: menu bar");
-
-                set_dock_tab("tab_log");
-                if (active_dock_tab != "tab_log") {
-                    return selftest_failure("the output log tab did not activate");
-                }
-                set_dock_tab("tab_content");
-                if (active_dock_tab != "tab_content") {
-                    return selftest_failure("the content browser tab did not reactivate");
-                }
-                host_logger.write("Editor selftest: dock tabs");
-
-                var unsaved_document = document;
-                var undo_label = undo_history?.next_undo_label;
-                if (new_scene() || !pending_new_scene || !ReferenceEquals(document, unsaved_document)) {
-                    return selftest_failure("New Scene discarded unsaved work without confirmation");
-                }
-                if (!resolve_unsaved("unsaved_cancel") || pending_new_scene ||
-                    !ReferenceEquals(document, unsaved_document) || undo_history?.next_undo_label != undo_label) {
-                    return selftest_failure("Cancel did not preserve the document and undo history");
-                }
-                document.path = Path.Combine(path, "blocked.scene.toml");
-                new_scene();
-                if (resolve_unsaved("unsaved_save") || !pending_new_scene ||
-                    !ReferenceEquals(document, unsaved_document)) {
-                    return selftest_failure("a failed save discarded the document");
-                }
-                document.path = path;
-                if (!resolve_unsaved("unsaved_save") || pending_new_scene ||
-                    ReferenceEquals(document, unsaved_document) || undo_history?.can_undo == true ||
-                    !document_io.try_load(path, out var saved_before_new, out _) || saved_before_new == null ||
-                    !same_document(unsaved_document, saved_before_new, out _)) {
-                    return selftest_failure("Save then New Scene did not preserve the old document on disk");
-                }
-                var discarded_document = document;
-                new_scene();
-                if (!pending_new_scene || !resolve_unsaved("unsaved_discard") || pending_new_scene ||
-                    ReferenceEquals(document, discarded_document)) {
-                    return selftest_failure("Discard did not create a new scene after confirmation");
-                }
-                host_logger.write("Editor selftest: unsaved confirmation save/failure/discard/cancel");
-
-                // The caption close button must ask the same question: a dirty document gets the prompt,
-                // and cancelling it leaves the document open. The window itself is only asked to close
-                // after an explicit save/discard, which is why this test cancels.
-                var close_document = document;
-                var close_undo_label = undo_history?.next_undo_label;
-                document.mark_dirty();
-                close_window();
-                if (!pending_close || !ReferenceEquals(document, close_document)) {
-                    return selftest_failure("the close button skipped the unsaved prompt");
-                }
-                if (!resolve_unsaved("unsaved_cancel") || pending_close ||
-                    !ReferenceEquals(document, close_document) || undo_history?.next_undo_label != close_undo_label) {
-                    return selftest_failure("cancelling the close prompt did not keep the document");
-                }
-                host_logger.write("Editor selftest: close confirmation");
-                selection_state.select(document.roots[0].uid);
-                refresh_panels(force_details: true);
-                host_logger.write("Editor selftest: passed");
-                return script_status.success;
-            } finally {
-                document.path = original_path;
-                try {
-                    File.Delete(path);
-                } catch (Exception) {
-                    // The temp file is best-effort: a leftover must not hide the selftest result.
-                }
-            }
-        }
-
-        // Run after initialize so startup-only binders cannot accidentally make this test pass.
-        private script_status run_runtime_asset_selftest() {
-            if (document == null || selection_state == null || tree == null || undo_history == null) {
-                return selftest_failure("runtime asset test has no scene");
-            }
-            if (asset_selftest_phase == 1) {
-                if (Array.IndexOf(assets, runtime_selftest_asset) < 0) {
-                    host_logger.write($"Editor selftest: runtime asset test skipped (no {runtime_selftest_asset} fixture)");
-                    asset_selftest_phase = 0;
-                    panel_selftest_phase = 1;
-                    return script_status.success;
-                }
-                browser_filter = runtime_selftest_asset;
-                refresh_browser();
-                var count = count_nodes(document.roots);
-                var time = Stopwatch.GetTimestamp();
-                if (!handle_asset_click("asset_0", time) || count_nodes(document.roots) != count) {
-                    return selftest_failure("single asset click created a node");
-                }
-                handle_asset_click("asset_0_name", time + Stopwatch.Frequency / 10);
-                var added = document.find(selection_state.primary);
-                if (count_nodes(document.roots) != count + 1 || added?.asset != runtime_selftest_asset || !added.runtime.is_valid) {
-                    return selftest_failure("double click did not load and select the asset after startup");
-                }
-                if (runtime_selftest_asset == "laevatain" && added.pipeline != "game_toon") {
-                    return selftest_failure("Laevatain did not retain its game_toon default");
-                }
-                selftest_asset_uid = added.uid;
-                host_logger.write($"Editor selftest: runtime double click loaded and selected {runtime_selftest_asset}");
-            } else if (asset_selftest_phase == 2) {
-                update_viewport_aspect();
-                if (!focus_selection() || !orbit_camera.try_get(out var framed) ||
-                    !tree.try_get_bounds(document.find(selftest_asset_uid)!.runtime, out var center, out var radius) ||
-                    radius <= 0 || framed.target.y != center.y || framed.distance <= radius) {
-                    return selftest_failure("viewport focus did not frame the asset bounds");
-                }
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_down, "viewport_image", "", 10, 10, 1), viewport_height);
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_move, "details", "", 30, 20), viewport_height);
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_cancel, "", ""), viewport_height);
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_move, "viewport", "", 60, 40), viewport_height);
-                if (!orbit_camera.try_get(out var orbited) || MathF.Abs(orbited.yaw_degrees - framed.yaw_degrees - 5.6f) > 0.01f) {
-                    return selftest_failure("viewport orbit or drag cancellation failed");
-                }
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_down, "viewport", "", 10, 10, 2), viewport_height);
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_move, "viewport", "", 20, 20), viewport_height);
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_up, "viewport", "", 20, 20, 2), viewport_height);
-                viewport_navigation.handle_pointer(new(rml_event_type.pointer_wheel, "viewport", "", 1), viewport_height);
-                if (!orbit_camera.try_get(out var moved) || moved.target.y <= orbited.target.y || moved.distance >= orbited.distance) {
-                    return selftest_failure("viewport pan or zoom failed");
-                }
-                focus_selection();
-                host_logger.write("Editor selftest: viewport focus, orbit, pan, zoom and cancel passed");
-                if (ui == null || !ui.try_get_element_rect("viewport", out var viewport)) {
-                    return selftest_failure("viewport layout was unavailable for picking");
-                }
-                float x = viewport.x + viewport.width * 0.5f;
-                float y = viewport.y + viewport.height * 0.5f;
-                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", x, y));
-                handle_viewport_selection(new(rml_event_type.pointer_move, "viewport_image", "", x + 12, y));
-                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", x, y));
-                if (selection_state?.primary != selftest_asset_uid) {
-                    return selftest_failure("a viewport drag changed the selection");
-                }
-                float empty_x = viewport.x + 2, empty_y = viewport.y + 2;
-                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", empty_x, empty_y));
-                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", empty_x, empty_y));
-                if (selection_state?.primary != Guid.Empty) {
-                    return selftest_failure("clicking empty viewport did not clear selection");
-                }
-                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", x, y));
-                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", x, y));
-                if (selection_state?.primary != selftest_asset_uid) {
-                    return selftest_failure("clicking the framed asset did not select it");
-                }
-                var picked_runtime = document.find(selftest_asset_uid)!.runtime;
-                if (!tree.try_set_visible(picked_runtime, false)) {
-                    return selftest_failure("could not hide the pickable asset");
-                }
-                handle_viewport_selection(new(rml_event_type.pointer_down, "viewport_image", "", x, y));
-                handle_viewport_selection(new(rml_event_type.pointer_up, "viewport_image", "", x, y));
-                if (selection_state?.primary != Guid.Empty || !tree.try_set_visible(picked_runtime, true)) {
-                    return selftest_failure("a hidden asset was picked or could not be revealed");
-                }
-                selection_state.select(selftest_asset_uid);
-                host_logger.write("Editor selftest: viewport picking, visibility and deselection passed");
-                if (!test_viewport_transform(document.find(selftest_asset_uid)!)) {
-                    return selftest_failure("gizmo drag, cancel, undo or redo failed");
-                }
-                host_logger.write("Editor selftest: transform gizmo passed");
-
-                if (animation_player.try_get_info(out var animation) && (animation.playing || animation.time != 0)) {
-                    return selftest_failure("an imported animation started playing in the editor");
-                }
-                if (!undo_history.try_undo() || document.find(selftest_asset_uid) != null) {
-                    return selftest_failure("undo did not remove the imported asset");
-                }
-                host_logger.write("Editor selftest: runtime asset undo");
-            } else if (asset_selftest_phase == 3) {
-                if (!undo_history.try_redo() || document.find(selftest_asset_uid)?.runtime.is_valid != true ||
-                    selection_state.primary != selftest_asset_uid) {
-                    return selftest_failure("redo did not reload and select the imported asset");
-                }
-                host_logger.write("Editor selftest: runtime asset redo");
-            } else {
-                if (animation_player.try_get_info(out var animation) && (animation.playing || animation.time != 0)) {
-                    return selftest_failure("redo started animation playback in the editor");
-                }
-                var count = count_nodes(document.roots);
-                var selected = selection_state.primary;
-                var undo_label = undo_history.next_undo_label;
-                if (add_node("__editor_missing_asset__") || count_nodes(document.roots) != count ||
-                    selection_state.primary != selected || undo_history.next_undo_label != undo_label) {
-                    return selftest_failure("failed asset load changed the scene, selection or history");
-                }
-                var path = Path.Combine(managed_bootstrap.project_directory, "captures", $"asset-selftest-{Guid.NewGuid():N}.scene.toml");
-                var original_path = document.path;
-                try {
-                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                    if (!document_io.try_save(document, path, out _) ||
-                        !document_io.try_load(path, out var saved, out _) ||
-                        saved?.find(selftest_asset_uid)?.asset != runtime_selftest_asset) {
-                        return selftest_failure("imported asset did not round trip through the scene file");
-                    }
-                } finally {
-                    document.path = original_path;
-                    document.mark_dirty();
-                    File.Delete(path);
-                }
-                if (runtime_selftest_asset == "laevatain" &&
-                    Array.IndexOf(assets, "damaged-helmet") >= 0 && Array.IndexOf(assets, "flowers") >= 0 &&
-                    !test_mixed_scene()) {
-                    return selftest_failure("mixed scene drag/drop, save point or reopening failed");
-                }
-                browser_filter = string.Empty;
-                notice = "Asset loading self-test passed";
-                refresh_browser();
-                refresh_panels(force_details: true);
-                asset_selftest_phase = 0;
-                panel_selftest_phase = 1;
-                host_logger.write("Editor selftest: runtime asset rollback/save passed");
-                return script_status.success;
-            }
-            ++asset_selftest_phase;
-            return script_status.success;
-        }
-
-        private bool test_mixed_scene() {
-            if (document == null || selection_state == null || undo_history == null || browser == null ||
-                ui == null || !ui.try_get_element_rect("viewport", out var area)) {
-                host_logger.write("Editor mixed selftest: layout unavailable");
-                return false;
-            }
-            browser_filter = string.Empty;
-            refresh_browser();
-            var ids = new[] { "damaged-helmet", "flowers" };
-            for (int i = 0; i < ids.Length; ++i) {
-                int tile = 0;
-                while (browser.try_tile_asset(tile, out var id) && id != ids[i]) { ++tile; }
-                if (!browser.try_tile_asset(tile, out _)) {
-                    host_logger.write("Editor mixed selftest: missing asset tile");
-                    return false;
-                }
-                handle_asset_drag(new(rml_event_type.pointer_down, $"asset_{tile}", "", area.x, area.y + area.height + 24));
-                if (!handle_asset_drag(new(rml_event_type.pointer_up, "viewport_image", "",
-                        area.x + area.width * (i == 0 ? 0.25f : 0.75f), area.y + area.height * 0.55f)) ||
-                    document.find(selection_state.primary) is not { } placed || placed.asset != ids[i] ||
-                    !placed.runtime.is_valid || placed.local.position.Equals(default(vector_3))) {
-                    host_logger.write("Editor mixed selftest: drop did not place the asset");
-                    return false;
-                }
-            }
-
-            var character = document.find(selftest_asset_uid)!;
-            selection_state.select(character.uid);
-            string? original_pipeline = character.pipeline;
-            cycle_pipeline();
-            if (character.pipeline == original_pipeline || !undo_history.try_undo() ||
-                character.pipeline != original_pipeline) {
-                host_logger.write("Editor mixed selftest: pipeline edit or undo failed");
-                return false;
-            }
-
-            var path = Path.Combine(managed_bootstrap.project_directory, "captures", $"mixed-selftest-{Guid.NewGuid():N}.scene.toml");
-            var original = document;
-            try {
-                show_scene_path(saving: true);
-                scene_path_text = path;
-                handle_scene_path("scene_path_accept");
-                if (scene_path_open || original.dirty || original.path != path) {
-                    host_logger.write("Editor mixed selftest: Save As did not advance the save point");
-                    return false;
-                }
-                if (!toggle_selected_visibility() || !original.dirty ||
-                    !undo_history.try_undo() || original.dirty ||
-                    !undo_history.try_redo() || !original.dirty || !undo_history.try_undo() || original.dirty) {
-                    host_logger.write("Editor mixed selftest: visibility undo/redo did not track the save point");
-                    return false;
-                }
-                if (!delete_selected() || !original.dirty || !undo_history.try_undo() || original.dirty) {
-                    host_logger.write("Editor mixed selftest: delete undo did not return to the save point");
-                    return false;
-                }
-                selection_state.select(character.uid);
-                if (!toggle_selected_visibility() || !original.dirty) {
-                    host_logger.write("Editor mixed selftest: visibility edit did not mark the scene dirty");
-                    return false;
-                }
-                show_scene_path(saving: false);
-                scene_path_text = path;
-                handle_scene_path("scene_path_accept");
-                if (pending_open == null || !resolve_unsaved("unsaved_cancel") || !ReferenceEquals(original, document) ||
-                    !original.dirty || !undo_history.try_undo() || original.dirty) {
-                    host_logger.write("Editor mixed selftest: Open cancellation did not preserve the draft");
-                    return false;
-                }
-                show_scene_path(saving: false);
-                scene_path_text = path;
-                handle_scene_path("scene_path_accept");
-                if (scene_path_open || ReferenceEquals(original, document) || document == null || document.dirty ||
-                    !same_document(original, document, out _) || undo_history.can_undo) {
-                    host_logger.write("Editor mixed selftest: reopened scene did not match saved scene");
-                    return false;
-                }
-                foreach (var node in document.roots) {
-                    if (!node.runtime.is_valid) {
-                        host_logger.write("Editor mixed selftest: reopened runtime node is missing");
-                        return false;
-                    }
-                }
-            } finally {
-                File.Delete(path);
-                if (document?.path == path) { document.path = null; }
-            }
-            var loaded_character = document?.find(selftest_asset_uid);
-            if (loaded_character == null) {
-                host_logger.write("Editor mixed selftest: reopened character missing");
-                return false;
-            }
-            selection_state.select(loaded_character.uid);
-            set_active_tool("vp_move");
-            focus_selection();
-            host_logger.write("Editor selftest: mixed scene drag/drop, pipeline, save point and reopening passed");
-            return true;
-        }
-
-        // Window-menu visibility must restore the element's own display type (the outliner is a flex
-        // column, the details a block) and hide the splitter of a hidden panel: restoring the wrong
-        // one collapses the outliner rows and lays the details out sideways, and a splitter left over
-        // a hidden panel still moves it. Runs over several frames because a display change only
-        // reaches the element boxes on the next layout pass.
-        private script_status run_panel_selftest() {
-            if (ui == null) {
-                return selftest_failure("panel visibility test has no document");
-            }
-            switch (panel_selftest_phase) {
-                case 1:
-                    if (!ui.try_get_element_rect("outliner_rows", out var rows) ||
-                        !ui.try_get_element_rect("details_title", out var title) ||
-                        !ui.try_get_element_rect("details", out var details)) {
-                        return selftest_failure("panel visibility test cannot measure the layout");
-                    }
-                    panel_rows_height = rows.height;
-                    panel_title_width = title.width;
-                    panel_details_y = details.y;
-                    // Go through the menu handler, not toggle_panel directly: the regression was the
-                    // display string the Window menu restores, which a direct call would bypass.
-                    handle_menu_click("menu_window_outliner");
-                    panel_selftest_phase = 2;
-                    return script_status.success;
-                case 3:
-                    if (!ui.try_get_element_rect("details", out var hidden) ||
-                        hidden.y > panel_details_y - 100.0f) {
-                        return selftest_failure("a hidden panel left its layout space reserved");
-                    }
-                    handle_menu_click("menu_window_outliner");
-                    panel_selftest_phase = 4;
-                    return script_status.success;
-                case 5:
-                    if (!ui.try_get_element_rect("outliner_rows", out var restored_rows) ||
-                        !ui.try_get_element_rect("details", out var restored_details) ||
-                        MathF.Abs(restored_rows.height - panel_rows_height) > 1.0f ||
-                        MathF.Abs(restored_details.y - panel_details_y) > 1.0f) {
-                        return selftest_failure("re-showing the outliner did not restore its layout");
-                    }
-                    handle_menu_click("menu_window_details");
-                    panel_selftest_phase = 6;
-                    return script_status.success;
-                case 7:
-                    handle_menu_click("menu_window_details");
-                    panel_selftest_phase = 8;
-                    return script_status.success;
-                case 9:
-                    if (!ui.try_get_element_rect("details_title", out var revealed) ||
-                        MathF.Abs(revealed.width - panel_title_width) > 1.0f) {
-                        return selftest_failure("re-showing the details did not restore its layout");
-                    }
-                    handle_menu_click("menu_window_sidebar_side");
-                    handle_menu_click("menu_window_dock_side");
-                    handle_menu_click("menu_window_panel_order");
-                    panel_selftest_phase = 10;
-                    return script_status.success;
-                case 11:
-                    if (!ui.try_get_element_rect("right_column", out var sidebar) ||
-                        !ui.try_get_element_rect("viewport", out var viewport) ||
-                        !ui.try_get_element_rect("bottom_dock", out var dock) ||
-                        !ui.try_get_element_rect("outliner", out var outliner_area) ||
-                        !ui.try_get_element_rect("details", out var details_area) ||
-                        sidebar.x >= viewport.x || dock.y >= viewport.y || details_area.y >= outliner_area.y) {
-                        return selftest_failure("the rearranged workspace did not move all three panels");
-                    }
-                    begin_split_drag(new(rml_event_type.pointer_down, "split_right", "", sidebar.x + sidebar.width, sidebar.y));
-                    update_split_drag(new(rml_event_type.pointer_move, "split_right", "", sidebar.x + sidebar.width + 20, sidebar.y));
-                    finish_split_drag();
-                    panel_selftest_phase = 12;
-                    return script_status.success;
-                case 13:
-                    if (!ui.try_get_element_rect("right_column", out var widened) || MathF.Abs(widened.width - 370) > 1) {
-                        return selftest_failure("the left sidebar splitter did not widen to the right");
-                    }
-                    handle_menu_click("menu_window_reset_layout");
-                    panel_selftest_phase = 14;
-                    return script_status.success;
-                case 15:
-                    if (!ui.try_get_element_rect("right_column", out var reset) ||
-                        !ui.try_get_element_rect("viewport", out var reset_viewport) ||
-                        MathF.Abs(reset.width - 350) > 1 || reset.x <= reset_viewport.x) {
-                        return selftest_failure("Reset Layout did not restore the right sidebar");
-                    }
-                    panel_selftest_phase = 0;
-                    notice = "Panel self-test passed";
-                    host_logger.write("Editor selftest: panel visibility, rearrangement and reset passed");
-                    return script_status.success;
-                default:
-                    // Even phases are the frames that let a display change reach the element boxes.
-                    ++panel_selftest_phase;
-                    return script_status.success;
-            }
-        }
-
-        private static script_status selftest_failure(string message) {
-            host_logger.write($"Editor selftest: FAILED - {message}");
-            return script_status.script_failure;
-        }
-
-        private static bool same_document(scene_document expected, scene_document actual, out string? mismatch) {
-            var left = new List<document_node>();
-            flatten(expected.roots, left);
-            var right = new List<document_node>();
-            flatten(actual.roots, right);
-            if (left.Count != right.Count) {
-                mismatch = $"{left.Count} node(s) reloaded as {right.Count}";
-                return false;
-            }
-            for (var index = 0; index < left.Count; ++index) {
-                var before = left[index];
-                var after = right[index];
-                if (before.uid != after.uid) {
-                    mismatch = $"node {index} uid {before.uid} reloaded as {after.uid}";
-                    return false;
-                }
-                if (before.name != after.name) {
-                    mismatch = $"node '{before.name}' reloaded as '{after.name}'";
-                    return false;
-                }
-                if (before.asset != after.asset || before.pipeline != after.pipeline || before.script != after.script ||
-                    before.visible != after.visible || before.flags != after.flags) {
-                    mismatch = $"node '{before.name}' properties changed on reload";
-                    return false;
-                }
-                if (!same_transform(before.local, after.local)) {
-                    mismatch = $"node '{before.name}' transform changed on reload";
-                    return false;
-                }
-            }
-            mismatch = null;
-            return true;
-        }
-
-        private static void flatten(IReadOnlyList<document_node> nodes, List<document_node> into) {
-            for (var index = 0; index < nodes.Count; ++index) {
-                into.Add(nodes[index]);
-                flatten(nodes[index].children, into);
-            }
-        }
-
-        private static bool same_transform(transform_value left, transform_value right) =>
-            left.position.x == right.position.x && left.position.y == right.position.y &&
-            left.position.z == right.position.z && left.rotation_degrees.x == right.rotation_degrees.x &&
-            left.rotation_degrees.y == right.rotation_degrees.y && left.rotation_degrees.z == right.rotation_degrees.z &&
-            left.scale.x == right.scale.x && left.scale.y == right.scale.y && left.scale.z == right.scale.z;
-
-        private static int count_nodes(IReadOnlyList<document_node> nodes) {
-            var total = nodes.Count;
-            for (var index = 0; index < nodes.Count; ++index) {
-                if (nodes[index].children.Count != 0) {
-                    total += count_nodes(nodes[index].children);
-                }
-            }
-            return total;
         }
     }
 }

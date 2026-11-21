@@ -1,4 +1,4 @@
-// module version: 0.4.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.5.0  (independent of the app version in CMakeLists project(VERSION))
 
 export module deren.app.scripting;
 
@@ -59,8 +59,10 @@ export namespace deren::app {
         void* context = nullptr;
         bool (*bind)(void* context, engine::scene_tree::scene_node& parent, std::string_view asset_id,
                      managed_asset_source const& source) = nullptr;
-        // Finish in-flight draws before a live edit releases a node's render resources.
-        void (*before_remove)(void* context) = nullptr;
+        // Finish in-flight draws before a live edit releases a node's render resources. The node is
+        // passed along because the host state a removal invalidates (an animation player, say) is
+        // scoped to one asset subtree, not to the whole scene.
+        void (*before_remove)(void* context, scripting::node_handle node) = nullptr;
     };
 
     /**
@@ -121,12 +123,13 @@ export namespace deren::app {
          * Slot 0 is the scene-wide environment, slots 1..3 are the per-material lanes a material
          * record can name (`material_override.environment_slot`). The callback runs on the render
          * thread but must not touch the device: it validates the slot and the path, stores the
-         * request, and the host prepares and uploads it between frames. Returning false rejects an
-         * out-of-range slot or a missing/unreadable file in the slot that named the path (relative
-         * paths resolve against the executable directory) and leaves that slot's environment
-         * untouched.
+         * request, and the host prepares and uploads it between frames. The answer is a
+         * script_status so the managed caller can tell a missing host from an out-of-range slot or
+         * a missing/unreadable file (relative paths resolve against the executable directory); any
+         * refusal leaves that slot's environment untouched.
          */
-        bool (*set_environment_hdr)(void* context, std::string_view path, std::uint32_t environment_slot) = nullptr;
+        scripting::script_status (*set_environment_hdr)(void* context, std::string_view path,
+                                                        std::uint32_t environment_slot) = nullptr;
         /**
          * @brief Switches the primitives under a bound asset root to another supported pipeline.
          *
@@ -264,9 +267,10 @@ export namespace deren::app {
         /**
          * @brief ABI 38: the query side of the renderer state the debug overlay already shows.
          *
-         * viewport_size reports the presentation (up-scaled) extent in pixels. project_point and
-         * screen_ray map between world space and that same pixel grid using the matrices the current
-         * frame renders with, so a managed HUD lines up with the 3D view. counters fills the
+         * viewport_size reports the RENDER extent in pixels - the size the shading passes ran at,
+         * with the render scale already applied, not the window's or the presented image's size.
+         * project_point and screen_ray map between world space and that same pixel grid using the
+         * matrices the current frame renders with, so a managed HUD lines up with the 3D view. counters fills the
          * diagnostic struct from the runtime's own sizes, and gpu_timing_summary hands back the
          * overlay's per-pass timing text, borrowed until the next frame. False means the host has no
          * runtime yet.
@@ -552,7 +556,6 @@ export namespace deren::app {
         managed_asset_binder asset_binder;
         std::uint64_t scene_id = 0;
         bool running = false;
-        bool closing = false;
         // ABI 34: one frame boundary at a time. The render thread waits on this pair while managed
         // code runs the batch on its worker thread and calls notify_rendering.
         std::mutex frame_mutex;

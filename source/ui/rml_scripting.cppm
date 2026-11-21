@@ -1,4 +1,4 @@
-// module version: 0.2.0
+// module version: 0.2.1
 // Main-thread document ownership and a copied-event bridge for one managed session.
 export module deren.ui.rml_scripting;
 export import deren.vstd;
@@ -82,8 +82,24 @@ export namespace deren::ui {
             if (next_id == std::numeric_limits<std::uint64_t>::max()) {
                 return status::script_failure;
             }
-            if (!active->document.open(path(markup), path(font), fallback.length == 0 ? std::filesystem::path{} : path(fallback))) {
+            auto const markup_path = path(markup);
+            auto const font_path = path(font);
+            auto const fallback_path = fallback.length == 0 ? std::filesystem::path{} : path(fallback);
+            auto const readable = [](std::filesystem::path const& candidate) {
+                if (candidate.empty()) {
+                    return true;
+                }
+                std::error_code error;
+                return std::filesystem::is_regular_file(candidate, error);
+            };
+            // A missing file and a broken document are not the same failure: the caller can tell a stale
+            // asset directory (asset_not_found) from RML the document itself got wrong (script_failure),
+            // which is what the status names are supposed to mean.
+            if (!readable(markup_path) || !readable(font_path) || !readable(fallback_path)) {
                 return status::asset_not_found;
+            }
+            if (!active->document.open(markup_path, font_path, fallback_path)) {
+                return status::script_failure;
             }
             active->pending.clear();
             active->pending_pointer.clear();

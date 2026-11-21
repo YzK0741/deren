@@ -50,7 +50,9 @@ internal sealed class undo_stack
     }
 
     /// <summary>
-    /// Undoes the newest command. Returns false when there is nothing to undo.
+    /// Undoes the newest command. Returns false when there is nothing to undo, or when the command
+    /// could not be reverted - the entry then stays on the undo side, so the history never claims a
+    /// step the document did not take.
     /// </summary>
     internal bool try_undo()
     {
@@ -58,14 +60,17 @@ internal sealed class undo_stack
             return false;
         }
         var command = this.undo_entries[^1];
-        command.undo();
+        if (!command.undo()) {
+            return false;
+        }
         this.undo_entries.RemoveAt(this.undo_entries.Count - 1);
         this.redo_entries.Add(command);
         return true;
     }
 
     /// <summary>
-    /// Redoes the command that was undone last. Returns false when there is nothing to redo.
+    /// Redoes the command that was undone last. Returns false when there is nothing to redo, or when
+    /// the command could not be reapplied - the entry then stays on the redo side.
     /// </summary>
     internal bool try_redo()
     {
@@ -73,7 +78,9 @@ internal sealed class undo_stack
             return false;
         }
         var command = this.redo_entries[^1];
-        command.redo();
+        if (!command.redo()) {
+            return false;
+        }
         this.redo_entries.RemoveAt(this.redo_entries.Count - 1);
         this.undo_entries.Add(command);
         return true;

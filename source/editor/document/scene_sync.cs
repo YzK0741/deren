@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using deren.scripting;
 
 namespace deren.editor;
@@ -15,6 +16,16 @@ namespace deren.editor;
 /// </remarks>
 internal static class scene_sync
 {
+    /// <summary>
+    /// Upper bound of a node name in UTF-8 bytes. The managed rename entry (ABI 40) refuses anything
+    /// longer, so a document node above it could never reach the runtime and the two sides would
+    /// silently disagree. This is the one constant both files validate against.
+    /// </summary>
+    internal const int max_name_utf8_bytes = 256;
+
+    /// <summary>UTF-8 byte length of a document name, the unit the runtime limit is expressed in.</summary>
+    internal static int name_utf8_byte_count(string name) => Encoding.UTF8.GetByteCount(name);
+
     /// <summary>
     /// Builds a fresh tree from <paramref name="doc"/>, makes it the rendered scene and pushes every
     /// node value onto it. On failure the half-built tree is destroyed and <paramref name="tree"/> is
@@ -82,9 +93,11 @@ internal static class scene_sync
             return false;
         }
         try {
-            if (node.pipeline == null && asset_manager.try_get_default_pipeline(asset, out var declared)) {
-                node.pipeline = declared;
-            }
+            // THE DOCUMENT IS NOT REWRITTEN HERE. A null pipeline already means "the asset's declared
+            // default" (push() then skips the set and the bind leaves the default in place), so
+            // copying the declared name into the node would claim an edit nobody made: the save point
+            // would move, a save would write lines the file never had, and the undo of a later
+            // pipeline change could not get back to the authored state.
             if (!tree.try_bind_asset(parent_runtime, asset, node.local, out var bound, out status)) {
                 return false;
             }
@@ -130,7 +143,8 @@ internal static class scene_sync
 
     /// <summary>
     /// Pushes one node's transform, visibility, flags and pipeline into its runtime node. The name is
-    /// applied last through <see cref="try_set_name"/> and never fails the push.
+    /// applied last through <see cref="try_set_name"/> and does not fail the push, because a name over
+    /// <see cref="max_name_utf8_bytes"/> is refused before any value is written.
     /// </summary>
     internal static bool push(scene_document doc, scene_tree tree, document_node node, out script_status status)
     {
@@ -140,6 +154,12 @@ internal static class scene_sync
         }
         if (!node.runtime.is_valid) {
             status = script_status.invalid_node;
+            return false;
+        }
+        // A name the runtime would refuse must fail the push instead of being dropped: otherwise the
+        // document keeps a value the scene never shows and every later read of the runtime disagrees.
+        if (node.name.Length > 0 && name_utf8_byte_count(node.name) > max_name_utf8_bytes) {
+            status = script_status.invalid_argument;
             return false;
         }
         if (!tree.try_set_transform(node.runtime, node.local, out status)) {
@@ -161,11 +181,15 @@ internal static class scene_sync
 
     /// <summary>
     /// Applies the document name to the runtime node through the managed ABI 40 rename entry.
-    /// An empty or over-256-byte name is refused by the managed wrapper; that never fails the push.
+    /// An empty or over-<see cref="max_name_utf8_bytes"/> name is refused by the managed wrapper; that
+    /// never fails the push.
     /// </summary>
     private static bool try_set_name(scene_tree tree, document_node node)
     {
         if (!tree.is_valid || !node.runtime.is_valid || node.name.Length == 0) {
+            return false;
+        }
+        if (name_utf8_byte_count(node.name) > max_name_utf8_bytes) {
             return false;
         }
         return tree.try_set_name(node.runtime, node.name);

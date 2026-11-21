@@ -47,7 +47,15 @@ import deren.scripting.managed_host;
 
 namespace deren::app {
     namespace {
-        using pipeline_material_bases = std::unordered_map<std::uint64_t, deren::engine::material_id>;
+        /// One leaf's material state across pipeline switches. `base` is the material the leaf used
+        /// before the first `unlit` switch, `unlit` the clone made from it; both are kept so switching
+        /// back and forth reuses the same rows instead of growing the material table every time.
+        struct pipeline_material_row {
+            deren::engine::material_id base{};
+            deren::engine::material_id unlit{};
+            bool base_recorded = false;
+        };
+        using pipeline_material_bases = std::unordered_map<std::uint64_t, pipeline_material_row>;
 
         /// Rewrites every imported leaf under @p node to @p pipeline. The walk never consults
         /// `visible`, because a hidden asset subtree must still switch so it renders correctly when
@@ -62,23 +70,39 @@ namespace deren::app {
                 auto& leaf = *static_cast<deren::engine::primitive*>(node.primitive_leaf.get());
                 if (pipeline == "pbr") {
                     if (auto const found = bases.find(leaf.lifetime_id); found != bases.end()) {
-                        leaf.push.material_index = found->second;
+                        if (found->second.base_recorded) {
+                            leaf.push.material_index = found->second.base;
+                        }
                     }
                     leaf.pipeline_name = {};
                     leaf.path = deren::engine::shading_path::deferred;
                 } else if (pipeline == "unlit") {
-                    auto const inserted = bases.try_emplace(leaf.lifetime_id, leaf.push.material_index);
+                    auto& row = bases[leaf.lifetime_id];
+                    if (!row.base_recorded) {
+                        row.base = leaf.push.material_index;
+                        row.base_recorded = true;
+                    }
+                    // clone_material APPENDS a material row and nothing ever frees one, so the clone is
+                    // made once per leaf: a frame that re-applies `unlit` must not grow the table.
+                    if (row.unlit.value == 0) {
+                        row.unlit = runtime.clone_material(row.base, glm::vec3(1.0f), 1.0f, 1.0f, 1.0f, true);
+                    }
                     leaf.pipeline_name = {};
                     leaf.path = deren::engine::shading_path::deferred;
-                    leaf.push.material_index =
-                        runtime.clone_material(inserted.first->second, glm::vec3(1.0f), 1.0f, 1.0f, 1.0f, true);
+                    // A failed clone leaves the field zero; then the leaf keeps the material it has,
+                    // which is the unmodified import.
+                    if (row.unlit.value != 0) {
+                        leaf.push.material_index = row.unlit;
+                    }
                 } else if (pipeline == "game_toon") {
                     // Asset selection must enable the pass as well as mark its leaves. An editor
                     // may start empty with both startup switches off and import a character later.
                     runtime.set_character_forward(true);
                     runtime.set_game_toon(true);
                     if (auto const found = bases.find(leaf.lifetime_id); found != bases.end()) {
-                        leaf.push.material_index = found->second;
+                        if (found->second.base_recorded) {
+                            leaf.push.material_index = found->second.base;
+                        }
                     }
                     leaf.pipeline_name = {};
                     leaf.path = deren::engine::shading_path::character;
@@ -146,29 +170,23 @@ namespace deren::app {
         }
 
         // A project launch owns every startup option: `deren run <project>` is the ONLY entry. The
-        // engine locates the subcommand and passes the untouched argv to the project's preinit; the
-        // native preview mode and its capture CLI are gone, so a launch without a managed project is
-        // a usage error rather than a second startup path.
+        // engine hands the untouched argv to the project's preinit; the native preview mode and its
+        // capture CLI are gone, so a launch without a managed project is a usage error rather than a
+        // second startup path.
         auto const fail_project = [](std::string_view message) {
             deren::utility::println(stderr, "{}", message);
             deren::utility::error(message);
             deren::utility::wait_log_all();
             return 2;
         };
-        std::int32_t run_index = -1;
-        for (std::int32_t i = 1; i < argc; ++i) {
-            if (std::string_view(argv[i]) == "run") {
-                run_index = i;
-                break;
-            }
+        // THE ENGINE OWNS THE HEAD OF THE COMMAND (`deren run <project-directory>`); whatever follows
+        // the directory belongs to the managed project's preinit. This used to scan argv for "run" and
+        // take the next entry as the project, so `deren --config other.toml run proj` was accepted with
+        // the option silently ignored.
+        if (auto const project_arguments = deren::app_config::validate_project_arguments(argc, argv); !project_arguments) {
+            return fail_project(project_arguments.error());
         }
-        if (run_index < 0) {
-            return fail_project("usage: deren run <project-directory>");
-        }
-        if (run_index + 1 >= argc) {
-            return fail_project("usage: deren run <project-directory>");
-        }
-        auto project = deren::app_config::load_project_settings(argv[run_index + 1]);
+        auto project = deren::app_config::load_project_settings(argv[2]);
         if (!project) {
             return fail_project(project.error());
         }
@@ -331,10 +349,15 @@ namespace deren::app {
         // project's initialize (see deren::project_config), so the C# game owns them and can move
         // them any frame. What stays native is what must exist before the project's scripts run:
         // the swapchain and its creation parameters, the shadow cascade/map sizing, the GPU-driven
-        // paths, the render scale, and the pipeline / toon stage selection below.
+        // paths, the render scale, the upscale filter that resolves it, and the pipeline / toon stage
+        // selection below.
         runtime.set_default_pipeline(settings.render.unlit ? "unlit" : "pbr");
         app_renderer.set_unlit(settings.render.unlit);
         app_renderer.set_gbuffer_channel(settings.render.gbuffer_channel);
+        // THE FILTER THAT RESOLVES THE SCALED CHAIN ([render] upscale). The key is documented and the
+        // pass has always taken a filter, but nothing ever handed the config's value over, so the frame
+        // was always resolved with EASU no matter what the file said - a setting that selected nothing.
+        app_renderer.set_upscale_filter(settings.render.upscale);
         runtime.set_character_forward(settings.render.character_forward);
         runtime.set_game_toon(settings.render.game_toon);
 
@@ -440,8 +463,8 @@ namespace deren::app {
             // explicit "back to the window's aspect" value.
             float scene_aspect = 0.0F;
             bool scene_aspect_pending = false;
-            // Clone sources for leaves currently shaded by the unlit pipeline, keyed by the
-            // leaf's lifetime id (pointer identity alone would reuse a freed leaf's entry).
+            // Per-leaf material state for pipeline switches, keyed by the leaf's lifetime id
+            // (pointer identity alone would reuse a freed leaf's entry).
             pipeline_material_bases pipeline_bases;
             // The radius of the largest scene bound so far: `enable_shadows` remembers the extent
             // the camera's far plane needs, so it is re-run only when a later bind is bigger.
@@ -494,6 +517,11 @@ namespace deren::app {
             // ABI 43: the window the managed request controls act on; null for an offscreen capture,
             // which must answer module_unavailable instead of pretending to move a window.
             deren::app::glfw_window* window = nullptr;
+            // The packed node id of the asset subtree the player was imported from (0 while no player
+            // exists). A removal only drops the player when the removed node belongs to that subtree:
+            // an unrelated delete must not stop the character, but the animated nodes must not outlive
+            // the player's raw pointer into the tree either.
+            std::uint64_t player_owner_node = 0;
         };
         managed_bind_context managed_binding{.starting = true,
                                              .render_runtime = &runtime,
@@ -521,7 +549,8 @@ namespace deren::app {
                                              .animation_names = {},
                                              .animation_mutex = {},
                                              .animation_pending = {},
-                                             .window = &window};
+                                             .window = &window,
+                                             .player_owner_node = 0};
         // The snapshot every ABI 35 query reads. The frame thread writes it once per frame; a managed
         // thread reads it under the same lock, so a query never sees a half-built state.
         constexpr auto publish_animation_state = +[](managed_bind_context& context) {
@@ -645,6 +674,9 @@ namespace deren::app {
                 deren::utility::log("animation: '{}' drives the scene - {} clip(s) [{}]", asset_id,
                                     player->playable_count(), names);
                 context.player = std::move(player);
+                // The subtree root the clips address: a removal inside it invalidates the player.
+                context.player_owner_node =
+                    (static_cast<std::uint64_t>(parent.node_id.generation) << 32) | parent.node_id.index;
                 publish_animation_state(context);
             } else if (context.player != nullptr && !source.scenes->animations.empty()) {
                 deren::utility::log("animation: '{}' has {} clip(s), but one player already drives this scene - "
@@ -695,6 +727,7 @@ namespace deren::app {
             if (context->player != nullptr) {
                 deren::utility::log("animation: the scene tree was replaced - dropping the player");
                 context->player.reset();
+                context->player_owner_node = 0;
                 context->animation_names.clear();
                 context->animation_pending.clear();
                 publish_animation_state(*context);
@@ -838,15 +871,17 @@ namespace deren::app {
         };
         // The managed side names an environment slot; an empty path loads the procedural sky into it.
         // This only validates and records the newest request - the device work happens in the loop
-        // (one request in flight: a newer one replaces the queued one, whatever slot it names).
+        // (one request in flight: a newer one replaces the queued one, whatever slot it names). The
+        // answer is the honest status, so a managed caller can tell "no renderer yet" from "no file".
         auto const set_managed_environment_hdr = +[](void* opaque, std::string_view path,
-                                                     std::uint32_t environment_slot) -> bool {
+                                                     std::uint32_t environment_slot)
+            -> deren::scripting::script_status {
             auto* context = static_cast<managed_bind_context*>(opaque);
             if (context == nullptr || context->render_runtime == nullptr) {
-                return false;
+                return deren::scripting::script_status::module_unavailable;
             }
             if (environment_slot >= deren::engine::render_layout::heap_environment_capacity) {
-                return false;
+                return deren::scripting::script_status::invalid_argument;
             }
             std::filesystem::path request{std::string(path)};
             if (!request.empty()) {
@@ -856,13 +891,13 @@ namespace deren::app {
                 }
                 std::error_code ec;
                 if (!std::filesystem::is_regular_file(request, ec) || ec) {
-                    return false;
+                    return deren::scripting::script_status::asset_not_found;
                 }
             }
             context->pending_environment = std::move(request);
             context->pending_environment_slot = environment_slot;
             context->environment_pending = true;
-            return true;
+            return deren::scripting::script_status::success;
         };
         // The toon light rig: the managed side hands over all ten lanes, the frame thread publishes
         // them between frames. This writes the queued value only; the block the character stage reads
@@ -1578,6 +1613,9 @@ namespace deren::app {
                 // byte holding 0 or 1 is what both sides mean by a switch. The static_assert is the whole
                 // platform assumption this reinterpretation rests on.
                 static_assert(sizeof(bool) == 1, "the managed checkbox hands over one byte");
+                // A byte outside {0, 1} read through `bool*` is undefined behaviour inside the widget, so
+                // the value is normalised before the panel is handed a pointer to it.
+                *value = *value != 0 ? std::uint8_t{1} : std::uint8_t{0};
                 context.ui_panel->add_checkbox(deren::utility::vessel::string{label}, reinterpret_cast<bool*>(value));
                 return true;
             };
@@ -1695,11 +1733,38 @@ namespace deren::app {
                                            .window_begin_drag = set_managed_window_begin_drag},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{
-                .context = &managed_binding, .bind = bind_managed_asset, .before_remove = +[](void* opaque) {
+                .context = &managed_binding, .bind = bind_managed_asset, .before_remove = +[](void* opaque, deren::scripting::node_handle node) {
                     auto& context = *static_cast<managed_bind_context*>(opaque);
-                    if (!context.starting) {
+                    // The player holds node indices of the asset subtree it was imported from, so only a
+                    // removal inside that subtree invalidates it. Testing every removal dropped the
+                    // animation of a live character whenever the game deleted an unrelated node.
+                    auto const packed = [](auto const id) {
+                        return (static_cast<std::uint64_t>(id.generation) << 32) | id.index;
+                    };
+                    auto const in_subtree = [&](auto&& self, deren::engine::scene_tree::scene_node const& entry) -> bool {
+                        if (packed(entry.node_id) == node.value) {
+                            return true;
+                        }
+                        for (auto const& child : entry.children) {
+                            if (self(self, child)) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+                    bool owns_player = false;
+                    if (context.player != nullptr && context.player_owner_node != 0) {
+                        for (auto const& root : context.render_runtime->get_scene().roots) {
+                            if (packed(root.node_id) == context.player_owner_node && in_subtree(in_subtree, root)) {
+                                owns_player = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!context.starting && owns_player) {
                         context.render_runtime->rhi_face().wait_idle();
                         context.player.reset();
+                        context.player_owner_node = 0;
                         context.animation_names.clear();
                         context.animation_pending.clear();
                         publish_animation_state(context);
@@ -1802,18 +1867,45 @@ namespace deren::app {
         // unconditionally; the difference is that a project shipping its own HDR never pays for it.
         bool slot0_environment_set = false;
 
+        // A FAILED FRAME ENDS THE SESSION WITH A NON-ZERO CODE: a renderer that could not record,
+        // submit or present must not look like a clean exit to a script or CI job. `closed` is the
+        // ordinary way out (window closed, ESC) and keeps the exit code it had.
+        int exit_code = 0;
+        auto const ends_session = [&exit_code](deren::engine::frame_status status) {
+            if (status == deren::engine::frame_status::closed) {
+                return true;
+            }
+            if (deren::engine::is_failure(status)) {
+                exit_code = 4;
+                return true;
+            }
+            return false;
+        };
+
+        // begin_frame() answers nullopt only when the previous frame was begun but never finished.
+        // The first occurrence is worth one line; a per-frame line would bury it.
+        bool input_frame_reuse_logged = false;
+        // The aspect a managed request last logged: a resize drag queues one request per frame, and
+        // the repeated line would bury the request that actually changed the value.
+        float logged_scene_aspect = 0.0F;
+        bool scene_aspect_logged = false;
+
         while (true) {
             if (capture.frames > 0 && captured_frames == disable_streaming_frame) {
                 runtime.set_visibility_texture_streaming(false);
             }
             // Phase 1: poll window events (ESC / native close -> closed, minimized -> skipped)
             deren::engine::frame_status const polled = runtime.poll_events();
-            if (polled == deren::engine::frame_status::closed || deren::engine::is_failure(polled)) {
+            if (ends_session(polled)) {
                 break;
             }
             if (polled == deren::engine::frame_status::skipped) {
                 frame_stats.on_skipped();
-                std::this_thread::yield();
+                // A MINIMIZED WINDOW IS NOT A BUSY WAIT. poll_events() left was_minimized set, so the
+                // first frame after the restore rebuilds the swapchain below; until then there is no
+                // work at all, and yielding in a tight loop burned an entire core for as long as the
+                // window stayed minimized.
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
                 continue;
             }
             runtime.recreate_if_minimized();
@@ -1824,7 +1916,10 @@ namespace deren::app {
             // the managed game drives the scene here: node transforms, spawns, script ticks
             if (auto const input_frame = action_state.begin_frame(); input_frame.has_value()) {
                 if (!script_scene.update(dt, *input_frame)) {
-                    return 2;
+                    // A failed script frame still owes the log file its flush and the audio session
+                    // its teardown, so leave through the loop's single exit instead of returning.
+                    exit_code = 2;
+                    break;
                 }
                 for (auto it = managed_binding.ui_windows.begin(); it != managed_binding.ui_windows.end();) {
                     if (!it->second.submitted) {
@@ -1837,6 +1932,9 @@ namespace deren::app {
                 }
                 managed_binding.ui_panel = nullptr;
                 managed_binding.ui_panel_open = false;
+            } else if (!input_frame_reuse_logged) {
+                input_frame_reuse_logged = true;
+                deren::utility::error("input: the action state was begun and never finished; frames are skipped");
             }
             if (!managed_binding.clouds.empty()) {
                 runtime.clear_gaussian_assets();
@@ -1937,8 +2035,14 @@ namespace deren::app {
                 managed_binding.scene_aspect_pending = false;
                 float const aspect = managed_binding.scene_aspect;
                 runtime.set_scene_aspect(aspect != 0.0F ? std::optional<float>{aspect} : std::nullopt);
-                deren::utility::log("scene: projection aspect {} from managed code",
-                                    aspect != 0.0F ? std::format("{:.4f}", aspect) : std::string{"follows the window"});
+                // A drag queues one request per frame; the engine call is cheap, the log line is not,
+                // so only a value that differs from the last logged one is reported.
+                if (!scene_aspect_logged || aspect != logged_scene_aspect) {
+                    scene_aspect_logged = true;
+                    logged_scene_aspect = aspect;
+                    deren::utility::log("scene: projection aspect {} from managed code",
+                                        aspect != 0.0F ? std::format("{:.4f}", aspect) : std::string{"follows the window"});
+                }
             }
             // A: THE FALLBACK SKY IS BAKED HERE, NOT AT STARTUP. A project that names slot 0's
             // environment before its first recorded frame (in initialize, or in update) never reaches
@@ -1982,11 +2086,15 @@ namespace deren::app {
             }
             // Phase 2: pace + acquire the next frame slot.
             deren::engine::frame_status const paced = runtime.pace_and_acquire();
-            if (paced == deren::engine::frame_status::closed || deren::engine::is_failure(paced)) {
+            if (ends_session(paced)) {
                 break;
             }
             if (paced == deren::engine::frame_status::skipped) {
                 frame_stats.on_skipped();
+                // THE MANAGED TICK ALREADY RAN THIS ITERATION: begin_frame() refuses to hand out a
+                // second input frame until finish_frame() closes this one, so a skip that forgot it
+                // would stop the game's update() for the rest of the session.
+                action_state.finish_frame();
                 std::this_thread::yield();
                 continue;
             }
@@ -2025,10 +2133,12 @@ namespace deren::app {
             // pace_and_acquire(), so a before-frame task that moves the camera shows the move one
             // frame later.
             if (!script_scene.signal_before_frame()) {
-                return 3;
+                // Same reason as the failed script frame: the after-loop teardown still has to run.
+                exit_code = 3;
+                break;
             }
             deren::engine::frame_status const rec = runtime.begin_recording();
-            if (rec == deren::engine::frame_status::closed || deren::engine::is_failure(rec)) {
+            if (ends_session(rec)) {
                 break;
             }
             if (game_ui) {
@@ -2063,19 +2173,22 @@ namespace deren::app {
             }
             runtime.prepare_scene_recording();
             deren::engine::frame_status const recorded = runtime.record_graph();
-            if (recorded == deren::engine::frame_status::closed || deren::engine::is_failure(recorded)) {
+            if (ends_session(recorded)) {
                 break;
             }
             deren::engine::frame_status const ended = runtime.end_recording();
-            if (ended == deren::engine::frame_status::closed || deren::engine::is_failure(ended)) {
+            if (ends_session(ended)) {
                 break;
             }
             deren::engine::frame_status const result = runtime.submit_and_present();
-            if (result == deren::engine::frame_status::closed || deren::engine::is_failure(result)) {
+            if (ends_session(result)) {
                 break;
             }
             if (result == deren::engine::frame_status::skipped) {
                 frame_stats.on_skipped();
+                // THE TICK MUST STILL CLOSE: the frame was recorded but never presented, and the
+                // managed update that ran earlier in this iteration is waiting for its finish.
+                action_state.finish_frame();
                 std::this_thread::yield();
                 continue;
             }
@@ -2098,7 +2211,8 @@ namespace deren::app {
             // reports back through native_api notify_rendering; no managed callable is stored on
             // the native side.
             if (!script_scene.signal_after_frame()) {
-                return 3;
+                exit_code = 3;
+                break;
             }
 
             // scripted capture: once the requested number of frames has been PRESENTED, request the
@@ -2178,6 +2292,9 @@ namespace deren::app {
             }
         }
         deren::utility::log("render loop finished");
-        return 0;
+        // The log sink is asynchronous: a session that ends with an error code must still have its
+        // last lines on disk before the process returns.
+        deren::utility::wait_log_all();
+        return exit_code;
     }
 } // namespace deren::app

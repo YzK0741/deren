@@ -160,32 +160,23 @@ vsync = true
 # benchmark wants 0. Capture runs (--capture-frames) also want 0.
 max_fps = 0
 
-# clear_color: per-frame background clear color (RGB, 0..1). The lighting stage writes the sky into
-#   every pixel no geometry covered, so this only shows where that stage does not run at all.
+# clear_color: per-frame background clear color - EXACTLY THREE channels (RGB), each clamped to 0..1. A
+#   1- or 2-element array is not a color: it is ignored as a whole (with a log line) and the default stays,
+#   rather than filling the channels it carries and inventing the rest. A non-finite channel keeps its own
+#   default. The lighting stage writes the sky into every pixel no geometry covered, so this only shows
+#   where that stage does not run at all.
 clear_color = [0.02, 0.02, 0.03]
 
-# camera_fit: how the orbit camera is aimed at the scene when it loads.
-#   "exterior" (default) fits the whole model from outside - 2.75 scene radii, which is right for a
-#     compact object such as DamagedHelmet.
-#   "interior" stands INSIDE the scene and looks along its longest horizontal axis, because that is
-#     the axis a hall, nave or corridor runs down (for Sponza: 29.8 x 18.3 in the ground plane, so
-#     the look direction ends up +X). The distance is a fraction of the smaller horizontal
-#     half-extent, which keeps the eye inside even a narrow hall.
-#   A building framed from outside is a facade and nothing else. That is fine for a model viewer and
-#   useless for global illumination, where the whole point is to see light bounce around an interior
-#   - so use "interior" for Sponza and any other scene you mean to stand in.
-#   The startup log prints the pose this resolves to ("initial camera: fit=... yaw ... distance ..."),
-#   and --capture-camera pins an exact pose on top of either mode.
+# camera_fit: ACCEPTED FOR COMPATIBILITY WITH OLDER FILES AND NOT APPLIED BY THIS BUILD. The value used to
+#   select how the orbit camera was aimed at the loaded scene; the managed host owns the initial framing now,
+#   so nothing in this build reads it. The key stays in the schema only so a config written before the
+#   managed host loads without an unknown-key warning.
 camera_fit = "exterior"
 
-# animation_time: pin the keyframe animation at this time in SECONDS, or -1 (the default) to play it. Only
-# matters for a model that carries animations, which the demo plays automatically on a loop.
-# WHY IT EXISTS: playback is driven by the WALL CLOCK (frame_clock::delta_seconds), so the pose at a given
-# frame count differs from run to run - measured: two runs of one animated config at 60 frames produced
-# different images (their means agreed to four decimals, the pixels did not). Anything that compares two
-# captures of one pose therefore needs the time fixed, and the skinned-mesh ray-tracing work is the first
-# thing that does. It scrubs and pauses, exactly like the debug overlay's time slider, so the pose is a
-# function of this value alone and a capture becomes reproducible. -1 is a no-op: the frame is what it was.
+# animation_time: ACCEPTED FOR COMPATIBILITY WITH OLDER FILES AND NOT APPLIED BY THIS BUILD. The value used to
+# pin a keyframe animation at N seconds, so a capture of an animated scene was reproducible; the managed host
+# pins animation times through its own animation API now, so nothing in this build reads it. The key stays in
+# the schema only so an older config loads without an unknown-key warning.
 animation_time = -1.0
 
 # shadow: the raster sun shadow term itself. false skips the cascaded shadow maps entirely - the pass is
@@ -459,32 +450,10 @@ character_forward = false
 # OFF by default, so a run that does not ask for it gets the frame the previous chain produces.
 game_toon = false
 
-# background_glb: A SECOND MODEL DRAWN AS THE FRAME'S STATIC SURROUND - the ground and the backdrop the
-# subject stands on - imported into the SAME scene tree by the same importer, one line after the subject.
-# Empty (the default) means "this frame has no background model", which is exactly the frame every recorded
-# reference was made from: one import, one leaf set.
-#
-# WHAT THE FLAG DOES, and it is deliberately one flag with two consequences rather than a material trick:
-# the leaves this import creates are marked `primitive::environment`, so (a) the toon CHARACTER stage skips
-# them - the character chain is the cartoon author's chain, written for one character's material data,
-# and the reference never gave its ground or its dome a toon material - and (b) they are never shadow
-# CASTERS, nor part of the shadow fit, so a 34 m ground disc cannot spend the shadow map's texels on itself.
-# The SCENE pass draws them through the ordinary PBR/unlit path, where a matte ground and a glTF emissive
-# backdrop belong. Everything else about the frame is untouched.
-#
-# A RELATIVE PATH IS RESOLVED AGAINST THE EXECUTABLE'S DIRECTORY (where the other assets are), so a config
-# shipped beside the binary can name one without being absolute.
-#
-# THE OFFSET IS DERIVED, NOT CONFIGURED: the model is expected to have its GROUND at its y = 0, and it
-# is translated so that plane lands under the subject's feet (the subject's centering shift plus its
-# lowest point). A background whose ground is not at y = 0 will sit at the wrong height - the assumption is
-# stated rather than guessed at.
-#
-# Example (the author's `endfield-background`, a 34 m matte ground disc + emissive dome, converted to
-# glTF): background_glb = "deren-ab/bg/endfield-background/export/background.glb"
-# NOTE ON THAT ASSET: it is licensed for LOCAL REFERENCE ONLY (attribution to Xinyang XIYAG is required and it
-# must be replaced before any release - see its SOURCE_TERMS.txt), so it is a development stand-in and not
-# something to ship. The key itself is asset-agnostic.
+# background_glb: ACCEPTED FOR COMPATIBILITY WITH OLDER FILES AND NOT APPLIED BY THIS BUILD. The value used to
+# name a second glTF/GLB imported as the frame's static surround; the managed host owns that second import
+# now, so nothing in this build reads the key and a relative path is no longer resolved against the project
+# root. The key stays in the schema only so an older config loads without an unknown-key warning.
 background_glb = ""
 
 # ---- [debug] developer instruments ----
@@ -637,9 +606,10 @@ software_raster_threshold_px = 1.0 # conservative projected-diameter cutoff for 
 # ---- [gui] debug overlay ----
 [gui]
 show = true   # show the Dear ImGui debug overlay by default (F1 toggles it at runtime)
-# Default debug-panel window size (0 = ImGui auto-size). Nothing persists it any more - the overlay
-# sets io.IniFilename = nullptr, so no imgui_layout.ini is read or written - which means these values
-# apply at the start of EVERY run, and a drag only lasts the session. 560 is tall enough that the
+# Default debug-panel window size in PIXELS (0 = ImGui auto-size); fractional values are accepted, so a
+# DPI-scaled 420.5 is a valid request and reads the same way an integer does. Nothing persists it any more:
+# the overlay sets io.IniFilename = nullptr, so no imgui_layout.ini is read or written - which means these
+# values apply at the start of EVERY run, and a drag only lasts the session. 560 is tall enough that the
 # render-path controls are visible without scrolling; the panel offers a control when the SESSION can
 # use it (TAA/SSAO as soon as their pipelines exist, even while their switch is off) and
 # puts the fine-tuning knobs behind the switch they tune, so a group collapses to one row when it is
@@ -663,10 +633,9 @@ panel_height = 560
 # in, so a shadowed surface loses its sky band and gains the room instead. It does NOT touch the
 # direct light: `sun_direction` above still drives the shadow map, the toon terminator and the
 # visible sun disc, because the direct term is a light, not part of the environment. The VISIBLE sky
-# is also untouched - with a background dome in front of it, as `[render] background_glb` gives, it
-# is hidden anyway.
+# is also untouched.
 #
-# A relative path resolves against the executable's directory, exactly like `[render] background_glb`.
+# A relative path resolves against the executable's directory.
 # A missing or undecodable file is a hard startup error, not a fallback: finding out from a log line
 # that a frame was lit differently than intended is worse than not starting. A baked file must match
 # the engine's fixed precompute resolution (256 / 5 mips / 32 / 256); intensity is baked in, so the

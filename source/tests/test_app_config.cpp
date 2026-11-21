@@ -4,6 +4,9 @@
 // build injects rather than relative to the working directory.
 #include "vk_test.h"
 
+#include <cmath>
+#include <limits>
+
 import deren.vstd;
 import deren.utility.shared;
 import deren.application_configuration;
@@ -142,22 +145,24 @@ namespace {
     void test_project_arguments_are_explicit() {
         char const* const valid[] = {"deren", "run", "project"};
         CHECK(deren::app_config::validate_project_arguments(3, valid).has_value());
-        char const* const config[] = {"deren", "run", "project", "--config", "scene.toml"};
-        auto const rejected_config = deren::app_config::validate_project_arguments(5, config);
-        CHECK(!rejected_config);
-        if (!rejected_config) {
-            CHECK(rejected_config.error().find("--config") != std::string::npos);
-        }
-        char const* const asset[] = {"deren", "run", "project", "--asset", "helmet"};
-        CHECK(!deren::app_config::validate_project_arguments(5, asset));
-        char const* const extra[] = {"deren", "run", "project", "stray"};
-        auto const rejected_extra = deren::app_config::validate_project_arguments(4, extra);
-        CHECK(!rejected_extra);
-        if (!rejected_extra) {
-            CHECK(rejected_extra.error().find("stray") != std::string::npos);
-        }
+        // THE TAIL BELONGS TO THE PROJECT. Capture flags and selftest switches are forwarded to the
+        // managed preinit, so the engine-side check has to let them through - rejecting them would
+        // break every automated editor/test_game launch.
+        char const* const with_flags[] = {"deren", "run", "project", "--capture-frames=3", "--editor-selftest"};
+        CHECK(deren::app_config::validate_project_arguments(5, with_flags).has_value());
         char const* const missing[] = {"deren", "run"};
         CHECK(!deren::app_config::validate_project_arguments(2, missing));
+        // THE SUBCOMMAND MUST COME FIRST: the launch path used to search argv for "run", so anything
+        // placed before it was accepted and then silently ignored.
+        char const* const misplaced[] = {"deren", "--config", "other.toml", "run", "project"};
+        auto const rejected_misplaced = deren::app_config::validate_project_arguments(5, misplaced);
+        CHECK(!rejected_misplaced);
+        if (!rejected_misplaced) {
+            CHECK(rejected_misplaced.error().find("usage") != std::string::npos);
+        }
+        char const* const empty_project[] = {"deren", "run", ""};
+        CHECK(!deren::app_config::validate_project_arguments(3, empty_project));
+        CHECK(!deren::app_config::validate_project_arguments(0, nullptr));
     }
 
     template <typename Settings>
@@ -236,12 +241,11 @@ namespace {
         CHECK(settings.render.ssao_radius > 1.49f && settings.render.ssao_radius < 1.51f);
         CHECK(settings.render.ssao_intensity > 0.49f && settings.render.ssao_intensity < 0.51f);
         CHECK(settings.render.ssao_samples == 4);
-        CHECK(settings.render.rt_shadows);                                                       // fixture: the ray-traced sun shadows
-        CHECK(!settings.render.rt_mask_bake);                                                    // fixture: the bake off (the A/B)
-        CHECK(settings.render.rt_skin_bake);                                                     // fixture: the per-frame skin refit on
-        CHECK(settings.render.animation_time > 0.74f && settings.render.animation_time < 0.76f); // fixture: a pinned pose
-        CHECK(settings.render.furnace);                                                          // fixture: the analytic verification mode
-        CHECK(settings.render.unlit);                                                            // fixture: the flat render mode
+        CHECK(settings.render.rt_shadows);    // fixture: the ray-traced sun shadows
+        CHECK(!settings.render.rt_mask_bake); // fixture: the bake off (the A/B)
+        CHECK(settings.render.rt_skin_bake);  // fixture: the per-frame skin refit on
+        CHECK(settings.render.furnace);       // fixture: the analytic verification mode
+        CHECK(settings.render.unlit);         // fixture: the flat render mode
         CHECK(settings.render.fxaa);
         CHECK(!settings.render.bloom);                                                       // fixture turns the bright-pass bloom chain off
         CHECK(settings.render.render_scale > 0.49f && settings.render.render_scale < 0.51f); // fixture: a half-scale render chain
@@ -261,12 +265,6 @@ namespace {
         // fixture: the THIRD toon model was PARSED, not merely defaulted - the same trap the `taa` comment
         // records: a parser that silently drops the key still passes a defaults-only test.
         CHECK(settings.render.game_toon);
-        // fixture: three copies is the non-default that proves the number was parsed, not defaulted
-        CHECK(settings.render.game_toon_copies == 3);
-        // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
-        // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
-        // "" and the comparison would fail
-        CHECK(settings.render.background_glb == "bg/test-background.glb");
         CHECK(!settings.gui.show);
         // The IBL bake sizes are compiled constants now ([lighting] env_size/env_mip_count/irr_size/lut_size
         // are gone): the fixture's old irr_size = 64 must be ignored, not merely defaulted, or a config could
@@ -310,8 +308,6 @@ namespace {
         // default: the GAME-SHADER toon model is OFF - a run that does not ask for it gets the frame the
         // previous chain produces (the flag's contract; `character_forward` is the stage, this is the model).
         CHECK(!settings.render.game_toon);
-        // default: NO background model - the frame is the one import it always was (see the key's note)
-        CHECK(settings.render.background_glb.empty());
         CHECK(settings.scene.objects.empty());       // default: the historic single-object import
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
         CHECK(settings.render.shadow);               // default: the raster shadow term runs (every frame before the key had it)
@@ -323,7 +319,6 @@ namespace {
         CHECK(!settings.render.rt_shadows);             // default: the cascaded shadow maps, not traced rays
         CHECK(!settings.render.rt_mask_bake);           // default: OFF - the per-triangle rule measured worse than the raster path
         CHECK(!settings.render.rt_skin_bake);           // default: OFF - the bind-pose shadow is what the L2.2b baseline measures
-        CHECK(settings.render.animation_time < 0.0f);   // default: animations play (no pose pinned)
         CHECK(settings.render.shadow_map_size == 2048); // default: 2048^2 per cascade layer
         CHECK(settings.gui.show);
     }
@@ -456,7 +451,6 @@ namespace {
         CHECK(settings.render.window_title == "deren");
         CHECK(!settings.render.vsync);       // generator default: Mailbox (uncapped)
         CHECK(settings.render.max_fps == 0); // generator default: 0 = uncapped, and the compiled default too
-        CHECK(settings.render.camera_fit == "exterior");
         CHECK(!settings.render.unlit);
         // [render] shadow mapping
         CHECK(settings.render.shadow_cascades == 3);
@@ -487,10 +481,9 @@ namespace {
         CHECK(settings.render.ssao_samples == 8);
         // [render] ray tracing: written by the generator like every other switch, so it round-trips
         CHECK(!settings.render.rt_shadows);
-        CHECK(!settings.render.rt_mask_bake);         // default: the mask bake is off (see the generated-defaults fixture)
-        CHECK(!settings.render.rt_skin_bake);         // default: the per-frame skin refit is off (same fixture)
-        CHECK(settings.render.animation_time < 0.0f); // default: -1, i.e. play (the generator writes it out)
-        CHECK(!settings.render.furnace);              // default: a normal frame, not the verification mode
+        CHECK(!settings.render.rt_mask_bake); // default: the mask bake is off (see the generated-defaults fixture)
+        CHECK(!settings.render.rt_skin_bake); // default: the per-frame skin refit is off (same fixture)
+        CHECK(!settings.render.furnace);      // default: a normal frame, not the verification mode
         // [render] validation
         CHECK(settings.render.validation_layers);
         // [gui]
@@ -709,19 +702,20 @@ namespace {
         std::filesystem::remove("asset-config.toml");
     }
 
-    /// MULTIPLE GAME-TOON CHARACTERS ARE AN OPTION, NOT A POSITIONAL: `--game-toon-copies` overrides the
-    /// file's `[render] game_toon_copies` and both `--flag value` and `--flag=value` are accepted.
-    void test_resolve_from_argv_game_toon_copies() {
-        char const* with_space[] = {"vk_test", "--game-toon-copies", "2"};
-        deren::app_config::app_settings const from_space =
-            deren::app_config::resolve_from_argv(3, with_space, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
-        CHECK(from_space.render.game_toon_copies == 2);
-        CHECK(from_space.model == "Models/tri.gltf");
-
-        char const* with_equals[] = {"vk_test", "--game-toon-copies=4"};
-        deren::app_config::app_settings const from_equals =
-            deren::app_config::resolve_from_argv(2, with_equals, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
-        CHECK(from_equals.render.game_toon_copies == 4);
+    /// THE FOUR RETIRED [render] KEYS ARE STILL LEGAL: `camera_fit`, `animation_time`, `game_toon_copies`
+    /// and `background_glb` are accepted by the schema and read by nothing, so an old file loads without an
+    /// unknown-key warning - the same rule `[lighting] environment_hdr` follows.
+    void test_retired_render_keys_stay_legal() {
+        std::ofstream("retired-render-keys.toml") << "[render]\n"
+                                                     "camera_fit = \"interior\"\n"
+                                                     "animation_time = 0.5\n"
+                                                     "game_toon_copies = 3\n"
+                                                     "background_glb = \"bg/x.glb\"\n";
+        auto const valid = deren::app_config::validate_settings_file("retired-render-keys.toml");
+        CHECK(valid); // an accepted-but-unread key must not fail validation
+        auto const settings = deren::app_config::load_settings("retired-render-keys.toml");
+        CHECK(settings.render.window_width == 1080); // the rest of the file still loads with its defaults
+        std::filesystem::remove("retired-render-keys.toml");
     }
 
     /// THE EXTENSION IS WHAT PICKS THE LOADER, and the cases below are the ones a viewer would otherwise get
@@ -927,6 +921,64 @@ namespace {
         std::filesystem::remove(full_profile);
     }
 
+    // EVERY SCALAR READER HAS TO SAY WHAT IT DOES WITH A NON-FINITE FLOAT. `nan`, `inf` and `-inf` all
+    // parse as valid TOML floats, and `std::clamp` cannot reject one (every comparison against NaN is
+    // false, so it hands the NaN straight back). The readers that still did a bare `static_cast<float>`
+    // let them through into the settings: one NaN in a frame UBO, a shader constant or a pacing divisor
+    // poisons everything that reads it. A non-finite key now keeps the compiled default, like a missing one.
+    void test_nonfinite_scalars_keep_the_default() {
+        std::ofstream("nonfinite-scalars.toml") << "[render]\n"
+                                                   "max_fps = nan\n"
+                                                   "render_scale = inf\n"
+                                                   "ssao_radius = -inf\n"
+                                                   "ssao_intensity = nan\n"
+                                                   "taa_blend_static = nan\n"
+                                                   "taa_blend_min = inf\n"
+                                                   "shadow_bias_constant = nan\n"
+                                                   "shadow_bias_slope = -inf\n"
+                                                   "shadow_cascade_blend = nan\n"
+                                                   "sun_intensity = nan\n"
+                                                   "clear_color = [nan, 0.25, inf]\n"
+                                                   "[debug]\n"
+                                                   "demo_light_radius = inf\n";
+        auto const nonfinite = deren::app_config::load_settings("nonfinite-scalars.toml");
+        auto const defaults = deren::app_config::load_settings("nonfinite-scalars-missing.toml");
+        CHECK(nonfinite.render.max_fps == defaults.render.max_fps);
+        CHECK(nonfinite.render.render_scale == defaults.render.render_scale);
+        CHECK(nonfinite.render.ssao_radius == defaults.render.ssao_radius);
+        CHECK(nonfinite.render.ssao_intensity == defaults.render.ssao_intensity);
+        CHECK(nonfinite.render.taa_blend_static == defaults.render.taa_blend_static);
+        CHECK(nonfinite.render.taa_blend_min == defaults.render.taa_blend_min);
+        CHECK(nonfinite.render.shadow_bias_constant == defaults.render.shadow_bias_constant);
+        CHECK(nonfinite.render.shadow_bias_slope == defaults.render.shadow_bias_slope);
+        CHECK(nonfinite.render.shadow_cascade_blend == defaults.render.shadow_cascade_blend);
+        CHECK(nonfinite.render.sun_intensity == defaults.render.sun_intensity);
+        // ONE NON-FINITE CHANNEL IS NOT A REASON TO DROP THE WHOLE COLOUR: `clear_color` fills channel by
+        // channel, so the finite 0.25 lands and only the poisoned ones keep their default. `clear_color` is
+        // RGB (three channels), which is what the example config documents.
+        CHECK(nonfinite.render.clear_color[0] == defaults.render.clear_color[0]);
+        CHECK(nonfinite.render.clear_color[1] == 0.25f);
+        CHECK(nonfinite.render.clear_color[2] == defaults.render.clear_color[2]);
+        CHECK(nonfinite.lighting.demo_light_radius == defaults.lighting.demo_light_radius);
+        std::filesystem::remove("nonfinite-scalars.toml");
+
+        // THE FINITE ONES STILL LAND, so the guard is a guard and not a reader that rejects everything.
+        std::ofstream("finite-scalars.toml") << "[render]\n"
+                                                "ssao_radius = 0.75\n"
+                                                "shadow_bias_slope = 2.5\n"
+                                                "taa_blend_min = 0.25\n"
+                                                "clear_color = [0.1, 0.2, 0.3]\n"
+                                                "[debug]\n"
+                                                "demo_light_radius = 0.5\n";
+        auto const finite = deren::app_config::load_settings("finite-scalars.toml");
+        CHECK(finite.render.ssao_radius == 0.75f);
+        CHECK(finite.render.shadow_bias_slope == 2.5f);
+        CHECK(finite.render.taa_blend_min == 0.25f);
+        CHECK(finite.render.clear_color[0] == 0.1f && finite.render.clear_color[2] == 0.3f);
+        CHECK(finite.lighting.demo_light_radius == 0.5f);
+        std::filesystem::remove("finite-scalars.toml");
+    }
+
     // INTEGER OPTIONS ARE VALIDATED IN 64-BIT SPACE, BEFORE THE NARROWING: `static_cast<std::int32_t>` is a
     // modulo conversion, so 2^32 + 2 used to arrive at a 1..4 check looking like a valid 2, and 2^32 + 5000
     // used to become a plausible 5000-pixel window. Out-of-range values now saturate (and are then clamped
@@ -960,6 +1012,130 @@ namespace {
         CHECK(valid.render.shadow_cascades == 4);
         CHECK(valid.render.ssao_samples == 16);
         std::filesystem::remove("narrowing-valid.toml");
+
+        // 2^32 + 512 WRAPS TO A PLAUSIBLE 512, which the 256..8192 rule then accepts as if the file had said
+        // 512. Saturation is what makes the value out of range, so the documented fallback applies instead.
+        std::ofstream("narrowing-shadow-map.toml") << "[render]\nshadow_map_size = 4294967808\n"
+                                                      "[debug]\ngbuffer_channel = 4294967297\n"
+                                                      "demo_lights = 4294967297\n"
+                                                      "[[scene.objects]]\nname = \"huge-index\"\nmodel = \"a.glb\"\n"
+                                                      "animation = 4294967298\n";
+        auto const saturated = deren::app_config::load_settings("narrowing-shadow-map.toml");
+        CHECK(saturated.render.shadow_map_size == 2048); // the fallback, not the wrapped 512
+        // Neither of these has a rule of its own in this file: the pass clamps gbuffer_channel, the demo-light
+        // count clamps to max_demo_lights, and a scene object's clip index clamps to 0..255. Each clamp now
+        // acts on a saturated number instead of on whatever the low 32 bits happened to be.
+        CHECK(saturated.render.gbuffer_channel == std::numeric_limits<std::int32_t>::max());
+        CHECK(saturated.lighting.demo_lights == static_cast<std::int32_t>(deren::app_config::max_demo_lights));
+        CHECK(saturated.scene.objects.size() == 1);
+        CHECK(saturated.scene.objects[0].animation == 255);
+        std::filesystem::remove("narrowing-shadow-map.toml");
+    }
+
+    // A COLOUR IS THREE NUMBERS OR IT IS NOT A COLOUR. A short array used to fill the channels it carried and
+    // leave the rest at the compiled default, so `clear_color = [0.5]` quietly produced a half-red background
+    // the file never described, with nothing in the log to say the rest came from elsewhere. A wrong length
+    // now leaves the whole default - the rule every other vector in this file follows - and a finite channel
+    // outside the documented 0..1 range is clamped into it instead of going through untouched.
+    void test_clear_color_needs_three_channels_and_clamps_the_range() {
+        auto const defaults = deren::app_config::load_settings("clear-color-missing.toml").render.clear_color;
+        for (char const* const body : {"clear_color = [0.5]\n", "clear_color = [0.5, 0.25]\n",
+                                       "clear_color = [0.5, 0.25, 0.75, 1.0]\n"}) {
+            std::ofstream("clear-color-shape.toml") << "[render]\n"
+                                                    << body;
+            auto const color = deren::app_config::load_settings("clear-color-shape.toml").render.clear_color;
+            CHECK(color[0] == defaults[0]);
+            CHECK(color[1] == defaults[1]);
+            CHECK(color[2] == defaults[2]);
+        }
+        std::filesystem::remove("clear-color-shape.toml");
+
+        std::ofstream("clear-color-range.toml") << "[render]\nclear_color = [2.0, -1.0, 0.5]\n";
+        auto const clamped = deren::app_config::load_settings("clear-color-range.toml").render.clear_color;
+        CHECK(clamped[0] == 1.0f);
+        CHECK(clamped[1] == 0.0f);
+        CHECK(clamped[2] == 0.5f);
+        std::filesystem::remove("clear-color-range.toml");
+
+        // An in-range colour is still taken verbatim, so the range rule is a clamp and not a reader that
+        // replaces everything.
+        std::ofstream("clear-color-valid.toml") << "[render]\nclear_color = [0.1, 0.2, 0.3]\n";
+        auto const valid = deren::app_config::load_settings("clear-color-valid.toml").render.clear_color;
+        CHECK(valid[0] == 0.1f);
+        CHECK(valid[1] == 0.2f);
+        CHECK(valid[2] == 0.3f);
+        std::filesystem::remove("clear-color-valid.toml");
+    }
+
+    // THE PANEL SIZE IS PIXELS, SO IT IS A FLOAT. Reading only `value<std::int64_t>()` silently ignored a
+    // fractional size and kept the default, so a DPI-scaled 380.5 did nothing at all. Both spellings now read
+    // alike; a non-finite value keeps the default, and a negative one clamps to 0 (ImGui's auto-size).
+    void test_gui_panel_sizes_accept_fractional_pixels() {
+        auto const defaults = deren::app_config::load_settings("panel-missing.toml").gui;
+        std::ofstream("panel-fractional.toml") << "[gui]\npanel_width = 380.5\npanel_height = 140.25\n";
+        auto const fractional = deren::app_config::load_settings("panel-fractional.toml").gui;
+        CHECK(fractional.panel_width == 380.5f);
+        CHECK(fractional.panel_height == 140.25f);
+        std::filesystem::remove("panel-fractional.toml");
+
+        std::ofstream("panel-integer.toml") << "[gui]\npanel_width = 500\npanel_height = 20\n";
+        auto const integer = deren::app_config::load_settings("panel-integer.toml").gui;
+        CHECK(integer.panel_width == 500.0f);
+        CHECK(integer.panel_height == 20.0f);
+        std::filesystem::remove("panel-integer.toml");
+
+        std::ofstream("panel-invalid.toml") << "[gui]\npanel_width = nan\npanel_height = -12.0\n";
+        auto const invalid = deren::app_config::load_settings("panel-invalid.toml").gui;
+        CHECK(invalid.panel_width == defaults.panel_width);
+        CHECK(invalid.panel_height == 0.0f);
+        std::filesystem::remove("panel-invalid.toml");
+    }
+
+    // A PROBE THAT IS NOT THREE FINITE NUMBERS IS NOT USABLE, AND SAYS SO ON EVERY CHANNEL. The NaN sentinel
+    // is how `set_local_probe` refuses a probe, so marking only [0] left `[NaN, 0, 0]` for a two-element array
+    // and let an explicit `inf` through as an infinity - a half-valid probe the log could report as if the
+    // file had supplied those numbers. Every component is NaN now, and `fade`/`gain` follow the same rule.
+    void test_reflection_probe_vectors_are_all_or_nothing() {
+        auto const defaults = deren::app_config::load_settings("probe-missing.toml").reflection_probe;
+        std::ofstream("probe-short.toml") << "[reflection_probe]\nenabled = true\nposition = [1.0, 2.0]\n";
+        auto const short_vec = deren::app_config::load_settings("probe-short.toml").reflection_probe;
+        CHECK(!std::isfinite(short_vec.position[0]));
+        CHECK(!std::isfinite(short_vec.position[1]));
+        CHECK(!std::isfinite(short_vec.position[2]));
+        std::filesystem::remove("probe-short.toml");
+
+        // An explicit non-finite component is rejected the same way as a missing one: only the *absent* key
+        // keeps a compiled default, because a stated-but-unusable number must not look deliberate.
+        std::ofstream("probe-inf.toml") << "[reflection_probe]\nenabled = true\nposition = [inf, 0.0, 0.0]\n"
+                                           "box_min = [0.0, -inf, 0.0]\nbox_max = [0.0, 0.0, nan]\n";
+        auto const inf_vec = deren::app_config::load_settings("probe-inf.toml").reflection_probe;
+        CHECK(!std::isfinite(inf_vec.position[0]) && !std::isfinite(inf_vec.position[1]) && !std::isfinite(inf_vec.position[2]));
+        CHECK(!std::isfinite(inf_vec.minimum[0]) && !std::isfinite(inf_vec.minimum[1]) && !std::isfinite(inf_vec.minimum[2]));
+        CHECK(!std::isfinite(inf_vec.maximum[0]) && !std::isfinite(inf_vec.maximum[1]) && !std::isfinite(inf_vec.maximum[2]));
+        std::filesystem::remove("probe-inf.toml");
+
+        std::ofstream("probe-scalars.toml") << "[reflection_probe]\nenabled = true\ngain = \"bad\"\nfade = inf\n";
+        auto const scalars = deren::app_config::load_settings("probe-scalars.toml").reflection_probe;
+        CHECK(!std::isfinite(scalars.fade));
+        CHECK(!std::isfinite(scalars.gain));
+        std::filesystem::remove("probe-scalars.toml");
+
+        // The usable probe still reads back verbatim, and absent keys keep their documented defaults.
+        std::ofstream("probe-valid.toml") << "[reflection_probe]\nenabled = true\nposition = [1.5, -2.5, 3.5]\n"
+                                             "box_min = [-1.0, -2.0, -3.0]\nbox_max = [1.0, 2.0, 3.0]\n"
+                                             "fade = 0.25\ngain = 2.0\n";
+        auto const valid = deren::app_config::load_settings("probe-valid.toml").reflection_probe;
+        CHECK(valid.position[0] == 1.5f && valid.position[1] == -2.5f && valid.position[2] == 3.5f);
+        CHECK(valid.minimum[1] == -2.0f);
+        CHECK(valid.maximum[2] == 3.0f);
+        CHECK(valid.fade == 0.25f);
+        CHECK(valid.gain == 2.0f);
+        std::filesystem::remove("probe-valid.toml");
+        std::ofstream("probe-absent.toml") << "[reflection_probe]\nenabled = true\n";
+        auto const absent = deren::app_config::load_settings("probe-absent.toml").reflection_probe;
+        CHECK(absent.fade == defaults.fade);
+        CHECK(absent.gain == defaults.gain);
+        std::filesystem::remove("probe-absent.toml");
     }
 } // namespace
 
@@ -1036,7 +1212,11 @@ std::int32_t main() {
     test_rt_reflection_samples_parses_rounds_and_clamps();
     test_toon_rig_rejects_nonfinite_and_clamps();
     test_vectors_and_colours_are_three_numbers_or_nothing();
+    test_nonfinite_scalars_keep_the_default();
     test_integer_options_do_not_wrap_when_narrowed();
+    test_clear_color_needs_three_channels_and_clamps_the_range();
+    test_gui_panel_sizes_accept_fractional_pixels();
+    test_reflection_probe_vectors_are_all_or_nothing();
     test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
     test_lighting_values_are_clamped();
@@ -1046,7 +1226,7 @@ std::int32_t main() {
     test_area_light_derivation_matches_the_reference_package();
     test_resolve_from_argv_merges_config_and_positional();
     test_resolve_from_argv_asset_options();
-    test_resolve_from_argv_game_toon_copies();
+    test_retired_render_keys_stay_legal();
     test_model_format_follows_the_extension();
     test_scene_objects_parse_and_sanitise();
     test_project_launch_settings();

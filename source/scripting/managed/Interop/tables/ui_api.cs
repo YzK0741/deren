@@ -42,12 +42,34 @@ namespace deren.scripting {
         internal static delegate* unmanaged<utf8_view, byte*, script_status> button;
         internal static delegate* unmanaged<byte*, script_status> wants_mouse;
 
-        internal static bool is_ready() {
+        /// <summary>
+        /// Whether the host resolved the panel table. Says nothing about whether a call may run now:
+        /// a stopped host keeps the table resolved, and a non-blocking batch is refused below.
+        /// </summary>
+        internal static bool is_resolved() {
             return begin_panel != null && end_panel != null && text != null && checkbox != null &&
                    slider != null && vec3 != null && combo != null && button != null && wants_mouse != null;
         }
 
-        internal static script_status initialize(native_api* api) {
+        /// <summary>
+        /// Whether a call may reach the host on this thread: the table is resolved AND this thread is
+        /// allowed to call. Same guard as the scene and audio tables - a non-blocking batch runs while
+        /// the host records the next frame, and describing widgets into it would race that pass.
+        /// </summary>
+        internal static bool is_ready() {
+            if (!host_call_guard.host_calls_allowed) {
+                host_call_guard.note_refusal();
+                return false;
+            }
+            return is_resolved();
+        }
+
+        /// <summary>
+        /// Drops the borrowed table: no widget description may reach a host that is tearing down.
+        /// `is_resolved()` and therefore `debug_ui.available` answer false afterwards, which is the
+        /// truth once the session is over - the table they described belongs to a destroyed host.
+        /// </summary>
+        internal static void shutdown() {
             begin_panel = null;
             end_panel = null;
             text = null;
@@ -57,6 +79,11 @@ namespace deren.scripting {
             combo = null;
             button = null;
             wants_mouse = null;
+        }
+
+        internal static script_status initialize(native_api* api) {
+            // Clear first: a re-initialization after a failed one must not keep half a table.
+            shutdown();
 
             void* table = null;
             uint byte_size = 0;
@@ -95,35 +122,35 @@ namespace deren.scripting {
         }
 
         internal static script_status assign_end() {
-            return end_panel != null ? end_panel() : script_status.module_unavailable;
+            return is_ready() ? end_panel() : script_status.module_unavailable;
         }
 
         internal static script_status assign_text(utf8_view value) {
-            return text != null ? text(value) : script_status.module_unavailable;
+            return is_ready() ? text(value) : script_status.module_unavailable;
         }
 
         internal static script_status assign_checkbox(utf8_view label, byte* value) {
-            return checkbox != null ? checkbox(label, value) : script_status.module_unavailable;
+            return is_ready() ? checkbox(label, value) : script_status.module_unavailable;
         }
 
         internal static script_status assign_slider(utf8_view label, float* value, float minimum, float maximum) {
-            return slider != null ? slider(label, value, minimum, maximum) : script_status.module_unavailable;
+            return is_ready() ? slider(label, value, minimum, maximum) : script_status.module_unavailable;
         }
 
         internal static script_status assign_vec3(utf8_view label, float* value, float speed) {
-            return vec3 != null ? vec3(label, value, speed) : script_status.module_unavailable;
+            return is_ready() ? vec3(label, value, speed) : script_status.module_unavailable;
         }
 
         internal static script_status assign_combo(utf8_view label, utf8_view* items, uint count, int* selected) {
-            return combo != null ? combo(label, items, count, selected) : script_status.module_unavailable;
+            return is_ready() ? combo(label, items, count, selected) : script_status.module_unavailable;
         }
 
         internal static script_status assign_button(utf8_view label, byte* pressed) {
-            return button != null ? button(label, pressed) : script_status.module_unavailable;
+            return is_ready() ? button(label, pressed) : script_status.module_unavailable;
         }
 
         internal static script_status read_wants_mouse(byte* value) {
-            return wants_mouse != null ? wants_mouse(value) : script_status.module_unavailable;
+            return is_ready() ? wants_mouse(value) : script_status.module_unavailable;
         }
     }
 }

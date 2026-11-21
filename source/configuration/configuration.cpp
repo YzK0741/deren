@@ -75,6 +75,10 @@ namespace deren::app_config {
                 append_unknown_keys(*paths, "paths", {"shaders_dir", "model_dir", "asset_library", "screenshot_dir"}, unknown);
             }
             if (auto const* render = table.get_as<toml::table>("render")) {
+                // `camera_fit`, `animation_time`, `game_toon_copies` and `background_glb` are accepted but NOT
+                // parsed here: older configs still spell them, and the managed host owns the behaviour they
+                // used to select, so this module only keeps them legal in the schema (the same rule as
+                // `[lighting] environment_hdr`). An old file therefore loads without an unknown-key warning.
                 append_unknown_keys(*render, "render",
                                     {"window_width", "window_height", "window_title", "dark_window_frame", "borderless_window", "vsync", "max_fps", "clear_color",
                                      "exposure", "tone_mapping", "sun_intensity", "shadow", "rt_shadows", "rt_reflections",
@@ -167,6 +171,33 @@ namespace deren::app_config {
                 parsed[i] = static_cast<float>(*component);
             }
             target = parsed;
+        }
+
+        /// A TOML FLOAT CAN BE `nan` OR `+inf`/`-inf` AND ALL OF THEM PARSE FINE, so every scalar reader
+        /// has to say what it does with one. `std::clamp` is not that answer: every comparison against a
+        /// NaN is false, so it hands the NaN straight back - and one reaching a frame UBO, a shader
+        /// constant or a pacing divisor poisons everything that reads it. A non-finite number (or one
+        /// that cannot narrow to float) therefore leaves the compiled-in default, like a missing key.
+        std::optional<float> finite_scalar(toml::node const* node) {
+            if (node == nullptr) {
+                return std::nullopt;
+            }
+            std::optional<double> const value = node->value<double>();
+            if (!value || !std::isfinite(*value) || std::abs(*value) > std::numeric_limits<float>::max()) {
+                return std::nullopt;
+            }
+            return static_cast<float>(*value);
+        }
+
+        /// `finite_scalar` with the documented range enforced, IN DOUBLE SPACE (see the toon reader's
+        /// `day_strength` remark: clamping before the narrowing means a finite number larger than float
+        /// holds arrives as the bound instead of as the +inf a float clamp would then have to rescue).
+        std::optional<float> finite_clamped(toml::node const* node, double lo, double hi) {
+            std::optional<double> const value = node == nullptr ? std::nullopt : node->value<double>();
+            if (!value || !std::isfinite(*value)) {
+                return std::nullopt;
+            }
+            return static_cast<float>(std::clamp(*value, lo, hi));
         }
 
         /// Resolve a profile path named by a config: absolute paths are taken as written, relative ones are
@@ -282,7 +313,7 @@ namespace deren::app_config {
                 // TOML integers are not doubles: max_fps = 60 must work as written, so try both.
                 // The second local is `integer_value`, not a second `value`: it would hide the one declared
                 // in the first condition and MSVC /W4 reports that as C4456, an error under /WX.
-                if (std::optional<double> const value = node->value<double>()) {
+                if (std::optional<double> const value = node->value<double>(); value && std::isfinite(*value)) {
                     settings.render.max_fps = *value;
                 } else if (std::optional<std::int64_t> const integer_value = node->value<std::int64_t>()) {
                     settings.render.max_fps = static_cast<double>(*integer_value);
@@ -290,13 +321,27 @@ namespace deren::app_config {
             }
             if (toml::node const* node = render->get("clear_color")) {
                 if (toml::array const* color = node->as_array()) {
-                    std::size_t i = 0;
-                    for (toml::node const& element : *color) {
-                        if (i >= settings.render.clear_color.size()) {
-                            break;
-                        }
-                        if (std::optional<double> const channel = element.value<double>()) {
-                            settings.render.clear_color[i++] = static_cast<float>(*channel);
+                    // THE SLOT IS THE ELEMENT'S INDEX, not the count of channels accepted so far: a rejected
+                    // (non-finite) channel used to leave `i` behind, so `[nan, 0.25, 0.3]` wrote 0.25 into red
+                    // and shifted the whole colour. A poisoned channel now keeps its own default in place.
+                    //
+                    // A COLOUR IS THREE NUMBERS OR IT IS NOT A COLOUR. A 1- or 2-element array used to fill the
+                    // channels it carried and leave the rest at the compiled default, so `clear_color = [0.5]`
+                    // quietly produced a half-red background the user never described - and nothing in the log
+                    // said the rest of the value came from somewhere else. The documented contract is RGB, so a
+                    // wrong length now leaves the whole default, with one line saying why (the same rule
+                    // `read_finite_vec3` applies to every other vector in this file).
+                    if (color->size() != settings.render.clear_color.size()) {
+                        deren::utility::log("app_config: clear_color needs exactly 3 channels (RGB), got {}; keeping the default", color->size());
+                    } else {
+                        for (std::size_t i = 0; i < color->size(); ++i) {
+                            // finite_clamped, not finite_scalar: the contract is "RGB in 0..1", so a value
+                            // outside that range is outside the documented range and is clamped into it, the
+                            // way `exposure` and `sun_intensity` are. A non-finite channel still keeps its own
+                            // default (clamping cannot rescue a NaN: every comparison against one is false).
+                            if (std::optional<float> const channel = finite_clamped(&(*color)[i], 0.0, 1.0)) {
+                                settings.render.clear_color[i] = *channel;
+                            }
                         }
                     }
                 }
@@ -308,8 +353,8 @@ namespace deren::app_config {
                 settings.render.tone_mapping = (*v >= 0 && *v <= 2) ? static_cast<std::int32_t>(*v) : 0;
             }
             if (toml::node const* node = render->get("sun_intensity")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.sun_intensity = static_cast<float>(std::clamp(*value, 0.0, 3.0));
+                if (std::optional<float> const value = finite_clamped(node, 0.0, 3.0)) {
+                    settings.render.sun_intensity = *value;
                 }
             }
             if (toml::node const* node = render->get("shadow")) {
@@ -333,12 +378,10 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("rt_reflection_strength")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    // clamp cannot reject a NaN (both comparisons are false), and a NaN would reach the
-                    // push-lane quantization as an undefined float-to-uint conversion: keep the default.
-                    if (std::isfinite(*value)) {
-                        settings.render.rt_reflection_strength = static_cast<float>(std::clamp(*value, 0.0, 1.0));
-                    }
+                // clamp cannot reject a NaN (both comparisons are false), and a NaN would reach the
+                // push-lane quantization as an undefined float-to-uint conversion: keep the default.
+                if (std::optional<float> const value = finite_clamped(node, 0.0, 1.0)) {
+                    settings.render.rt_reflection_strength = *value;
                 }
             }
             if (toml::node const* node = render->get("rt_reflection_samples")) {
@@ -371,16 +414,6 @@ namespace deren::app_config {
                     settings.render.rt_reflection_materials = std::move(joined);
                 }
             }
-            if (toml::node const* node = render->get("animation_time")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.animation_time = static_cast<float>(*value);
-                }
-            }
-            if (toml::node const* node = render->get("camera_fit")) {
-                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
-                    settings.render.camera_fit = *value;
-                }
-            }
             if (toml::node const* node = render->get("shadow_cascades")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                     // The 1..4 check (and its fallback log line) is at the end of this function; saturating
@@ -389,8 +422,8 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("shadow_cascade_blend")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.shadow_cascade_blend = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.render.shadow_cascade_blend = *value;
                 }
             }
             if (toml::node const* node = render->get("toon_shadow_softness")) {
@@ -400,17 +433,19 @@ namespace deren::app_config {
                 if (std::optional<std::int64_t> const integral = node->value<std::int64_t>()) {
                     settings.render.toon_shadow_softness = static_cast<float>(*integral);
                 } else if (std::optional<double> const real = node->value<double>()) {
+                    // NOT `finite_scalar`: the ladder's analyser rounds and clamps this into 0..4 and turns a
+                    // NaN into the shipped level, so an infinity is meant to land on an end of the ladder.
                     settings.render.toon_shadow_softness = static_cast<float>(*real);
                 }
             }
             if (toml::node const* node = render->get("shadow_bias_constant")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.shadow_bias_constant = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.render.shadow_bias_constant = *value;
                 }
             }
             if (toml::node const* node = render->get("shadow_bias_slope")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.shadow_bias_slope = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.render.shadow_bias_slope = *value;
                 }
             }
             if (toml::node const* node = render->get("clustered_lights")) {
@@ -420,7 +455,11 @@ namespace deren::app_config {
             }
             if (toml::node const* node = render->get("shadow_map_size")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.render.shadow_map_size = static_cast<std::int32_t>(*value);
+                    // Saturated before the narrowing, like grid_side: a raw cast is a modulo conversion, so
+                    // `shadow_map_size = 4294969344` arrived at the 256..8192 check as a plausible 2048 and
+                    // was accepted as if the file had said so. Saturation makes it a clearly out-of-range
+                    // number, which the check rejects (and reports) below.
+                    settings.render.shadow_map_size = saturating_int32(*value);
                 }
             }
             if (toml::node const* node = render->get("ssao")) {
@@ -429,13 +468,13 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("ssao_radius")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.ssao_radius = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.render.ssao_radius = *value;
                 }
             }
             if (toml::node const* node = render->get("ssao_intensity")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.ssao_intensity = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_clamped(node, 0.0, 8.0)) {
+                    settings.render.ssao_intensity = *value;
                 }
             }
             if (toml::node const* node = render->get("ssao_samples")) {
@@ -456,8 +495,10 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("render_scale")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.render_scale = static_cast<float>(*value);
+                // NO RANGE HERE: `clamp_render_scale` owns [0.1, 1.0] (render_layout.cppm), so a value
+                // outside it still reports and corrects there instead of being silently rewritten twice.
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.render.render_scale = *value;
                 }
             }
             if (toml::node const* node = render->get("upscale")) {
@@ -471,13 +512,13 @@ namespace deren::app_config {
                 }
             }
             if (toml::node const* node = render->get("taa_blend_static")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.taa_blend_static = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.render.taa_blend_static = *value;
                 }
             }
             if (toml::node const* node = render->get("taa_blend_min")) {
-                if (std::optional<double> const value = node->value<double>()) {
-                    settings.render.taa_blend_min = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.render.taa_blend_min = *value;
                 }
             }
             if (toml::node const* node = render->get("character_forward")) {
@@ -491,20 +532,6 @@ namespace deren::app_config {
             if (toml::node const* node = render->get("game_toon")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.game_toon = *value;
-                }
-            }
-            if (toml::node const* node = render->get("game_toon_copies")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.render.game_toon_copies = static_cast<std::int32_t>(*value);
-                }
-            }
-            // THE STATIC SURROUND'S SECOND MODEL ([render] background_glb): an empty string is the default and
-            // means "this frame has no background model", which keeps every recorded reference valid. The path
-            // is NOT touched here - `main.cpp` resolves a relative one against the executable's directory,
-            // because that is where the assets are and the config loader has no idea where the exe sits.
-            if (toml::node const* node = render->get("background_glb")) {
-                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
-                    settings.render.background_glb = *value;
                 }
             }
             if (toml::node const* node = render->get("offscreen")) {
@@ -545,7 +572,11 @@ namespace deren::app_config {
             read_bool("async_present", settings.render.async_present);
             if (toml::node const* node = debug_source("gbuffer_channel")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.render.gbuffer_channel = static_cast<std::int32_t>(*value);
+                    // Saturated like grid_side: a modulo cast turns 2^32 + 1 into the valid-looking channel 1,
+                    // which draws a real channel instead of the one the file asked for. The range itself is
+                    // the pass's (gbuffer_debug_pass::set_channel clamps to its declared channel count), so
+                    // this reader only has to stop inventing a plausible value.
+                    settings.render.gbuffer_channel = saturating_int32(*value);
                 }
             }
             if (toml::node const* grid_side_node = debug_source("grid_side")) {
@@ -558,7 +589,9 @@ namespace deren::app_config {
             }
             if (toml::node const* node = debug_source("demo_lights")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.lighting.demo_lights = static_cast<std::int32_t>(*value);
+                    // Saturated for the same reason as grid_side: the 0..max_demo_lights clamp below runs on
+                    // the narrowed value, so 2^32 used to arrive as a plausible 0 and 2^32 + 1 as 1.
+                    settings.lighting.demo_lights = saturating_int32(*value);
                 }
             }
             // The generated lights' geometry (see the struct's note): a radius and a range, both as
@@ -568,8 +601,8 @@ namespace deren::app_config {
                      std::pair{"demo_light_range", &settings.lighting.demo_light_range},
                  }) {
                 if (toml::node const* node = debug_source(key)) {
-                    if (std::optional<double> const value = node->value<double>()) {
-                        *target = static_cast<float>(*value);
+                    if (std::optional<float> const value = finite_scalar(node)) {
+                        *target = *value;
                     }
                 }
             }
@@ -666,9 +699,8 @@ namespace deren::app_config {
                 if (toml::node const* node = toon->get(key)) {
                     // A NON-FINITE NUMBER IS NOT A SCALE, and neither is a finite one too large for float:
                     // both would ride the rig's lanes into the shader, so the key keeps the compiled default.
-                    if (std::optional<double> const value = node->value<double>();
-                        value && std::isfinite(*value) && std::abs(*value) <= std::numeric_limits<float>::max()) {
-                        *target = static_cast<float>(*value);
+                    if (std::optional<float> const value = finite_scalar(node)) {
+                        *target = *value;
                     }
                 }
             }
@@ -718,20 +750,53 @@ namespace deren::app_config {
                 if (!probe->contains(key)) {
                     return;
                 }
-                auto const* values = probe->get_as<toml::array>(key);
-                if (!values || values->size() != 3) {
-                    target[0] = std::numeric_limits<float>::quiet_NaN();
-                    return;
+                // EVERY COMPONENT IS SANITISED, not just the first. The NaN sentinel is how an unusable
+                // probe tells `set_local_probe` to refuse it, and a value that is not three finite numbers
+                // must not leave a plausible half-vector behind: marking only `target[0]` left `[NaN, 0, 0]`
+                // for a two-element array, and a non-finite component written explicitly (`[inf, 0, 0]`)
+                // sailed through as an infinity because only the *missing* case was checked. Both are now
+                // the same answer - three NaNs - so whatever reads a single channel (the log, a future
+                // consumer, a test) cannot report a number the file never supplied.
+                float const nan = std::numeric_limits<float>::quiet_NaN();
+                deren::utility::vessel::array<float, 3> parsed = {nan, nan, nan};
+                // A component list that parses part way must not leave the good prefix behind (a file that
+                // said [1.0, inf, 2.0] is not "1.0, NaN, NaN"): one failure discards the whole array below.
+                bool complete = true;
+                if (toml::array const* values = probe->get_as<toml::array>(key); values != nullptr && values->size() == parsed.size()) {
+                    for (std::size_t i = 0; i < parsed.size(); ++i) {
+                        std::optional<double> const component = (*values)[i].value<double>();
+                        if (!component || !std::isfinite(*component) || std::abs(*component) > std::numeric_limits<float>::max()) {
+                            complete = false;
+                            break;
+                        }
+                        parsed[i] = static_cast<float>(*component);
+                    }
+                } else {
+                    complete = false; // present, but not an array of three numbers
                 }
-                for (std::size_t i = 0; i < 3; ++i) {
-                    target[i] = static_cast<float>((*values)[i].value_or(std::numeric_limits<double>::quiet_NaN()));
+                if (!complete) {
+                    parsed = {nan, nan, nan};
                 }
+                target = parsed;
             };
             vec("position", r.position);
             vec("box_min", r.minimum);
             vec("box_max", r.maximum);
-            r.fade = probe->contains("fade") ? static_cast<float>((*probe)["fade"].value_or(std::numeric_limits<double>::quiet_NaN())) : .5f;
-            r.gain = probe->contains("gain") ? static_cast<float>((*probe)["gain"].value_or(std::numeric_limits<double>::quiet_NaN())) : 1.f;
+            // `fade`/`gain` take the same sentinel for a non-finite or non-numeric value: the defaults are
+            // only used when the key is absent, so a stated-but-unusable number cannot silently become the
+            // default and make a broken probe look like a deliberate one.
+            auto scalar = [&](char const* key, float fallback) {
+                if (!probe->contains(key)) {
+                    return fallback;
+                }
+                std::optional<double> const value = (*probe)[key].value<double>();
+                if (!value || !std::isfinite(*value) || std::abs(*value) > std::numeric_limits<float>::max()) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                return static_cast<float>(*value);
+            };
+            r.fade = scalar("fade", r.fade);
+            r.gain = scalar("gain", r.gain);
         }
         // THE ENVIRONMENT AND AREA-LIGHT PROFILE ([lighting] profile): the numeric IBL knobs and the reference
         // package's area light are calibrated together, so they live in a TOML file named by one key. `[lighting]`
@@ -801,8 +866,8 @@ namespace deren::app_config {
                      std::pair{"area_light_softness", &settings.lighting.area_light_softness},
                  }) {
                 if (toml::node const* node = lighting->get(key)) {
-                    if (std::optional<double> const value = node->value<double>()) {
-                        *target = static_cast<float>(*value);
+                    if (std::optional<float> const value = finite_scalar(node)) {
+                        *target = *value;
                     }
                 }
             }
@@ -834,14 +899,18 @@ namespace deren::app_config {
                     settings.gui.show = *value;
                 }
             }
+            // THE PANEL SIZE IS PIXELS, which are floats (ImGui takes them as such, and DPI scaling makes
+            // 380.5 a meaningful size). Reading only `value<std::int64_t>()` silently ignored a fractional
+            // size and kept the default, so a DPI-scaled config did not do what it said. finite_scalar takes
+            // the numeric branch of the TOML node, so a plain integer still reads as before.
             if (toml::node const* node = gui->get("panel_width")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.gui.panel_width = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.gui.panel_width = *value;
                 }
             }
             if (toml::node const* node = gui->get("panel_height")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.gui.panel_height = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.gui.panel_height = *value;
                 }
             }
         }
@@ -956,28 +1025,31 @@ namespace deren::app_config {
                     }
                     read_vec3(*source, "tint", object.tint);
                     if (toml::node const* node = source->get("metallic_scale")) {
-                        if (std::optional<double> const value = node->value<double>()) {
-                            object.metallic_scale = static_cast<float>(*value);
+                        if (std::optional<float> const value = finite_scalar(node)) {
+                            object.metallic_scale = *value;
                         }
                     }
                     if (toml::node const* node = source->get("roughness_scale")) {
-                        if (std::optional<double> const value = node->value<double>()) {
-                            object.roughness_scale = static_cast<float>(*value);
+                        if (std::optional<float> const value = finite_scalar(node)) {
+                            object.roughness_scale = *value;
                         }
                     }
                     if (toml::node const* node = source->get("emissive_scale")) {
-                        if (std::optional<double> const value = node->value<double>()) {
-                            object.emissive_scale = static_cast<float>(*value);
+                        if (std::optional<float> const value = finite_scalar(node)) {
+                            object.emissive_scale = *value;
                         }
                     }
                     if (toml::node const* node = source->get("animation")) {
                         if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                            object.animation = static_cast<std::int32_t>(*value);
+                            // A clipping index, not a count: it is narrowed here and resolved against the
+                            // imported clip list after the scene loads, so a wrapping cast could turn an
+                            // absurd 64-bit number into a plausible index and play the wrong clip.
+                            object.animation = saturating_int32(*value);
                         }
                     }
                     if (toml::node const* node = source->get("animation_speed")) {
-                        if (std::optional<double> const value = node->value<double>()) {
-                            object.animation_speed = static_cast<float>(*value);
+                        if (std::optional<float> const value = finite_scalar(node)) {
+                            object.animation_speed = *value;
                         }
                     }
                     if (toml::node const* node = source->get("animation_playing")) {
@@ -1155,10 +1227,6 @@ namespace deren::app_config {
         if (settings.lighting.demo_lights < 0 || settings.lighting.demo_lights > static_cast<std::int32_t>(max_demo_lights)) {
             deren::utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);
             settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<std::int32_t>(max_demo_lights));
-        }
-        if (settings.render.camera_fit != "exterior" && settings.render.camera_fit != "interior") {
-            deren::utility::log("app_config: invalid camera_fit '{}' (use exterior/interior), falling back to exterior", settings.render.camera_fit);
-            settings.render.camera_fit = "exterior";
         }
         return settings;
     }
@@ -1354,7 +1422,6 @@ namespace deren::app_config {
         resolve(settings.gui.rml_document);
         resolve(settings.gui.rml_font);
         resolve(settings.gui.rml_fallback_font);
-        resolve(settings.render.background_glb);
         resolve(settings.reflection_probe.asset);
         deren::utility::vessel::vector<deren::input::action_binding> input_actions;
         auto const input = manifest.table()["input"];
@@ -1387,27 +1454,16 @@ namespace deren::app_config {
     }
 
     std::expected<void, std::string> validate_project_arguments(std::int32_t const argc, char const* const* const argv) {
-        if (argc < 3 || argv == nullptr || argv[1] == nullptr || std::string_view(argv[1]) != "run") {
+        // THE ENGINE OWNS THE HEAD, THE PROJECT OWNS THE TAIL. `deren run <project-directory>` is the
+        // whole engine-side contract; every argument after the directory is forwarded untouched to the
+        // project's managed preinit, which is where the capture flags and selftest switches live. This
+        // function used to reject all of them, which is exactly why it was never called from the launch
+        // path: the shipped projects pass `--capture-frames`, `--editor-selftest` and friends.
+        if (argc < 3 || argv == nullptr || argv[0] == nullptr || argv[1] == nullptr || std::string_view(argv[1]) != "run") {
             return std::unexpected("usage: deren run <project-directory>");
         }
-        for (std::int32_t i = 3; i < argc; ++i) {
-            if (argv[i] == nullptr) {
-                return std::unexpected("project command contains a null argument");
-            }
-            std::string_view const arg(argv[i]);
-            if (arg == "--config" || arg.starts_with("--config=")) {
-                return std::unexpected("project mode does not support --config; the entry scene is [project] main_scene in deren.toml");
-            }
-            if (arg == "--asset" || arg.starts_with("--asset=")) {
-                return std::unexpected("project mode does not support --asset; the C# game owns asset selection");
-            }
-            if (arg == "--asset-library" || arg.starts_with("--asset-library=")) {
-                return std::unexpected("project mode does not support --asset-library; set [paths] asset_library in deren.toml");
-            }
-            if (arg.starts_with("--")) {
-                return std::unexpected(std::format("project mode does not support option '{}'", arg));
-            }
-            return std::unexpected(std::format("project mode does not accept extra argument '{}'", arg));
+        if (argv[2] == nullptr || std::string_view(argv[2]).empty()) {
+            return std::unexpected("usage: deren run <project-directory>");
         }
         return {};
     }
@@ -1420,7 +1476,6 @@ namespace deren::app_config {
         deren::utility::vessel::string config_path = default_config_path;
         std::optional<std::string> asset_library_override;
         std::optional<std::string> asset_override;
-        std::optional<std::int64_t> game_toon_copies_override;
         deren::utility::vessel::vector<std::string_view> positional;
         for (std::int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
@@ -1455,29 +1510,6 @@ namespace deren::app_config {
                 asset_override = std::string(arg.substr(8));
                 continue;
             }
-            if (arg == "--game-toon-copies") {
-                if (i + 1 < argc) {
-                    char* end = nullptr;
-                    long const parsed = std::strtol(argv[++i], &end, 10);
-                    if (end != argv[i] && *end == '\0') {
-                        game_toon_copies_override = static_cast<std::int64_t>(parsed);
-                    } else {
-                        deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", argv[i]);
-                    }
-                }
-                continue;
-            }
-            if (arg.starts_with("--game-toon-copies=")) {
-                std::string const text(arg.substr(19));
-                char* end = nullptr;
-                long const parsed = std::strtol(text.c_str(), &end, 10);
-                if (end != text.c_str() && *end == '\0') {
-                    game_toon_copies_override = static_cast<std::int64_t>(parsed);
-                } else {
-                    deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", text);
-                }
-                continue;
-            }
             positional.push_back(arg);
         }
 
@@ -1499,12 +1531,6 @@ namespace deren::app_config {
         if (asset_override) {
             settings.asset = *asset_override;
         }
-        if (game_toon_copies_override) {
-            // The engine's head-state array is 16 slots (`max_game_toon_characters`); clamp at the
-            // command-line boundary too, so `--game-toon-copies 40` is not accepted as a value that
-            // main then silently rewrites.
-            settings.render.game_toon_copies = static_cast<std::int32_t>(std::clamp<std::int64_t>(*game_toon_copies_override, 1, 16));
-        }
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).
         if (!positional.empty() && !positional[0].empty()) {
@@ -1520,13 +1546,14 @@ namespace deren::app_config {
             char* end = nullptr;
             // `strtol` answers in `long`, whose width is the PLATFORM's (32 bits on Windows, 64 on Linux): the
             // conversion is explicit so the fixed-width type this file uses everywhere else is not narrowed by
-            // whichever platform happened to compile it. The clamp below is what bounds the value anyway.
-            std::int32_t const side = static_cast<std::int32_t>(std::strtol(arg.c_str(), &end, 10));
+            // whichever platform happened to compile it. THE CLAMP RUNS IN 64-BIT SPACE, BEFORE THAT NARROWING:
+            // strtol saturates a long overflow to LONG_MAX, and casting that to int32 first would turn the
+            // clamp into a rule about whatever the low 32 bits happened to be.
+            std::int64_t const side = static_cast<std::int64_t>(std::strtol(arg.c_str(), &end, 10));
             if (end != arg.c_str() && *end == '\0') {
                 // grid side: clamp instead of trusting the raw value - a huge argv number would
-                // otherwise make the instancing stress reserve enormous buffers (and strtol
-                // overflow saturates to LONG_MAX, which the clamp also absorbs)
-                settings.grid_side = std::clamp(side, std::int32_t{0}, std::int32_t{90});
+                // otherwise make the instancing stress reserve enormous buffers
+                settings.grid_side = saturating_int32(std::clamp<std::int64_t>(side, 0, 90));
             } else {
                 deren::utility::log("app_config: ignoring unrecognized positional argument '{}' (expected a numeric grid side)", arg);
             }

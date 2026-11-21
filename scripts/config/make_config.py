@@ -151,7 +151,6 @@ def write_toml(path: str, cfg: dict) -> None:
         f"vsync = {str(cfg['vsync']).lower()}",
         f"max_fps = {cfg['max_fps']}",
         "clear_color = [{0}, {1}, {2}]".format(*cfg["clear_color"]),
-        f"camera_fit = \"{cfg['camera_fit']}\"",
         f"offscreen = {str(cfg['offscreen']).lower()}",
         f"sun_intensity = {cfg['sun_intensity']}",
         "",
@@ -176,9 +175,8 @@ def write_toml(path: str, cfg: dict) -> None:
         f"ssao_intensity = {cfg['ssao_intensity']}",
         f"ssao_samples = {cfg['ssao_samples']}",
         "",
-        "# ---- [render] ray-traced effects + animation ----",
+        "# ---- [render] ray-traced effects ----",
         f"rt_shadows = {str(cfg['rt_shadows']).lower()}",
-        f"animation_time = {cfg['animation_time']}",
         "",
         "# ---- [debug] investigation switches: a gate or a person flips these,",
         "# ---- not a project. They are documented in config.example.toml. ----",
@@ -255,10 +253,6 @@ def ask_all(output_dir: str) -> dict:
     vsync = ask_bool("render.vsync", False, hint="false = Mailbox (uncapped), true = FIFO")
     max_fps = ask_int("render.max_fps", 0, 0, hint="0 = uncapped; e.g. 240 to match a 240 Hz panel")
     clear_color = ask_float3("render.clear_color (RGB 0..1)", (0.02, 0.02, 0.03))
-    camera_fit = ask_choice(
-        "render.camera_fit: initial framing", ["exterior", "interior"], "exterior",
-        hint="exterior = fit the whole model from outside; interior = stand inside and look down the longest axis"
-    )
     offscreen = ask_bool("render.offscreen", False, hint="render to images without a window; scripted captures enable this automatically")
     sun_intensity = ask_float(
         "render.sun_intensity",
@@ -312,17 +306,11 @@ def ask_all(output_dir: str) -> dict:
     ssao_intensity = ask_float("render.ssao_intensity", 1.0, 0.0, 1.0, hint="1 = full occlusion, 0 = off")
     ssao_samples = ask_int("render.ssao_samples", 8, 1, 16, hint="samples per pixel")
 
-    print("\n-- render (ray-traced effects + animation) --")
+    print("\n-- render (ray-traced effects) --")
     rt_shadows = ask_bool(
         "render.rt_shadows",
         False,
         hint="ray-traced sun shadows (needs a device with ray queries; ignored elsewhere)",
-    )
-    animation_time = ask_float(
-        "render.animation_time",
-        -1.0,
-        hint="pin a keyframe animation at N seconds (-1 = play it; playback is wall-clock driven, so only a "
-             "pinned pose makes a capture of an animated scene reproducible)",
     )
 
     print("\n-- debug (investigation switches; not a project's configuration) --")
@@ -417,7 +405,6 @@ def ask_all(output_dir: str) -> dict:
         "vsync": vsync,
         "max_fps": max_fps,
         "clear_color": clear_color,
-        "camera_fit": camera_fit,
         "offscreen": offscreen,
         "sun_intensity": sun_intensity,
         "shadow_cascades": shadow_cascades,
@@ -436,7 +423,6 @@ def ask_all(output_dir: str) -> dict:
         "ssao_intensity": ssao_intensity,
         "ssao_samples": ssao_samples,
         "rt_shadows": rt_shadows,
-        "animation_time": animation_time,
         "grid_side": grid_side,
         "async_present": async_present,
         "furnace": furnace,

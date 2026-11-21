@@ -131,25 +131,38 @@ export namespace deren::app {
             if (offscreen) {
                 return;
             }
-            if (glfwInit() != GLFW_TRUE) {
+            if (!acquire_platform()) {
                 deren::utility::panic("glfwInit failed");
             }
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
             glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+#ifdef _WIN32
             if (borderless) {
                 // An undecorated window has no system caption or resize frame; the subclass installed
                 // below gives it back the resize band and lets the managed UI draw its own caption.
                 glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
             }
+#else
+            // BORDERLESS IS HONESTLY A NO-OP OFF WINDOWS: everything that makes it usable - the
+            // resize band, the hit test, the taskbar entry and the hand-off of a caption press to
+            // the system move loop - is the Win32 subclass installed below, and GLFW exposes no
+            // portable equivalent. Honouring the hint here would leave an undecorated window that
+            // cannot be moved or resized at all, which is worse than the system frame it keeps.
+#endif
             window_ = glfwCreateWindow(width, height, title, nullptr, nullptr);
             if (window_ == nullptr) {
                 deren::utility::panic("glfwCreateWindow failed");
             }
 #ifdef _WIN32
             if (borderless) {
-                install_borderless_frame();
-                borderless_ = true;
+                // FAILING LOUDLY IS THE POINT: a window whose frame could not be installed stays an
+                // undecorated popup - no resize band, no taskbar entry, no maximize - while the
+                // managed UI would still draw caption buttons over it. The editor's whole shell is
+                // that caption, so a silent downgrade is worse than refusing to start.
+                if (!install_borderless_frame()) {
+                    deren::utility::panic("the borderless window frame could not be installed");
+                }
             } else if (dark_frame) {
                 auto const hwnd = glfwGetWin32Window(window_);
                 BOOL const dark = TRUE;
@@ -175,12 +188,13 @@ export namespace deren::app {
         ~glfw_window() {
             if (window_ != nullptr) {
 #ifdef _WIN32
-                if (borderless_) {
-                    remove_borderless_frame();
-                }
+                // NOT GATED ON A "BORDERLESS" FLAG: the subclass is identified by the window's own
+                // property, so this is a no-op for a window that never installed one and can never
+                // "restore" a procedure onto an unrelated window that reused a stale handle.
+                remove_borderless_frame();
 #endif
                 glfwDestroyWindow(window_);
-                glfwTerminate();
+                release_platform();
             }
         }
 
@@ -219,7 +233,7 @@ export namespace deren::app {
         }
 
         /// Hands a caption-area press to the system move loop, so the window follows the pointer
-        /// until the button comes up. This call blocks for the duration of the drag.
+        /// until the button comes up.
         bool begin_window_drag() const noexcept {
 #ifdef _WIN32
             if (window_ == nullptr) {
@@ -230,8 +244,13 @@ export namespace deren::app {
                 return false;
             }
             ReleaseCapture();
-            SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-            return true;
+            // POSTED, NOT SENT. A synchronous SendMessageW(WM_NCLBUTTONDOWN, HTCAPTION) runs the
+            // system's modal move loop on THIS stack; that loop keeps pumping the window's messages,
+            // so the seam would publish input to the managed game while the managed update that
+            // asked for the drag is still on the stack - and that update does not return until the
+            // drag ends. Posting returns at once; the loop's next event pump (before the next managed
+            // tick) starts the drag after the requesting callback has unwound.
+            return PostMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0) != 0;
 #else
             return false;
 #endif
@@ -277,26 +296,72 @@ export namespace deren::app {
 
     private:
         GLFWwindow* window_;
-        bool borderless_ = false;
+
+        // GLFW'S PLATFORM STATE IS PROCESS WIDE. A second glfwInit() registers another copy of the
+        // Win32 window class and re-runs the platform's global setup, and any glfwTerminate() tears
+        // the platform down under every window still open - so initialization is counted and the
+        // platform lives exactly as long as the first window to the last one.
+        inline static unsigned live_windows = 0;
+
+        static bool acquire_platform() {
+            if (live_windows != 0) {
+                ++live_windows;
+                return true;
+            }
+            if (glfwInit() != GLFW_TRUE) {
+                return false;
+            }
+            live_windows = 1;
+            return true;
+        }
+
+        static void release_platform() {
+            if (live_windows == 0) {
+                return;
+            }
+            if (--live_windows == 0) {
+                glfwTerminate();
+            }
+        }
 
 #ifdef _WIN32
-        // The subclassed window procedure and the procedure it replaced. A subclass keeps working
-        // after its GLFWwindow is destroyed (the HWND is gone, so in practice it never runs again),
-        // which is why the slot is only cleared when the state moves out of the table here.
-        struct frame_state {
-            HWND hwnd;
-            WNDPROC previous;
-        };
+        // THE SUBCLASS'S STATE LIVES ON THE WINDOW ITSELF: the previous window procedure and the
+        // GLFW window both belong to exactly one HWND, so they are stored as window properties.
+        // Windows creates a property with its HWND and removes it with the HWND, so a value can
+        // never outlive its window and be "restored" onto a different window that happens to reuse
+        // the same HWND - the bug a static table had, together with a hard limit of four borderless
+        // windows and an in-place compaction that is unsafe if the procedure re-enters it. The
+        // values are written on the thread that owns the window before the subclass can see a
+        // message, and are read only from that thread's message dispatch (Win32 never dispatches a
+        // window's messages on another thread), so no lock is needed or useful.
+        static constexpr wchar_t previous_proc_property[] = L"deren.borderless_frame.previous_proc";
+        static constexpr wchar_t window_property[] = L"deren.borderless_frame.window";
 
-        static constexpr unsigned frame_capacity = 4;
+        static WNDPROC previous_proc(HWND hwnd) noexcept {
+            return reinterpret_cast<WNDPROC>(GetPropW(hwnd, previous_proc_property));
+        }
 
-        static frame_state* find_frame(HWND hwnd) noexcept {
-            for (unsigned index = 0; index < frame_count; ++index) {
-                if (frames[index].hwnd == hwnd) {
-                    return &frames[index];
-                }
+        // dp -> physical for the hit-test band: the managed shell draws its resize affordance in dp,
+        // so the grab area has to follow the monitor's content scale or it becomes a sliver at 200%.
+        // The scale is the one GLFW reports to the rest of the app, and it is asked per message
+        // instead of cached because moving the window to another monitor changes it.
+        static int hit_test_border(HWND hwnd) noexcept {
+            auto const window = static_cast<GLFWwindow*>(GetPropW(hwnd, window_property));
+            float scale_x = 1.0F;
+            float scale_y = 1.0F;
+            if (window != nullptr) {
+                glfwGetWindowContentScale(window, &scale_x, &scale_y);
             }
-            return nullptr;
+            if (!(scale_x > 0.0F)) {
+                scale_x = 1.0F;
+            }
+            return static_cast<int>(6.0F * scale_x + 0.5F);
+        }
+
+        // Recompute the frame after a style or procedure change, so the first frame after installing
+        // or removing the subclass is already correct.
+        static void renew_frame(HWND hwnd) noexcept {
+            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
         // THE CLIENT RECT THIS PROCEDURE ANSWERS WITH, decided by the PROPOSED WINDOW RECT alone.
@@ -325,17 +390,24 @@ export namespace deren::app {
         // the whole window (WM_NCCALCSIZE), the window keeps WS_THICKFRAME for resizing and the
         // taskbar, and WM_NCHITTEST defines the 6 dp band the user can grab.
         static LRESULT CALLBACK frame_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-            frame_state* state = find_frame(hwnd);
-            if (state == nullptr) {
-                return DefWindowProcW(hwnd, message, wparam, lparam);
+            // THE PROCEDURE THIS ONE REPLACED IS THE HWND'S OWN STATE, so it can neither be missing
+            // nor belong to an older window that reused the handle. DefWindowProcW is NOT a fallback:
+            // it would answer as a plain window and swallow what GLFW's procedure tracks (the
+            // framebuffer-size notification, the close request), so a window without its predecessor
+            // is a bug in install_borderless_frame(), not a case to paper over.
+            WNDPROC const previous = previous_proc(hwnd);
+            if (previous == nullptr) {
+                deren::utility::panic("the borderless frame procedure has no previous procedure to chain to");
             }
             switch (message) {
             case WM_NCCALCSIZE: {
                 if (wparam == FALSE) {
-                    // lParam is a plain RECT holding the proposed window rect: turn it into the client.
-                    RECT window_rect{};
-                    GetWindowRect(hwnd, &window_rect);
-                    *reinterpret_cast<RECT*>(lparam) = borderless_client_rect(window_rect);
+                    // lParam ENTERS AS THE PROPOSED WINDOW RECT and must leave as the client rect.
+                    // Computing the answer from GetWindowRect() instead read the window as it is NOW
+                    // - one resize behind the proposal - so a snap or an edge drag left the client
+                    // lagging and the swapchain extent disagreeing with the window for a frame.
+                    auto* const rect = reinterpret_cast<RECT*>(lparam);
+                    *rect = borderless_client_rect(*rect);
                     return 0;
                 }
                 auto* parameters = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
@@ -350,11 +422,12 @@ export namespace deren::app {
                 return 0;
             }
             case WM_NCHITTEST: {
-                LRESULT const result = CallWindowProcW(state->previous, hwnd, message, wparam, lparam);
+                LRESULT const result = CallWindowProcW(previous, hwnd, message, wparam, lparam);
                 if (result != HTCLIENT || IsZoomed(hwnd) != 0) {
                     return result;
                 }
-                int const border = 6;
+                // 6 dp, converted to physical pixels: see hit_test_border().
+                int const border = hit_test_border(hwnd);
                 int const x = static_cast<short>(static_cast<unsigned short>(lparam & 0xFFFFU));
                 int const y = static_cast<short>(static_cast<unsigned short>((lparam >> 16) & 0xFFFFU));
                 RECT rect{};
@@ -390,14 +463,19 @@ export namespace deren::app {
                 return HTCLIENT;
             }
             default:
-                return CallWindowProcW(state->previous, hwnd, message, wparam, lparam);
+                return CallWindowProcW(previous, hwnd, message, wparam, lparam);
             }
         }
 
-        void install_borderless_frame() noexcept {
+        // TRUE when the frame is installed and the window can be resized, moved and maximized like a
+        // decorated one. FALSE leaves the window as GLFW created it: an undecorated popup with no
+        // resize band and no taskbar entry. The caller must not pretend otherwise.
+        bool install_borderless_frame() noexcept {
             auto const hwnd = glfwGetWin32Window(window_);
-            if (hwnd == nullptr || frame_count >= frame_capacity || find_frame(hwnd) != nullptr) {
-                return;
+            // A second install on the same HWND would capture frame_proc as its own "previous" and
+            // recurse; the property is the marker that the frame is already there.
+            if (hwnd == nullptr || previous_proc(hwnd) != nullptr) {
+                return false;
             }
             // An undecorated GLFW window is WS_POPUP: it has no resize frame and no taskbar entry.
             // The thick frame supplies both; the subclass above hides what it would otherwise draw.
@@ -406,31 +484,51 @@ export namespace deren::app {
                               style | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
             auto const previous = reinterpret_cast<WNDPROC>(
                 SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&glfw_window::frame_proc)));
-            frames[frame_count] = frame_state{.hwnd = hwnd, .previous = previous};
-            ++frame_count;
+            if (previous == nullptr) {
+                // THE SUBCLASS DID NOT TAKE: putting the thick frame back on a window whose procedure
+                // is still GLFW's own would fight our own frame_proc assumptions (no NCCALCSIZE
+                // answer, no hit-test band), so restore the popup style instead of reporting a frame
+                // the window does not have.
+                SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+                renew_frame(hwnd);
+                return false;
+            }
+            // THE TWO PROPERTIES ARE WRITTEN BEFORE ANY MESSAGE CAN REACH THE NEW PROCEDURE.
+            // SetWindowLongPtrW(GWLP_WNDPROC) does not dispatch a message, and the first one this
+            // procedure can see is the WM_NCCALCSIZE that renew_frame() sends below; a message sent
+            // or posted from another thread is delivered on this thread's next pump, after these
+            // writes. If either write fails the frame is undone completely rather than left half
+            // installed, because the caller must not be told the window is resizable when it is not.
+            bool const stored = SetPropW(hwnd, window_property, static_cast<HANDLE>(window_)) != 0 &&
+                                SetPropW(hwnd, previous_proc_property, reinterpret_cast<HANDLE>(previous)) != 0;
+            if (!stored) {
+                SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(previous));
+                RemovePropW(hwnd, window_property);
+                RemovePropW(hwnd, previous_proc_property);
+                SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+                renew_frame(hwnd);
+                return false;
+            }
             // The style change invalidates the frame; recompute it now so the first frame is correct.
-            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                         SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            renew_frame(hwnd);
+            return true;
         }
 
         void remove_borderless_frame() noexcept {
             auto const hwnd = glfwGetWin32Window(window_);
-            frame_state* state = find_frame(hwnd);
-            if (state == nullptr) {
+            if (hwnd == nullptr) {
                 return;
             }
-            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(state->previous));
-            // Compact the table: the last slot takes this one's place and the tail is cleared.
-            auto const slot = static_cast<unsigned>(state - frames);
-            for (unsigned index = slot; index + 1 < frame_count; ++index) {
-                frames[index] = frames[index + 1];
+            WNDPROC const previous = previous_proc(hwnd);
+            if (previous == nullptr) {
+                return;
             }
-            --frame_count;
-            frames[frame_count] = frame_state{};
+            // UNSUBCLASS BEFORE THE WINDOW GOES AWAY: GLFW's own procedure must be the one that
+            // processes the destruction, and the HWND's properties are removed with the window.
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(previous));
+            RemovePropW(hwnd, previous_proc_property);
+            RemovePropW(hwnd, window_property);
         }
-
-        inline static frame_state frames[frame_capacity] = {};
-        inline static unsigned frame_count = 0;
 #endif
     };
 
@@ -454,6 +552,13 @@ export namespace deren::app {
             if (window_ == nullptr) {
                 return;
             }
+            // THE SEAM POINTER IS SHARED BY EVERY WINDOW, so it is registered rather than assigned:
+            // a seam installed later must not be forgotten when an earlier one is destroyed, and a
+            // destroyed seam must not leave the callbacks routing through freed memory. The newest
+            // live seam receives the events; the application owns one window, and a second seam is
+            // expected to outlive the first only when it replaces it.
+            next_live = live_head;
+            live_head = this;
             active = this;
             glfwSetKeyCallback(window_, [](GLFWwindow* event_window, int code, int, int action, int mods) {
                 if (active->window_ != event_window) {
@@ -554,7 +659,18 @@ export namespace deren::app {
                 glfwSetMouseButtonCallback(window_, previous_button);
                 glfwSetScrollCallback(window_, previous_scroll);
                 glfwSetCharCallback(window_, nullptr);
-                active = nullptr;
+                // Unlink first: `active` falls back to the newest seam still alive, never to a
+                // pointer into the windows that was just torn down and never to null while another
+                // seam is installed.
+                for (glfw_action_input** link = &live_head; *link != nullptr; link = &(*link)->next_live) {
+                    if (*link == this) {
+                        *link = next_live;
+                        break;
+                    }
+                }
+                if (active == this) {
+                    active = live_head;
+                }
             }
         }
 
@@ -601,6 +717,10 @@ export namespace deren::app {
         float cursor_x = 0.0F;
         float cursor_y = 0.0F;
         bool has_cursor = false;
+        // The registry of live seams, newest first: see the constructor and destructor for why a single
+        // shared `active` pointer is not enough.
+        glfw_action_input* next_live = nullptr;
         static inline glfw_action_input* active = nullptr;
+        static inline glfw_action_input* live_head = nullptr;
     };
 } // namespace deren::app

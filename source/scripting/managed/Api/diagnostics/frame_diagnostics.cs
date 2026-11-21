@@ -69,7 +69,9 @@ namespace deren {
             if (status != script_status.success) {
                 return null;
             }
-            return view.length == 0
+            // A host that answers with a length but no buffer breaks the ABI contract; an empty table
+            // is the honest reading, and it is not null (null means "no scene or no timestamps").
+            return view.length == 0 || view.data == null
                 ? string.Empty
                 : System.Text.Encoding.UTF8.GetString(view.data, checked((int)view.length));
         }
