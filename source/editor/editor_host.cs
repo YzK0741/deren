@@ -23,9 +23,14 @@ namespace deren.editor {
 
         private static editor_host? instance;
         private static string? requested_scene;
+        private static string? workspace_title;
+        private static string? requested_start_scene;
         private static string? requested_thumbnail;
         private static string? requested_play;
         private play_behaviours? behaviours;
+        private script_catalog? editable_scripts;
+        private script_inspector? scripts_panel;
+        private readonly output_log_panel output_log = new();
         private play_session? playing;
         private string? play_stop_marker;
         private long last_play_stop_check;
@@ -161,6 +166,20 @@ namespace deren.editor {
             // The selftest runs over several frames: one per asset phase, then the layout shots the
             // Window-menu check needs (a display change only reaches the boxes on the next pass).
             if (requested_selftest) { options->capture_frames = Math.Max(options->capture_frames, 20); }
+            try {
+                var root = managed_bootstrap.project_directory;
+                var manifest_path = Path.Combine(root, "deren.toml");
+                if (File.Exists(manifest_path)) {
+                    var manifest = toml_table.parse(File.ReadAllText(manifest_path), out _);
+                    workspace_title = manifest?.table("project")?.text("name");
+                    if (manifest?.table("editor")?.text("scene") is { Length: > 0 } entry) {
+                        requested_start_scene = Path.GetFullPath(entry, root);
+                    }
+                }
+            } catch (Exception error) {
+                host_logger.write($"Editor: could not read the project ({error.Message})");
+                return script_status.script_failure;
+            }
             return script_status.success;
         }
 
@@ -187,6 +206,9 @@ namespace deren.editor {
                 return module_status;
             }
 
+            if (requested_scene == null && !requested_selftest) {
+                requested_scene = requested_start_scene;
+            }
             if (requested_thumbnail != null) {
                 document = new scene_document();
                 document.add_root(new document_node { name = requested_thumbnail, asset = requested_thumbnail });
@@ -247,29 +269,37 @@ namespace deren.editor {
                 return script_status.success;
             }
 
-            if (!rml_document.try_open("ui/editor.rml", "ui/LatoLatin-Regular.ttf",
+            string shell_ui = Path.Combine(managed_bootstrap.assembly_directory, "ui");
+            if (!rml_document.try_open(Path.Combine(shell_ui, "editor.rml"), Path.Combine(shell_ui, "LatoLatin-Regular.ttf"),
                                        out var opened_document, out var ui_status) || opened_document == null) {
                 host_logger.write($"Editor: cannot open ui/editor.rml ({ui_status})");
                 cleanup();
                 return script_status.script_failure;
             }
             ui = opened_document;
+            string project_root = managed_bootstrap.project_directory;
+            string workspace = string.Equals(project_root, managed_bootstrap.assembly_directory, StringComparison.OrdinalIgnoreCase)
+                ? project_root : Path.Combine(project_root, ".deren");
             if (!requested_selftest) {
-                layout_path = Path.Combine(managed_bootstrap.project_directory, "editor-layout.json");
+                Directory.CreateDirectory(workspace);
+                layout_path = Path.Combine(workspace, "editor-layout.json");
                 layout = workspace_layout.load(layout_path);
                 apply_workspace_layout();
             }
             outliner = new outliner_panel(opened_document);
             details = new details_panel(opened_document);
+            editable_scripts = new script_catalog(Path.Combine(managed_bootstrap.project_directory, "scripts"));
+            scripts_panel = new script_inspector(opened_document, editable_scripts);
+            reload_scripts();
             status_line = new status_bar(opened_document);
             undo_history = new undo_stack();
             selection_state = new selection();
             // A crashed editor cannot run the cooperative stop that removes its play/thumbnail
             // workspaces, so the next launch sweeps whatever an earlier process left behind.
-            play_session.sweep_stale_workspaces(managed_bootstrap.project_directory);
-            thumbnails = new asset_thumbnail_cache(managed_bootstrap.project_directory);
-            playing = new play_session(managed_bootstrap.project_directory);
-            browser = new content_browser_panel(opened_document, thumbnails);
+            play_session.sweep_stale_workspaces(workspace);
+            thumbnails = new asset_thumbnail_cache(project_root, workspace);
+            playing = new play_session(project_root, workspace);
+            browser = new content_browser_panel(opened_document, thumbnails, shell_ui);
             // An empty library and a failed query look the same in the grid, so ask for the status and
             // report the failure instead of presenting it as "this project has no assets".
             assets = asset_manager.list(out var assets_status);
@@ -336,9 +366,10 @@ namespace deren.editor {
                 if (requested_play != null) {
                     return current.update_play(frame);
                 }
-                if (current.playing?.poll(out var play_result) == true) {
+                if (current.playing?.poll(current.output_log.add, out var play_result, out var play_failed) == true) {
                     current.notice = play_result;
                     current.ui?.set_text("btn_play", "Play");
+                    if (play_failed) { current.set_dock_tab("tab_log"); }
                 }
                 if (requested_thumbnail != null) {
                     return script_status.success;
@@ -360,6 +391,9 @@ namespace deren.editor {
                     current.finish_gizmo(cancel: true);
                 }
                 current.handle_ui_events();
+                if (current.active_dock_tab == "tab_log" && current.ui != null) {
+                    current.output_log.refresh(current.ui);
+                }
                 current.refresh_panels();
                 current.update_viewport_aspect();
                 current.layout_gizmo();
@@ -403,6 +437,7 @@ namespace deren.editor {
                     finish_split_drag();
                 }
                 if (scene_path_open) {
+                    reset_outliner_drag();
                     if (input.type == rml_event_type.change && input.id == "scene_path") {
                         scene_path_text = input.value;
                         overwrite_path = null;
@@ -413,6 +448,7 @@ namespace deren.editor {
                     continue;
                 }
                 if (pending_new_scene || pending_close || pending_open != null) {
+                    reset_outliner_drag();
                     asset_drag = null;
                     viewport_press = null;
                     viewport_navigation.cancel_drag();
@@ -428,12 +464,14 @@ namespace deren.editor {
                     } else if (input.id == "outliner_search") {
                         outliner_filter = input.value;
                         refresh_panels();
+                    } else if (handle_script_edit(input)) {
+                        continue;
                     } else if (details_panel.try_field(input.id, out var field)) {
                         apply_detail_change(field, input.value);
                     }
                     continue;
                 }
-                if (handle_asset_drag(input) || handle_gizmo(input)) {
+                if (handle_outliner_pointer(input) || handle_asset_drag(input) || handle_gizmo(input)) {
                     continue;
                 }
                 handle_viewport_selection(input);
@@ -466,12 +504,24 @@ namespace deren.editor {
                 }
                 // Any other click dismisses a lingering notice from the previous menu action.
                 notice = string.Empty;
+                const string apply_script = "apply_script_param_";
+                if (input.id.StartsWith(apply_script, StringComparison.Ordinal)) {
+                    apply_script_draft(input.id["apply_".Length..]);
+                    continue;
+                }
                 switch (input.id) {
                     case "btn_new":
                         add_node();
                         break;
                     case "btn_delete":
                         delete_selected();
+                        break;
+                    case "output_clear":
+                        output_log.clear();
+                        break;
+                    case "script_refresh":
+                        reload_scripts();
+                        refresh_panels();
                         break;
                     case "btn_play":
                         toggle_play();
@@ -533,8 +583,13 @@ namespace deren.editor {
                         break;
                     default:
                         // The outliner visibility glyph, an asset tile and a node row all share this path.
-                        if (!toggle_row_visibility(input.id) && !handle_asset_click(input.id, Stopwatch.GetTimestamp())) {
-                            select_row(input.id);
+                        var logged_node = output_log.node_for(input.id);
+                        if (logged_node != Guid.Empty && document?.find(logged_node) is { } logged) {
+                            selection_state?.select(logged.uid);
+                            reveal_in_outliner(logged);
+                            refresh_panels(force_details: true);
+                        } else if (!handle_outliner_control(input.id)) {
+                            handle_asset_click(input.id, Stopwatch.GetTimestamp());
                         }
                         break;
                 }
@@ -576,6 +631,9 @@ namespace deren.editor {
                     if (undo_history?.try_redo() == true) {
                         refresh_panels(force_details: true);
                     }
+                    break;
+                case "menu_edit_duplicate":
+                    duplicate_selection();
                     break;
                 case "menu_edit_delete":
                     delete_selected();
@@ -827,21 +885,6 @@ namespace deren.editor {
             }
         }
 
-        /// <summary>Toggles a node from the visibility glyph at the right of its outliner row.</summary>
-        private bool toggle_row_visibility(string id) {
-            if (!id.StartsWith("row_", StringComparison.Ordinal) ||
-                !id.EndsWith("_vis", StringComparison.Ordinal) || document == null || outliner == null) {
-                return false;
-            }
-            var digits = id["row_".Length..^"_vis".Length];
-            if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var row) ||
-                !outliner.try_row_uid(row, out var uid)) {
-                return false;
-            }
-            var node = document.find(uid);
-            return node != null && set_node_visibility(node, !node.visible);
-        }
-
         /// <summary>Picks an asset tile (#asset_N or #asset_N_name) and reports it in the status bar.</summary>
         private bool select_asset(string id) {
             if (!id.StartsWith("asset_", StringComparison.Ordinal)) {
@@ -891,23 +934,6 @@ namespace deren.editor {
             }
         }
 
-        /// <summary>A row click arrives as either the slot (#row_N) or its text (#row_N_name).</summary>
-        private void select_row(string id) {
-            if (!id.StartsWith("row_", StringComparison.Ordinal) || selection_state == null) {
-                return;
-            }
-            var digits = id["row_".Length..];
-            if (digits.EndsWith("_name", StringComparison.Ordinal)) {
-                digits = digits[..^"_name".Length];
-            }
-            if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var row) ||
-                outliner == null || !outliner.try_row_uid(row, out var uid)) {
-                return;
-            }
-            selection_state.select(uid);
-            refresh_panels();
-        }
-
         private bool add_node(string? asset_id = null, vector_3? position = null) {
             if (document == null || tree == null) {
                 return false;
@@ -932,6 +958,7 @@ namespace deren.editor {
             // Both branches select the new node: a created node that the outliner does not show as
             // selected looks like the click did nothing, and every later edit would target the old one.
             selection_state?.select(node.uid);
+            reveal_in_outliner(node);
             if (asset_id != null) {
                 notice = $"Added asset: {asset_id}";
             }
@@ -1120,12 +1147,6 @@ namespace deren.editor {
                         node.name = trimmed;
                         changed = true;
                     }
-                    break;
-                }
-                case detail_field.script: {
-                    string? binding = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-                    changed = binding != node.script;
-                    node.script = binding;
                     break;
                 }
                 case detail_field.flags: {
@@ -1535,6 +1556,8 @@ namespace deren.editor {
             var browser = tab == "tab_content";
             ui.set_visible("browser_body", browser);
             ui.set_visible("log_body", !browser);
+            ui.try_set_element_style("browser_body", "display", browser ? "flex" : "none");
+            ui.try_set_element_style("log_body", "display", browser ? "none" : "flex");
             apply_tab_style("tab_content", browser);
             apply_tab_style("tab_log", !browser);
         }
@@ -1549,6 +1572,7 @@ namespace deren.editor {
 
         /// <summary>The project folder name shown at the right of the menu bar.</summary>
         private static string project_title() {
+            if (!string.IsNullOrEmpty(workspace_title)) { return workspace_title; }
             var directory = managed_bootstrap.project_directory;
             if (string.IsNullOrEmpty(directory)) {
                 return "deren editor";
@@ -1563,6 +1587,7 @@ namespace deren.editor {
             }
             outliner.refresh(document, selection_state, outliner_filter);
             details?.refresh(document, selection_state, force_details);
+            scripts_panel?.refresh(document, selection_state.primary, assets);
             status_line.refresh(document, selection_state, notice);
             update_history_buttons();
         }
@@ -1980,6 +2005,7 @@ namespace deren.editor {
                 selection_state.clear();
             } else {
                 selection_state.select(node.uid);
+                reveal_in_outliner(node);
             }
             last_clicked_asset = string.Empty;
             notice = string.Empty;
@@ -2007,6 +2033,7 @@ namespace deren.editor {
             }
             if (orbit_camera.try_get(out var camera) && playing.start(document, camera, out notice)) {
                 ui.set_text("btn_play", "Stop");
+                output_log.add(Guid.Empty, "Play started", false);
             }
         }
 
@@ -2022,15 +2049,13 @@ namespace deren.editor {
                 }
                 if (behaviours == null && document != null) {
                     behaviours = new play_behaviours(Path.Combine(managed_bootstrap.project_directory, "scripts"));
-                    if (behaviours.try_attach_nodes(document.roots, frame->scene, out var attach_message)) {
+                    if (behaviours.try_attach_nodes(document, frame->scene, out var attach_message)) {
                         if (animation_player.try_get_info(out _)) {
                             animation_player.try_play();
                         }
                     } else {
-                        // The instance stays assigned so a broken scene is not retried every frame;
-                        // every behaviour it attached was already detached in the failure path.
                         host_logger.write(attach_message);
-                        notice = attach_message;
+                        return script_status.script_failure;
                     }
                 }
                 behaviours?.update(frame->delta_time);
@@ -2042,6 +2067,9 @@ namespace deren.editor {
         }
 
         private void cleanup() {
+            editable_scripts?.Dispose();
+            editable_scripts = null;
+            scripts_panel = null;
             behaviours?.Dispose();
             behaviours = null;
             playing?.Dispose();

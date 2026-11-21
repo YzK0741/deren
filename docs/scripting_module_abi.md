@@ -1365,6 +1365,11 @@ strings. `rml_event` keeps its original three arguments (type, id, value) and ap
 payload as optional arguments, so existing handlers compile unchanged.
 `test_rml_scripting` covers the native table (including thread and lifetime refusals), and
 `managed_host_rml_*` runs the real wrappers for absent, wrong-size and incomplete tables;
+The optional `rml_ui_extended` module (id 6) returns the RmlUi table plus a `set_markup` tail entry
+that replaces an element's children with application-authored RML. Module id 4 still returns the
+original eight-entry prefix. Managed code tries the extended module first and falls back to the
+base module on an older host. Use `set_text` for text supplied by a user.
+
 `managed_host_rml_layout` and `managed_host_rml_module_optional_absent` cover the ABI 42 pointer,
 rect and style surface, including a host that predates the optional entries.
 

@@ -17,7 +17,6 @@ namespace deren.editor {
         scale_y,
         scale_z,
         flags,
-        script,
     }
 
     /// <summary>
@@ -82,7 +81,6 @@ namespace deren.editor {
             ui.set_value("detail_scale_y", format(node.local.scale.y));
             ui.set_value("detail_scale_z", format(node.local.scale.z));
             ui.set_value(flags_id, node.flags.ToString(CultureInfo.InvariantCulture));
-            ui.set_value("detail_script", node.script ?? string.Empty);
             ui.set_text(visible_id, node.visible ? "Visible: yes" : "Visible: no");
             ui.set_text(asset_id, node.asset ?? "-");
             ui.set_text(pipeline_id, node.pipeline ?? "-");
@@ -93,7 +91,6 @@ namespace deren.editor {
         /// </summary>
         internal static bool try_field(string id, out detail_field field) {
             switch (id) {
-                case "detail_script": field = detail_field.script; return true;
                 case name_id: field = detail_field.name; return true;
                 case "detail_position_x": field = detail_field.position_x; return true;
                 case "detail_position_y": field = detail_field.position_y; return true;
@@ -123,7 +120,6 @@ namespace deren.editor {
                 case detail_field.scale_y: return "Edit Scale Y";
                 case detail_field.scale_z: return "Edit Scale Z";
                 case detail_field.flags: return "Edit Flags";
-                case detail_field.script: return "Set Script";
                 default: return "Edit Property";
             }
         }

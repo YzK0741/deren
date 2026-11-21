@@ -37,6 +37,7 @@ internal sealed class document_node
 
     /// <summary>The optional assembly.dll:Namespace.Type behaviour played on this node.</summary>
     internal string? script;
+    internal SortedDictionary<string, string> script_parameters = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The local transform relative to the parent node.

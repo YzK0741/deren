@@ -10,6 +10,7 @@ namespace deren.editor {
     /// <summary>Runs one offscreen preview capture at a time and publishes the completed PNG.</summary>
     internal sealed class asset_thumbnail_cache : IDisposable {
         private readonly string project_directory;
+        private readonly string cache_directory;
         // Assets published during this session, mapped to the file name carrying their revision. A
         // rebuilt thumbnail gets a new name instead of overwriting the old one: the RmlUi texture is
         // cached by source, so re-assigning the same image source would keep showing the old picture.
@@ -18,15 +19,16 @@ namespace deren.editor {
         private string? job_directory;
         private string? asset_id;
 
-        internal asset_thumbnail_cache(string project_directory) {
+        internal asset_thumbnail_cache(string project_directory, string cache_directory) {
             this.project_directory = Path.GetFullPath(project_directory);
+            this.cache_directory = Path.GetFullPath(cache_directory);
         }
 
         internal string path_for(string asset) {
             if (published.TryGetValue(asset, out var current)) {
                 return current;
             }
-            var directory = Path.Combine(project_directory, "ui", "thumbnails");
+            var directory = Path.Combine(cache_directory, "ui", "thumbnails");
             return Path.Combine(directory, key_for(asset) + ".png");
         }
 
@@ -43,28 +45,17 @@ namespace deren.editor {
             try {
                 var executable = Environment.ProcessPath ??
                     throw new InvalidOperationException("The rendering executable path is unavailable.");
-                var directory = Path.Combine(project_directory, "thumbnail-jobs", Guid.NewGuid().ToString("N"));
+                var directory = Path.Combine(cache_directory, "thumbnail-jobs", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(directory);
                 job_directory = directory;
-                File.Copy(Path.Combine(project_directory, "editor_worker.toml"), Path.Combine(directory, "deren.toml"));
-                File.WriteAllText(Path.Combine(directory, "scene.toml"), """
-                    [paths]
-                    screenshot_dir = "captures"
-
-                    [render]
-                    window_title = "deren asset thumbnail"
-                    window_width = 256
-                    window_height = 160
-                    fxaa = true
-                    """);
-
                 var start = new ProcessStartInfo(executable) {
                     WorkingDirectory = directory,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
                 start.ArgumentList.Add("run");
-                start.ArgumentList.Add(directory);
+                start.ArgumentList.Add(project_directory);
+                start.ArgumentList.Add("--editor-worker=thumbnail");
                 start.ArgumentList.Add("--editor-thumbnail");
                 start.ArgumentList.Add(asset);
                 worker = Process.Start(start) ?? throw new InvalidOperationException("The renderer did not start.");
@@ -91,7 +82,7 @@ namespace deren.editor {
                 if (worker.ExitCode != 0 || images.Length != 1) {
                     throw new InvalidOperationException($"Renderer exited with {worker.ExitCode} and wrote {images.Length} capture(s).");
                 }
-                var directory = Path.Combine(project_directory, "ui", "thumbnails");
+                var directory = Path.Combine(cache_directory, "ui", "thumbnails");
                 var key = key_for(asset);
                 // The revision in the name is what makes a rebuilt thumbnail reach the browser: a new
                 // source string is a new texture, while overwriting the old file would stay invisible.
@@ -145,7 +136,7 @@ namespace deren.editor {
             asset_id = null;
             if (job_directory != null) {
                 try {
-                    var expected_parent = Path.Combine(project_directory, "thumbnail-jobs");
+                    var expected_parent = Path.Combine(cache_directory, "thumbnail-jobs");
                     if (Path.GetDirectoryName(Path.GetFullPath(job_directory)) == expected_parent) {
                         Directory.Delete(job_directory, recursive: true);
                     }

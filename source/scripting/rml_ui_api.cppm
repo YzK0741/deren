@@ -51,8 +51,10 @@ export namespace deren::scripting {
         // a change event, so a drag that resizes a panel cannot feed managed callbacks back into itself.
         script_status (*set_element_style)(std::uint64_t document, utf8_view element, utf8_view property,
                                            utf8_view value) = nullptr;
+        // Optional tail. Replaces a container's children with application-authored RML.
+        script_status (*set_markup)(std::uint64_t document, utf8_view element, utf8_view markup) = nullptr;
     };
-    static_assert(sizeof(rml_ui_api) == 8 * sizeof(void*));
+    static_assert(sizeof(rml_ui_api) == 9 * sizeof(void*));
     static_assert(sizeof(rml_ui_event) == 28);
     static_assert(sizeof(element_rect) == 16);
 } // namespace deren::scripting

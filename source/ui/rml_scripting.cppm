@@ -30,7 +30,7 @@ export namespace deren::ui {
         }
         static scripting::rml_ui_api const& table() {
             static scripting::rml_ui_api const value{open, close, set_text, set_value, set_visible, poll_event,
-                                                     get_element_rect, set_element_style};
+                                                     get_element_rect, set_element_style, set_markup};
             return value;
         }
 
@@ -131,6 +131,16 @@ export namespace deren::ui {
                 return status::invalid_argument;
             }
             return active->document.set_text(view(element), view(text)) ? status::success : status::invalid_node;
+        }
+        static status set_markup(std::uint64_t id, scripting::utf8_view element, scripting::utf8_view markup) {
+            auto const checked = validate(id);
+            if (checked != status::success) {
+                return checked;
+            }
+            if (!valid(element) || !valid(markup, true)) {
+                return status::invalid_argument;
+            }
+            return active->document.set_markup(view(element), view(markup)) ? status::success : status::invalid_node;
         }
         static status set_value(std::uint64_t id, scripting::utf8_view element, scripting::utf8_view value) {
             auto const checked = validate(id);

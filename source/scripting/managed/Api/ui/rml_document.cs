@@ -87,6 +87,17 @@ namespace deren {
                              rml_ui_api.table.set_text(handle, element.view, content.view);
             return status == script_status.success;
         }
+        /// <summary>Replaces the children of an element with application-authored RML.</summary>
+        public unsafe bool try_set_markup(string id, string markup) {
+            if (!available(out _) || rml_ui_api.table.set_markup == null ||
+                !valid_text(id, false) || !valid_text(markup)) {
+                return false;
+            }
+            using var element = native_string.create(id);
+            using var content = native_string.create(markup);
+            return rml_ui_api.table.set_markup(handle, element.view, content.view) == script_status.success;
+        }
+
         public bool set_visible(string id, bool visible) => set_visible(id, visible, out _);
         public unsafe bool set_visible(string id, bool visible, out script_status status) {
             if (!available(out status)) { return false; }

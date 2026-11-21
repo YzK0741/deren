@@ -202,6 +202,28 @@ namespace deren::app {
         }
         deren::app::script_scene script_scene;
         capture::options capture{};
+        // Editor workers run the same manifest as the editor. The parent gives them a private
+        // working directory for logs and captures; project asset paths and input actions stay resolved
+        // against the original manifest.
+        for (std::int32_t i = 3; i < argc; ++i) {
+            std::string_view const option = argv[i];
+            if (option != "--editor-worker=play" && option != "--editor-worker=thumbnail") {
+                continue;
+            }
+            auto& render = launch_settings.render;
+            render.borderless_window = false;
+            render.window_title = option == "--editor-worker=play" ? "deren - Play" : "deren asset thumbnail";
+            launch_settings.paths.screenshot_dir = (std::filesystem::current_path() / "captures").string();
+            if (option == "--editor-worker=thumbnail") {
+                render.window_width = 256;
+                render.window_height = 160;
+                render.fxaa = true;
+                launch_settings.gui.rml_document.clear();
+                launch_settings.gui.rml_font.clear();
+                launch_settings.gui.rml_fallback_font.clear();
+            }
+            break;
+        }
         auto startup = script_scene.preinit(script_assembly, argc, argv);
         if (!startup) {
             deren::utility::error("{}", startup.error());

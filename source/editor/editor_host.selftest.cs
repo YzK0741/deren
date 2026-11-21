@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Diagnostics;
@@ -45,8 +46,8 @@ namespace deren.editor {
                 // this writer emits (the per-node `script`) must not still claim the old version, or an
                 // old build accepts it and drops the key on its next save.
                 if (!document_io.try_serialize(document, out var header, out _) ||
-                    !header.Contains("version = 2", StringComparison.Ordinal)) {
-                    return selftest_failure("the writer still claims document version 1");
+                    !header.Contains("version = 3", StringComparison.Ordinal)) {
+                    return selftest_failure("the writer did not publish the parameter-aware document version");
                 }
 
                 // THE VERSION RULE: version 1 documents predate the per-node `script` key and must keep
@@ -71,7 +72,7 @@ namespace deren.editor {
                 if (legacy.roots.Count != 1 || legacy.roots[0].script != null) {
                     return selftest_failure("a version 1 document did not load as written");
                 }
-                File.WriteAllText(legacy_path, "[document]\n    version = 3\n    name = \"future\"\n");
+                File.WriteAllText(legacy_path, "[document]\n    version = 4\n    name = \"future\"\n");
                 if (document_io.try_load(legacy_path, out _, out _)) {
                     return selftest_failure("a document from a future version was accepted");
                 }
@@ -186,10 +187,10 @@ namespace deren.editor {
                 refresh_panels();
                 host_logger.write("Editor selftest: outliner filter");
 
-                if (!toggle_row_visibility("row_0_vis") || root.visible) {
+                if (!handle_outliner_control(outliner_panel.row_id(root.uid) + "_vis") || root.visible) {
                     return selftest_failure("the outliner visibility glyph did not hide the node");
                 }
-                if (!toggle_row_visibility("row_0_vis") || !root.visible) {
+                if (!handle_outliner_control(outliner_panel.row_id(root.uid) + "_vis") || !root.visible) {
                     return selftest_failure("the outliner visibility glyph did not restore the node");
                 }
                 host_logger.write("Editor selftest: outliner visibility");
@@ -473,6 +474,90 @@ namespace deren.editor {
             return script_status.success;
         }
 
+        private bool test_outliner_hierarchy() {
+            if (document == null || selection_state == null || undo_history == null || outliner == null ||
+                tree == null || ui == null) {
+                return false;
+            }
+            var large = new scene_document();
+            var last = new document_node { name = "above the old limit" };
+            for (int row = 0; row < 80; ++row) {
+                large.add_root(new document_node { name = $"Row {row}" });
+            }
+            large.add_root(last);
+            outliner.refresh(large, selection_state, "");
+            bool large_tree = outliner.visible_rows == 81 &&
+                ui.try_set_element_style(outliner_panel.row_id(last.uid), "color", "#fff");
+            refresh_panels();
+            if (!large_tree) {
+                return false;
+            }
+
+            var helmet = document.roots.First(node => node.asset == "damaged-helmet");
+            var flowers = document.roots.First(node => node.asset == "flowers");
+            select_outliner_row(helmet.uid, 0);
+            select_outliner_row(flowers.uid, 2);
+            if (selection_state.all.Count != 2) {
+                return false;
+            }
+            select_outliner_row(flowers.uid, 1);
+            if (selection_state.contains(flowers.uid) || !selection_state.contains(helmet.uid)) {
+                return false;
+            }
+            select_outliner_row(flowers.uid, 1);
+
+            var original_world = world_matrix(helmet);
+            var group = new document_node {
+                name = "Cast and Props",
+                local = new transform_value {
+                    position = new vector_3 { x = 2, y = 1, z = -3 },
+                    rotation_degrees = new vector_3 { x = 17, y = 31, z = 8 },
+                    scale = new vector_3 { x = 2, y = 2, z = 2 },
+                },
+            };
+            if (!create_subtree(null, group) || !insert_document_node(null, document.roots.Count, group)) {
+                return false;
+            }
+            var source = outliner_panel.row_id(helmet.uid);
+            var target = outliner_panel.row_id(group.uid);
+            handle_outliner_pointer(new(rml_event_type.pointer_down, source, "", 1, 1));
+            handle_outliner_pointer(new(rml_event_type.pointer_move, target, "", 1, 24));
+            handle_outliner_pointer(new(rml_event_type.pointer_up, target, "", 1, 24));
+            if (group.children.Count != 2 || !near_matrix(world_matrix(helmet), original_world) ||
+                !tree.try_get_transform(helmet.runtime, out var runtime_pose) || !same_transform(runtime_pose, helmet.local) ||
+                !undo_history.try_undo() || group.children.Count != 0 || !document.roots.Contains(helmet) ||
+                !undo_history.try_redo() || group.children.Count != 2 || !near_matrix(world_matrix(helmet), original_world)) {
+                return false;
+            }
+
+            int expanded = outliner.visible_rows;
+            handle_outliner_control(target + "_fold");
+            if (outliner.visible_rows != expanded - 2) {
+                return false;
+            }
+            outliner.refresh(document, selection_state, "damaged-helmet");
+            if (outliner.visible_rows != 2) {
+                return false;
+            }
+            refresh_panels();
+            handle_outliner_control(target + "_fold");
+            selection_state.select(group.uid);
+            if (reparent_selection(helmet) || !duplicate_selection() ||
+                document.find(selection_state.primary) is not { } copy || copy.children.Count != 2 ||
+                copy.children[0].uid == group.children[0].uid ||
+                !undo_history.try_undo() || document.find(copy.uid) != null ||
+                !undo_history.try_redo() || document.find(copy.uid) == null) {
+                return false;
+            }
+            selection_state.select(helmet.uid);
+            if (!reparent_selection(copy) || !near_matrix(world_matrix(helmet), original_world) ||
+                !copy.children.Contains(helmet) || group.children.Contains(helmet)) {
+                return false;
+            }
+            host_logger.write("Editor selftest: uncapped Outliner, multi-select, subtree duplication and world-space reparent passed");
+            return true;
+        }
+
         private bool test_mixed_scene() {
             if (document == null || selection_state == null || undo_history == null || browser == null ||
                 ui == null || !ui.try_get_element_rect("viewport", out var area)) {
@@ -497,6 +582,11 @@ namespace deren.editor {
                     host_logger.write("Editor mixed selftest: drop did not place the asset");
                     return false;
                 }
+            }
+
+            if (!test_outliner_hierarchy()) {
+                host_logger.write("Editor mixed selftest: hierarchy editing failed");
+                return false;
             }
 
             var character = document.find(selftest_asset_uid)!;
@@ -699,8 +789,13 @@ namespace deren.editor {
                     return false;
                 }
                 if (before.asset != after.asset || before.pipeline != after.pipeline || before.script != after.script ||
-                    before.visible != after.visible || before.flags != after.flags) {
+                    before.visible != after.visible || before.flags != after.flags ||
+                    !before.script_parameters.SequenceEqual(after.script_parameters)) {
                     mismatch = $"node '{before.name}' properties changed on reload";
+                    return false;
+                }
+                if (before.children.Count != after.children.Count) {
+                    mismatch = $"node '{before.name}' hierarchy changed on reload";
                     return false;
                 }
                 if (!same_transform(before.local, after.local)) {

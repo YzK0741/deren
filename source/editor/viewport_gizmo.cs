@@ -161,7 +161,7 @@ namespace deren.editor {
             Matrix4x4.CreateRotationZ(value.z * radians) * Matrix4x4.CreateRotationX(value.x * radians) *
             Matrix4x4.CreateRotationY(value.y * radians);
 
-        private static vector_3 euler(Matrix4x4 basis) {
+        internal static vector_3 euler(Matrix4x4 basis) {
             float x = MathF.Asin(Math.Clamp(-basis.M32, -1, 1));
             bool singular = MathF.Abs(MathF.Cos(x)) < 0.0001f;
             float y = singular ? MathF.Atan2(-basis.M13, basis.M11) : MathF.Atan2(basis.M31, basis.M33);

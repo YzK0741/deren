@@ -1428,13 +1428,16 @@ namespace deren::app {
             *byte_size = sizeof(bounds);
             return scripting::script_status::success;
         }
-        if (module == static_cast<std::uint32_t>(scripting::native_module::rml_ui)) {
+        constexpr auto rml_ui = static_cast<std::uint32_t>(scripting::native_module::rml_ui);
+        constexpr auto rml_ui_extended = static_cast<std::uint32_t>(scripting::native_module::rml_ui_extended);
+        if (module == rml_ui || module == rml_ui_extended) {
             auto const* owner = current_owner();
             if (!owner || !owner->document_ui) {
                 return scripting::script_status::module_unavailable;
             }
             *table = owner->document_ui;
-            *byte_size = sizeof(scripting::rml_ui_api);
+            *byte_size = module == rml_ui_extended ? sizeof(scripting::rml_ui_api)
+                                                   : offsetof(scripting::rml_ui_api, set_markup);
             return scripting::script_status::success;
         }
         if (module == static_cast<std::uint32_t>(scripting::native_module::audio)) {

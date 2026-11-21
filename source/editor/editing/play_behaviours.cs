@@ -1,127 +1,94 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
-using System.Runtime.Loader;
+using System.Linq;
 using deren.scripting;
 
 namespace deren.editor {
-    /// <summary>Attaches the scene's declared C# behaviours inside the play process.</summary>
     internal sealed class play_behaviours : IDisposable {
-        private readonly string directory;
-        private readonly Dictionary<string, Assembly> assemblies = new(StringComparer.OrdinalIgnoreCase);
-        private readonly List<script_base> attached = [];
+        private readonly script_catalog catalog;
+        private readonly List<(document_node node, script_base behaviour)> attached = [];
 
         internal play_behaviours(string directory) {
-            this.directory = directory;
+            catalog = new script_catalog(directory);
         }
 
-        private sealed class behaviour_assembly_context(string path) : AssemblyLoadContext {
-            private readonly AssemblyDependencyResolver resolver = new(path);
-
-            protected override Assembly? Load(AssemblyName name) {
-                var bridge = typeof(script_base).Assembly;
-                if (name.Name == bridge.GetName().Name) {
-                    return bridge;
-                }
-                var resolved = resolver.ResolveAssemblyToPath(name);
-                return resolved == null ? null : LoadFromAssemblyPath(resolved);
-            }
-        }
-
-        /// <summary>
-        /// Attaches every declared behaviour. On failure the behaviours attached so far are detached
-        /// again, so a failed start never leaves a half-populated scene running.
-        /// </summary>
-        internal bool try_attach_nodes(IReadOnlyList<document_node> nodes, ulong scene, out string message) {
+        internal bool try_attach_nodes(scene_document document, ulong scene, out string message) {
             try {
-                attach_all(nodes, scene);
+                catalog.reload();
+                foreach (var error in catalog.errors) { host_logger.write($"Editor play: {error}"); }
+                attach_all(document, document.roots, scene);
+                message = string.Empty;
+                return true;
             } catch (Exception error) {
                 message = $"Editor play: script attach failed ({error.GetBaseException().Message})";
                 detach_all();
                 return false;
             }
-            message = string.Empty;
-            return true;
         }
 
-        private void attach_all(IReadOnlyList<document_node> nodes, ulong scene) {
+        private void attach_all(scene_document document, IReadOnlyList<document_node> nodes, ulong scene) {
             foreach (var node in nodes) {
-                if (node.script != null) {
-                    var behaviour = create(node.script);
-                    // Registered before attach, because a throw from attach or on_create must still
-                    // find the half-attached object and release its node.
-                    attached.Add(behaviour);
+                if (node.script is { } binding) {
+                    script_base? behaviour = null;
                     try {
+                        if (!catalog.try_get(binding, out var script) || script == null) {
+                            throw new InvalidOperationException($"Script '{binding}' is unavailable.");
+                        }
+                        behaviour = (script_base)Activator.CreateInstance(script.type)!;
                         behaviour.attach(scene, node.runtime.handle);
+                        foreach (var (key, input) in node.script_parameters) {
+                            var parameter = script.parameters.FirstOrDefault(field => field.name == key);
+                            if (parameter == null || !parameter.try_value(input, document, behaviour, out var value)) {
+                                throw new InvalidOperationException($"Parameter '{key}' cannot use '{input}'.");
+                            }
+                            parameter.member.SetValue(behaviour, value);
+                        }
                         behaviour.on_create();
-                    } catch {
-                        attached.Remove(behaviour);
-                        detach(behaviour, destroy: false);
+                        attached.Add((node, behaviour));
+                        host_logger.write($"Editor play: attached {binding} to {node.name}");
+                    } catch (Exception error) {
+                        behaviour?.detach();
+                        report(node, "on_create", error);
                         throw;
                     }
-                    host_logger.write($"Editor play: attached {node.script} to {node.name}");
                 }
-                attach_all(node.children, scene);
+                attach_all(document, node.children, scene);
             }
-        }
-
-        private script_base create(string binding) {
-            int separator = binding.IndexOf(':');
-            if (separator <= 0 || separator == binding.Length - 1) {
-                throw new InvalidOperationException($"Use assembly.dll:Namespace.Type for script '{binding}'.");
-            }
-            var file = binding[..separator];
-            if (file.IndexOfAny(['/', '\\', ':']) >= 0 || !file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) {
-                throw new InvalidOperationException($"Script assembly '{file}' must be a DLL in the editor's scripts folder.");
-            }
-            if (!assemblies.TryGetValue(file, out Assembly? assembly)) {
-                var path = Path.Combine(directory, file);
-                assembly = new behaviour_assembly_context(path).LoadFromAssemblyPath(path);
-                assemblies.Add(file, assembly);
-            }
-            var type = assembly.GetType(binding[(separator + 1)..], throwOnError: true)!;
-            if (type.IsAbstract || !typeof(script_base).IsAssignableFrom(type) ||
-                Activator.CreateInstance(type) is not script_base behaviour) {
-                throw new InvalidOperationException($"'{binding}' must be a concrete script_base with a public parameterless constructor.");
-            }
-            return behaviour;
         }
 
         internal void update(float delta) {
-            foreach (var behaviour in attached) {
-                behaviour.on_update(delta);
+            foreach (var (node, behaviour) in attached) {
+                try {
+                    behaviour.on_update(delta);
+                } catch (Exception error) {
+                    report(node, "on_update", error);
+                    throw;
+                }
             }
         }
 
-        /// <summary>
-        /// Releases one behaviour. Neither callback is trusted: a script that throws here must not stop
-        /// the remaining behaviours from being released.
-        /// </summary>
-        private static void detach(script_base behaviour, bool destroy) {
-            if (destroy) {
-                try {
-                    behaviour.on_destroy();
-                } catch (Exception error) {
-                    host_logger.write($"Editor play: script shutdown failed ({error.GetBaseException().Message})");
-                }
-            }
-            try {
-                behaviour.detach();
-            } catch (Exception error) {
-                host_logger.write($"Editor play: script detach failed ({error.GetBaseException().Message})");
-            }
+        private static void report(document_node node, string callback, Exception error) {
+            var reason = error.GetBaseException().Message.Replace('\r', ' ').Replace('\n', ' ');
+            host_logger.write($"Editor play node {node.uid:N}: {node.name} / {callback}: {reason}");
         }
 
         private void detach_all() {
             for (int index = attached.Count - 1; index >= 0; --index) {
-                detach(attached[index], destroy: true);
+                var (node, behaviour) = attached[index];
+                try {
+                    behaviour.on_destroy();
+                } catch (Exception error) {
+                    report(node, "on_destroy", error);
+                } finally {
+                    behaviour.detach();
+                }
             }
             attached.Clear();
         }
 
         public void Dispose() {
             detach_all();
+            catalog.Dispose();
         }
     }
 }
