@@ -830,9 +830,12 @@ namespace deren::app_config {
      * @ingroup app_config
      * @brief validate the arguments of `deren run <project-directory>`
      *
-     * Capture flags are removed before this sees argv. The project command owns its own scene and
-     * manifest, so preview-only options (`--config`, `--asset`, `--asset-library`, ...) are rejected
-     * with a message instead of being treated as extra positionals or silently dropped.
+     * The engine owns exactly the head of the command: `deren run <project-directory>`. Everything
+     * after the directory is forwarded untouched to the project's managed preinit (capture flags,
+     * selftest switches - whatever the game defines), so those arguments are not this function's
+     * business. A command that does not start with `run`, or that names no project directory, is
+     * refused: the engine used to hunt for `run` anywhere in argv, which quietly accepted and then
+     * ignored anything placed before it.
      */
     export std::expected<void, std::string> validate_project_arguments(std::int32_t argc, char const* const* argv);
 

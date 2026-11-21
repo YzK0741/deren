@@ -146,29 +146,23 @@ namespace deren::app {
         }
 
         // A project launch owns every startup option: `deren run <project>` is the ONLY entry. The
-        // engine locates the subcommand and passes the untouched argv to the project's preinit; the
-        // native preview mode and its capture CLI are gone, so a launch without a managed project is
-        // a usage error rather than a second startup path.
+        // engine hands the untouched argv to the project's preinit; the native preview mode and its
+        // capture CLI are gone, so a launch without a managed project is a usage error rather than a
+        // second startup path.
         auto const fail_project = [](std::string_view message) {
             deren::utility::println(stderr, "{}", message);
             deren::utility::error(message);
             deren::utility::wait_log_all();
             return 2;
         };
-        std::int32_t run_index = -1;
-        for (std::int32_t i = 1; i < argc; ++i) {
-            if (std::string_view(argv[i]) == "run") {
-                run_index = i;
-                break;
-            }
+        // THE ENGINE OWNS THE HEAD OF THE COMMAND (`deren run <project-directory>`); whatever follows
+        // the directory belongs to the managed project's preinit. This used to scan argv for "run" and
+        // take the next entry as the project, so `deren --config other.toml run proj` was accepted with
+        // the option silently ignored.
+        if (auto const project_arguments = deren::app_config::validate_project_arguments(argc, argv); !project_arguments) {
+            return fail_project(project_arguments.error());
         }
-        if (run_index < 0) {
-            return fail_project("usage: deren run <project-directory>");
-        }
-        if (run_index + 1 >= argc) {
-            return fail_project("usage: deren run <project-directory>");
-        }
-        auto project = deren::app_config::load_project_settings(argv[run_index + 1]);
+        auto project = deren::app_config::load_project_settings(argv[2]);
         if (!project) {
             return fail_project(project.error());
         }
@@ -1828,7 +1822,11 @@ namespace deren::app {
             }
             if (polled == deren::engine::frame_status::skipped) {
                 frame_stats.on_skipped();
-                std::this_thread::yield();
+                // A MINIMIZED WINDOW IS NOT A BUSY WAIT. poll_events() left was_minimized set, so the
+                // first frame after the restore rebuilds the swapchain below; until then there is no
+                // work at all, and yielding in a tight loop burned an entire core for as long as the
+                // window stayed minimized.
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
                 continue;
             }
             runtime.recreate_if_minimized();

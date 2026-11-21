@@ -142,22 +142,24 @@ namespace {
     void test_project_arguments_are_explicit() {
         char const* const valid[] = {"deren", "run", "project"};
         CHECK(deren::app_config::validate_project_arguments(3, valid).has_value());
-        char const* const config[] = {"deren", "run", "project", "--config", "scene.toml"};
-        auto const rejected_config = deren::app_config::validate_project_arguments(5, config);
-        CHECK(!rejected_config);
-        if (!rejected_config) {
-            CHECK(rejected_config.error().find("--config") != std::string::npos);
-        }
-        char const* const asset[] = {"deren", "run", "project", "--asset", "helmet"};
-        CHECK(!deren::app_config::validate_project_arguments(5, asset));
-        char const* const extra[] = {"deren", "run", "project", "stray"};
-        auto const rejected_extra = deren::app_config::validate_project_arguments(4, extra);
-        CHECK(!rejected_extra);
-        if (!rejected_extra) {
-            CHECK(rejected_extra.error().find("stray") != std::string::npos);
-        }
+        // THE TAIL BELONGS TO THE PROJECT. Capture flags and selftest switches are forwarded to the
+        // managed preinit, so the engine-side check has to let them through - rejecting them would
+        // break every automated editor/test_game launch.
+        char const* const with_flags[] = {"deren", "run", "project", "--capture-frames=3", "--editor-selftest"};
+        CHECK(deren::app_config::validate_project_arguments(5, with_flags).has_value());
         char const* const missing[] = {"deren", "run"};
         CHECK(!deren::app_config::validate_project_arguments(2, missing));
+        // THE SUBCOMMAND MUST COME FIRST: the launch path used to search argv for "run", so anything
+        // placed before it was accepted and then silently ignored.
+        char const* const misplaced[] = {"deren", "--config", "other.toml", "run", "project"};
+        auto const rejected_misplaced = deren::app_config::validate_project_arguments(5, misplaced);
+        CHECK(!rejected_misplaced);
+        if (!rejected_misplaced) {
+            CHECK(rejected_misplaced.error().find("usage") != std::string::npos);
+        }
+        char const* const empty_project[] = {"deren", "run", ""};
+        CHECK(!deren::app_config::validate_project_arguments(3, empty_project));
+        CHECK(!deren::app_config::validate_project_arguments(0, nullptr));
     }
 
     template <typename Settings>
