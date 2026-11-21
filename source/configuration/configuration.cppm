@@ -60,13 +60,17 @@ import deren.utility;
  * window_title  = "deren"
  * vsync = true     # true = FIFO_LATEST_READY (vsync), false = mailbox (uncapped)
  * max_fps = 0      # 0 = uncapped (what a throughput measurement needs), else a frame rate cap
- * clear_color = [0.02, 0.02, 0.03]  # background clear color, RGB in 0..1
+ * clear_color = [0.02, 0.02, 0.03]  # background clear color: exactly 3 channels, each clamped to 0..1
  * camera_fit = "exterior"  # "exterior" fits the whole model from outside; "interior" stands inside
  *                          # and looks down the longest horizontal axis (a hall / nave / corridor)
+ *                          # NOTE: still parsed and checked, but this build does not apply it - the
+ *                          # managed host owns the initial framing (see the field's note below)
  * fxaa   = false   # anti-alias the final image (adds one fullscreen pass; needs fxaa.frag.spv)
  * taa = false            # temporal anti-aliasing (jitter + resolved history)
  * rt_shadows = false    # ray-traced sun shadows (needs a device with ray queries; else ignored)
  * animation_time = -1.0 # pin a keyframe animation at N seconds (-1 = play it; playback is wall-clock)
+ *                       # NOTE: still parsed and checked, but not applied by this build - the managed
+ *                       # host pins animation times (see the field's note below)
  *
  * [debug]
  * grid_side = 0          # > 1 enables the instancing stress grid (0 = off)
@@ -84,8 +88,8 @@ import deren.utility;
  *
  * [gui]
  * show         = true    # show the Dear ImGui debug overlay by default
- * panel_width  = 380     # default debug-panel width (0 = auto-size)
- * panel_height = 140     # default debug-panel height (0 = auto-size)
+ * panel_width  = 380     # default debug-panel width in pixels (0 = auto-size); may be fractional
+ * panel_height = 140     # default debug-panel height in pixels (0 = auto-size); may be fractional
  *
  * [lighting]
  * environment_hdr = "" # equirect HDR image used as the IBL instead of the procedural sky ("" = the sky)
@@ -129,7 +133,7 @@ namespace deren::app_config {
         deren::utility::vessel::string window_title = "deren";                       // GLFW window title
         bool vsync = true;                                                           // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                                        // 0 = uncapped; a positive value caps the render loop
-        deren::utility::vessel::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (RGB, 0..1)
+        deren::utility::vessel::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (exactly 3 channels, each clamped to 0..1)
         // Initial camera framing ([render] camera_fit): how main() aims the orbit camera at the
         // imported scene. "exterior" (default) fits the WHOLE model from outside - the right answer
         // for a compact object, and what every earlier version did. "interior" stands inside the
@@ -138,6 +142,12 @@ namespace deren::app_config {
         // makes it useless as a global-illumination reference (there is no interior to bounce in).
         // See the log's "initial camera" line for the numbers this resolves to, and use
         // --capture-camera to pin an exact pose.
+        //
+        // NOT APPLIED BY THIS BUILD: since the managed host took over the camera, nothing here reads
+        // this value - the host owns the initial framing. It is still parsed and range-checked (an
+        // unknown value falls back to "exterior" with a log line) so existing configs and the
+        // generated template keep loading without an unknown-key warning; deleting it is a separate
+        // change, because the template generator and the test fixtures still write it.
         deren::utility::vessel::string camera_fit = "exterior";
         // The raster sun shadow term ([render] shadow): the runtime's `shadow_enabled` flag, which decides
         // whether the cascaded shadow maps are rendered and sampled at all. true by default (every frame
@@ -248,6 +258,11 @@ namespace deren::app_config {
         // one config differ, measured - and anything that has to compare two captures of one pose (the
         // skinned-mesh ray-tracing work is the first) needs this. It scrubs and pauses, which is what the
         // debug overlay's time slider does, so the pose is a function of the value alone.
+        //
+        // NOT APPLIED BY THIS BUILD: the managed host pins animation times itself now, so the native side
+        // reads this into the settings and stops there. Kept (and still validated as finite) so existing
+        // configs and the generated template do not start reporting an unknown key; removing it needs the
+        // template generator and the fixtures changed in the same breath.
         float animation_time = -1.0f;
         bool ssao = true;
         float ssao_radius = 0.5f;
@@ -371,8 +386,14 @@ namespace deren::app_config {
          *
          * The character stage already draws a list of leaves; what this exercises is the per-character head
          * frame, so every copy is the SAME imported model at a different X offset with its head basis. One
-         * is the shipping path and must stay byte-identical. Values outside the range are clamped by `main.cpp`,
-         * which is where `max_game_toon_characters` lives; the option is ignored unless `game_toon` is on.
+         * is the shipping path and must stay byte-identical. `--game-toon-copies` clamps the command-line
+         * override to 1..16 (the engine's head-state array has `max_game_toon_characters` slots); the file
+         * value is narrowed with `saturating_int32` so 2^32 + 3 cannot arrive as a plausible 3.
+         *
+         * NOT APPLIED BY THIS BUILD: nothing in the native renderer reads this field any more - the staging
+         * it described is the historic GameToon X path, and the managed host drives the character list now.
+         * It is parsed and validated so existing configs and the generated template keep loading without an
+         * unknown-key warning; deleting it belongs with the template generator and fixture change.
          */
         std::int32_t game_toon_copies = 1;
         /**
@@ -381,20 +402,24 @@ namespace deren::app_config {
          * feature's contract: with no path the frame is exactly the frame this renderer produced before the
          * key existed (one import, one leaf set), which is what the render gate's recorded references are.
          *
-         * THE PATH IS RESOLVED LIKE THE MODEL'S: a relative path is taken relative to the executable's
-         * directory (see `deren::utility::executable_directory()`), which is where the assets live, so the shipped
-         * config can name `chars/...` or a path under the build directory without being absolute.
+         * THE PATH IS RESOLVED ONLY FOR A PROJECT ENTRY SCENE: `load_project` rewrites it against the project
+         * root, so a config can name `backgrounds/court.glb` relative to its project. `load_settings` alone
+         * stores it verbatim.
          *
-         * WHAT IT DOES, IN ONE SENTENCE: the same importer (`runtime::import_scene`) runs a second time into
-         * the same scene tree with `environment = true`, which flags every leaf it creates
-         * (`primitive::environment`) so the toon character stage skips it and it never casts a shadow - while
-         * the scene pass draws it through the ordinary PBR/unlit path, where a matte ground and a glTF
-         * emissive backdrop belong. Nothing else about the frame changes.
+         * NOT APPLIED BY THIS BUILD: the second import described below lives in the managed host now, so no
+         * native code reads this field. It is parsed (and its path resolved) so existing configs and the
+         * generated template keep loading without an unknown-key warning; deleting it belongs with the
+         * template generator and fixture change.
          *
-         * THE OFFSET IS DERIVED, NOT CONFIGURED: the imported roots are translated so the background's
-         * y = 0 plane (the author's ground) lands on the SUBJECT's lowest point after the subject's
-         * centering shift - see the import in `main.cpp`. A background whose ground is not at y = 0 would need
-         * its shift, which is why this is stated here rather than hidden in the loader.
+         * WHAT IT DID, IN ONE SENTENCE: the same importer (`runtime::import_scene`) ran a second time into
+         * the same scene tree with `environment = true`, which flagged every leaf it created
+         * (`primitive::environment`) so the toon character stage skipped it and it never cast a shadow -
+         * while the scene pass drew it through the ordinary PBR/unlit path, where a matte ground and a glTF
+         * emissive backdrop belong.
+         *
+         * THE OFFSET WAS DERIVED, NOT CONFIGURED: the imported roots were translated so the background's
+         * y = 0 plane (the author's ground) landed on the SUBJECT's lowest point after the subject's
+         * centering shift.
          */
         deren::utility::vessel::string background_glb = {};
         bool validation_layers = default_validation_layers; // Vulkan validation layers + debug messenger ([render])
@@ -587,9 +612,12 @@ namespace deren::app_config {
      */
     export struct gui_settings {
         deren::utility::vessel::string rml_document, rml_font, rml_fallback_font;
-        bool show = true;            // show the Dear ImGui debug overlay by default
-        float panel_width = 380.0f;  // default debug-panel width (0 = ImGui auto-size)
-        float panel_height = 140.0f; // default debug-panel height (0 = ImGui auto-size)
+        bool show = true; // show the Dear ImGui debug overlay by default
+        // Pixels, so fractional values are meaningful (a DPI-scaled 380.5 is a real request): the reader
+        // takes the numeric branch of the TOML node, and both forms - `380` and `380.5` - read alike.
+        // A negative value clamps to 0 at the end of the config analysis; 0 is ImGui's auto-size.
+        float panel_width = 380.0f;  // default debug-panel width in pixels (0 = ImGui auto-size)
+        float panel_height = 140.0f; // default debug-panel height in pixels (0 = ImGui auto-size)
     };
 
     /**

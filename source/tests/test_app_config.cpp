@@ -4,6 +4,9 @@
 // build injects rather than relative to the working directory.
 #include "vk_test.h"
 
+#include <cmath>
+#include <limits>
+
 import deren.vstd;
 import deren.utility.shared;
 import deren.application_configuration;
@@ -1024,6 +1027,130 @@ namespace {
         CHECK(valid.render.shadow_cascades == 4);
         CHECK(valid.render.ssao_samples == 16);
         std::filesystem::remove("narrowing-valid.toml");
+
+        // 2^32 + 512 WRAPS TO A PLAUSIBLE 512, which the 256..8192 rule then accepts as if the file had said
+        // 512. Saturation is what makes the value out of range, so the documented fallback applies instead.
+        std::ofstream("narrowing-shadow-map.toml") << "[render]\nshadow_map_size = 4294967808\n"
+                                                      "[debug]\ngbuffer_channel = 4294967297\n"
+                                                      "demo_lights = 4294967297\n"
+                                                      "[[scene.objects]]\nname = \"huge-index\"\nmodel = \"a.glb\"\n"
+                                                      "animation = 4294967298\n";
+        auto const saturated = deren::app_config::load_settings("narrowing-shadow-map.toml");
+        CHECK(saturated.render.shadow_map_size == 2048); // the fallback, not the wrapped 512
+        // Neither of these has a rule of its own in this file: the pass clamps gbuffer_channel, the demo-light
+        // count clamps to max_demo_lights, and a scene object's clip index clamps to 0..255. Each clamp now
+        // acts on a saturated number instead of on whatever the low 32 bits happened to be.
+        CHECK(saturated.render.gbuffer_channel == std::numeric_limits<std::int32_t>::max());
+        CHECK(saturated.lighting.demo_lights == static_cast<std::int32_t>(deren::app_config::max_demo_lights));
+        CHECK(saturated.scene.objects.size() == 1);
+        CHECK(saturated.scene.objects[0].animation == 255);
+        std::filesystem::remove("narrowing-shadow-map.toml");
+    }
+
+    // A COLOUR IS THREE NUMBERS OR IT IS NOT A COLOUR. A short array used to fill the channels it carried and
+    // leave the rest at the compiled default, so `clear_color = [0.5]` quietly produced a half-red background
+    // the file never described, with nothing in the log to say the rest came from elsewhere. A wrong length
+    // now leaves the whole default - the rule every other vector in this file follows - and a finite channel
+    // outside the documented 0..1 range is clamped into it instead of going through untouched.
+    void test_clear_color_needs_three_channels_and_clamps_the_range() {
+        auto const defaults = deren::app_config::load_settings("clear-color-missing.toml").render.clear_color;
+        for (char const* const body : {"clear_color = [0.5]\n", "clear_color = [0.5, 0.25]\n",
+                                       "clear_color = [0.5, 0.25, 0.75, 1.0]\n"}) {
+            std::ofstream("clear-color-shape.toml") << "[render]\n"
+                                                    << body;
+            auto const color = deren::app_config::load_settings("clear-color-shape.toml").render.clear_color;
+            CHECK(color[0] == defaults[0]);
+            CHECK(color[1] == defaults[1]);
+            CHECK(color[2] == defaults[2]);
+        }
+        std::filesystem::remove("clear-color-shape.toml");
+
+        std::ofstream("clear-color-range.toml") << "[render]\nclear_color = [2.0, -1.0, 0.5]\n";
+        auto const clamped = deren::app_config::load_settings("clear-color-range.toml").render.clear_color;
+        CHECK(clamped[0] == 1.0f);
+        CHECK(clamped[1] == 0.0f);
+        CHECK(clamped[2] == 0.5f);
+        std::filesystem::remove("clear-color-range.toml");
+
+        // An in-range colour is still taken verbatim, so the range rule is a clamp and not a reader that
+        // replaces everything.
+        std::ofstream("clear-color-valid.toml") << "[render]\nclear_color = [0.1, 0.2, 0.3]\n";
+        auto const valid = deren::app_config::load_settings("clear-color-valid.toml").render.clear_color;
+        CHECK(valid[0] == 0.1f);
+        CHECK(valid[1] == 0.2f);
+        CHECK(valid[2] == 0.3f);
+        std::filesystem::remove("clear-color-valid.toml");
+    }
+
+    // THE PANEL SIZE IS PIXELS, SO IT IS A FLOAT. Reading only `value<std::int64_t>()` silently ignored a
+    // fractional size and kept the default, so a DPI-scaled 380.5 did nothing at all. Both spellings now read
+    // alike; a non-finite value keeps the default, and a negative one clamps to 0 (ImGui's auto-size).
+    void test_gui_panel_sizes_accept_fractional_pixels() {
+        auto const defaults = deren::app_config::load_settings("panel-missing.toml").gui;
+        std::ofstream("panel-fractional.toml") << "[gui]\npanel_width = 380.5\npanel_height = 140.25\n";
+        auto const fractional = deren::app_config::load_settings("panel-fractional.toml").gui;
+        CHECK(fractional.panel_width == 380.5f);
+        CHECK(fractional.panel_height == 140.25f);
+        std::filesystem::remove("panel-fractional.toml");
+
+        std::ofstream("panel-integer.toml") << "[gui]\npanel_width = 500\npanel_height = 20\n";
+        auto const integer = deren::app_config::load_settings("panel-integer.toml").gui;
+        CHECK(integer.panel_width == 500.0f);
+        CHECK(integer.panel_height == 20.0f);
+        std::filesystem::remove("panel-integer.toml");
+
+        std::ofstream("panel-invalid.toml") << "[gui]\npanel_width = nan\npanel_height = -12.0\n";
+        auto const invalid = deren::app_config::load_settings("panel-invalid.toml").gui;
+        CHECK(invalid.panel_width == defaults.panel_width);
+        CHECK(invalid.panel_height == 0.0f);
+        std::filesystem::remove("panel-invalid.toml");
+    }
+
+    // A PROBE THAT IS NOT THREE FINITE NUMBERS IS NOT USABLE, AND SAYS SO ON EVERY CHANNEL. The NaN sentinel
+    // is how `set_local_probe` refuses a probe, so marking only [0] left `[NaN, 0, 0]` for a two-element array
+    // and let an explicit `inf` through as an infinity - a half-valid probe the log could report as if the
+    // file had supplied those numbers. Every component is NaN now, and `fade`/`gain` follow the same rule.
+    void test_reflection_probe_vectors_are_all_or_nothing() {
+        auto const defaults = deren::app_config::load_settings("probe-missing.toml").reflection_probe;
+        std::ofstream("probe-short.toml") << "[reflection_probe]\nenabled = true\nposition = [1.0, 2.0]\n";
+        auto const short_vec = deren::app_config::load_settings("probe-short.toml").reflection_probe;
+        CHECK(!std::isfinite(short_vec.position[0]));
+        CHECK(!std::isfinite(short_vec.position[1]));
+        CHECK(!std::isfinite(short_vec.position[2]));
+        std::filesystem::remove("probe-short.toml");
+
+        // An explicit non-finite component is rejected the same way as a missing one: only the *absent* key
+        // keeps a compiled default, because a stated-but-unusable number must not look deliberate.
+        std::ofstream("probe-inf.toml") << "[reflection_probe]\nenabled = true\nposition = [inf, 0.0, 0.0]\n"
+                                           "box_min = [0.0, -inf, 0.0]\nbox_max = [0.0, 0.0, nan]\n";
+        auto const inf_vec = deren::app_config::load_settings("probe-inf.toml").reflection_probe;
+        CHECK(!std::isfinite(inf_vec.position[0]) && !std::isfinite(inf_vec.position[1]) && !std::isfinite(inf_vec.position[2]));
+        CHECK(!std::isfinite(inf_vec.minimum[0]) && !std::isfinite(inf_vec.minimum[1]) && !std::isfinite(inf_vec.minimum[2]));
+        CHECK(!std::isfinite(inf_vec.maximum[0]) && !std::isfinite(inf_vec.maximum[1]) && !std::isfinite(inf_vec.maximum[2]));
+        std::filesystem::remove("probe-inf.toml");
+
+        std::ofstream("probe-scalars.toml") << "[reflection_probe]\nenabled = true\ngain = \"bad\"\nfade = inf\n";
+        auto const scalars = deren::app_config::load_settings("probe-scalars.toml").reflection_probe;
+        CHECK(!std::isfinite(scalars.fade));
+        CHECK(!std::isfinite(scalars.gain));
+        std::filesystem::remove("probe-scalars.toml");
+
+        // The usable probe still reads back verbatim, and absent keys keep their documented defaults.
+        std::ofstream("probe-valid.toml") << "[reflection_probe]\nenabled = true\nposition = [1.5, -2.5, 3.5]\n"
+                                             "box_min = [-1.0, -2.0, -3.0]\nbox_max = [1.0, 2.0, 3.0]\n"
+                                             "fade = 0.25\ngain = 2.0\n";
+        auto const valid = deren::app_config::load_settings("probe-valid.toml").reflection_probe;
+        CHECK(valid.position[0] == 1.5f && valid.position[1] == -2.5f && valid.position[2] == 3.5f);
+        CHECK(valid.minimum[1] == -2.0f);
+        CHECK(valid.maximum[2] == 3.0f);
+        CHECK(valid.fade == 0.25f);
+        CHECK(valid.gain == 2.0f);
+        std::filesystem::remove("probe-valid.toml");
+        std::ofstream("probe-absent.toml") << "[reflection_probe]\nenabled = true\n";
+        auto const absent = deren::app_config::load_settings("probe-absent.toml").reflection_probe;
+        CHECK(absent.fade == defaults.fade);
+        CHECK(absent.gain == defaults.gain);
+        std::filesystem::remove("probe-absent.toml");
     }
 } // namespace
 
@@ -1102,6 +1229,9 @@ std::int32_t main() {
     test_vectors_and_colours_are_three_numbers_or_nothing();
     test_nonfinite_scalars_keep_the_default();
     test_integer_options_do_not_wrap_when_narrowed();
+    test_clear_color_needs_three_channels_and_clamps_the_range();
+    test_gui_panel_sizes_accept_fractional_pixels();
+    test_reflection_probe_vectors_are_all_or_nothing();
     test_software_raster_threshold_rejects_nonpositive_and_nonfinite();
     test_load_settings_missing_file_keeps_defaults();
     test_lighting_values_are_clamped();

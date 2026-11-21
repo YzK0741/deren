@@ -160,11 +160,18 @@ vsync = true
 # benchmark wants 0. Capture runs (--capture-frames) also want 0.
 max_fps = 0
 
-# clear_color: per-frame background clear color (RGB, 0..1). The lighting stage writes the sky into
-#   every pixel no geometry covered, so this only shows where that stage does not run at all.
+# clear_color: per-frame background clear color - EXACTLY THREE channels (RGB), each clamped to 0..1. A
+#   1- or 2-element array is not a color: it is ignored as a whole (with a log line) and the default stays,
+#   rather than filling the channels it carries and inventing the rest. A non-finite channel keeps its own
+#   default. The lighting stage writes the sky into every pixel no geometry covered, so this only shows
+#   where that stage does not run at all.
 clear_color = [0.02, 0.02, 0.03]
 
 # camera_fit: how the orbit camera is aimed at the scene when it loads.
+#   NOT APPLIED BY THIS BUILD: the value is still parsed and validated (an unknown word falls back to
+#   "exterior" and says so), but the managed host owns the initial framing now, so nothing in the native
+#   renderer reads it. It is kept so existing configs - and the template the config generator writes - keep
+#   loading without an unknown-key warning.
 #   "exterior" (default) fits the whole model from outside - 2.75 scene radii, which is right for a
 #     compact object such as DamagedHelmet.
 #   "interior" stands INSIDE the scene and looks along its longest horizontal axis, because that is
@@ -180,7 +187,10 @@ camera_fit = "exterior"
 
 # animation_time: pin the keyframe animation at this time in SECONDS, or -1 (the default) to play it. Only
 # matters for a model that carries animations, which the demo plays automatically on a loop.
-# WHY IT EXISTS: playback is driven by the WALL CLOCK (frame_clock::delta_seconds), so the pose at a given
+# NOT APPLIED BY THIS BUILD: the managed host pins animation times itself now, so this value is parsed and
+# validated (it must be finite) but nothing native acts on it. Kept for the same reason as camera_fit: so
+# existing configs and the generated template do not start reporting an unknown key.
+# WHY IT EXISTED: playback is driven by the WALL CLOCK (frame_clock::delta_seconds), so the pose at a given
 # frame count differs from run to run - measured: two runs of one animated config at 60 frames produced
 # different images (their means agreed to four decimals, the pixels did not). Anything that compares two
 # captures of one pose therefore needs the time fixed, and the skinned-mesh ray-tracing work is the first
@@ -464,6 +474,11 @@ game_toon = false
 # Empty (the default) means "this frame has no background model", which is exactly the frame every recorded
 # reference was made from: one import, one leaf set.
 #
+# NOT APPLIED BY THIS BUILD: the second import now happens in the managed host, so nothing in the native
+# renderer reads this key. It is still parsed (and, for a project entry scene, its path is resolved against
+# the project root) so existing configs and the generated template keep loading without an unknown-key
+# warning. The description below is what the key did when the native renderer owned it.
+#
 # WHAT THE FLAG DOES, and it is deliberately one flag with two consequences rather than a material trick:
 # the leaves this import creates are marked `primitive::environment`, so (a) the toon CHARACTER stage skips
 # them - the character chain is the cartoon author's chain, written for one character's material data,
@@ -472,8 +487,8 @@ game_toon = false
 # The SCENE pass draws them through the ordinary PBR/unlit path, where a matte ground and a glTF emissive
 # backdrop belong. Everything else about the frame is untouched.
 #
-# A RELATIVE PATH IS RESOLVED AGAINST THE EXECUTABLE'S DIRECTORY (where the other assets are), so a config
-# shipped beside the binary can name one without being absolute.
+# A RELATIVE PATH IS RESOLVED ONLY FOR A PROJECT ENTRY SCENE, against the project root; a settings file
+# loaded on its own keeps the path verbatim.
 #
 # THE OFFSET IS DERIVED, NOT CONFIGURED: the model is expected to have its GROUND at its y = 0, and it
 # is translated so that plane lands under the subject's feet (the subject's centering shift plus its
@@ -637,9 +652,10 @@ software_raster_threshold_px = 1.0 # conservative projected-diameter cutoff for 
 # ---- [gui] debug overlay ----
 [gui]
 show = true   # show the Dear ImGui debug overlay by default (F1 toggles it at runtime)
-# Default debug-panel window size (0 = ImGui auto-size). Nothing persists it any more - the overlay
-# sets io.IniFilename = nullptr, so no imgui_layout.ini is read or written - which means these values
-# apply at the start of EVERY run, and a drag only lasts the session. 560 is tall enough that the
+# Default debug-panel window size in PIXELS (0 = ImGui auto-size); fractional values are accepted, so a
+# DPI-scaled 420.5 is a valid request and reads the same way an integer does. Nothing persists it any more:
+# the overlay sets io.IniFilename = nullptr, so no imgui_layout.ini is read or written - which means these
+# values apply at the start of EVERY run, and a drag only lasts the session. 560 is tall enough that the
 # render-path controls are visible without scrolling; the panel offers a control when the SESSION can
 # use it (TAA/SSAO as soon as their pipelines exist, even while their switch is off) and
 # puts the fine-tuning knobs behind the switch they tune, so a group collapses to one row when it is
