@@ -1387,27 +1387,16 @@ namespace deren::app_config {
     }
 
     std::expected<void, std::string> validate_project_arguments(std::int32_t const argc, char const* const* const argv) {
-        if (argc < 3 || argv == nullptr || argv[1] == nullptr || std::string_view(argv[1]) != "run") {
+        // THE ENGINE OWNS THE HEAD, THE PROJECT OWNS THE TAIL. `deren run <project-directory>` is the
+        // whole engine-side contract; every argument after the directory is forwarded untouched to the
+        // project's managed preinit, which is where the capture flags and selftest switches live. This
+        // function used to reject all of them, which is exactly why it was never called from the launch
+        // path: the shipped projects pass `--capture-frames`, `--editor-selftest` and friends.
+        if (argc < 3 || argv == nullptr || argv[0] == nullptr || argv[1] == nullptr || std::string_view(argv[1]) != "run") {
             return std::unexpected("usage: deren run <project-directory>");
         }
-        for (std::int32_t i = 3; i < argc; ++i) {
-            if (argv[i] == nullptr) {
-                return std::unexpected("project command contains a null argument");
-            }
-            std::string_view const arg(argv[i]);
-            if (arg == "--config" || arg.starts_with("--config=")) {
-                return std::unexpected("project mode does not support --config; the entry scene is [project] main_scene in deren.toml");
-            }
-            if (arg == "--asset" || arg.starts_with("--asset=")) {
-                return std::unexpected("project mode does not support --asset; the C# game owns asset selection");
-            }
-            if (arg == "--asset-library" || arg.starts_with("--asset-library=")) {
-                return std::unexpected("project mode does not support --asset-library; set [paths] asset_library in deren.toml");
-            }
-            if (arg.starts_with("--")) {
-                return std::unexpected(std::format("project mode does not support option '{}'", arg));
-            }
-            return std::unexpected(std::format("project mode does not accept extra argument '{}'", arg));
+        if (argv[2] == nullptr || std::string_view(argv[2]).empty()) {
+            return std::unexpected("usage: deren run <project-directory>");
         }
         return {};
     }
