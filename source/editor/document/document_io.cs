@@ -11,7 +11,7 @@ namespace deren.editor;
 /// </summary>
 /// <remarks>
 /// The format is a strict subset of TOML owned by the editor. A file starts with one
-/// <c>[document]</c> table holding <c>version = 1</c> and <c>name</c>, followed by one
+/// <c>[document]</c> table holding the <c>version</c> and <c>name</c>, followed by one
 /// <c>[[node]]</c> table per node in depth-first order, where every parent appears before its
 /// children. Reading rejects a duplicate uid, an unknown or duplicated key, a missing or unknown
 /// parent, an unsupported version, an unparsable number and an unterminated string, and reports the
@@ -21,9 +21,19 @@ namespace deren.editor;
 internal static class document_io
 {
     /// <summary>
-    /// The file format version this reader and writer speak.
+    /// The file format version this writer speaks: 2 added the optional per-node <c>script</c> key.
     /// </summary>
-    private const int format_version = 1;
+    private const int format_version = 2;
+
+    /// <summary>
+    /// The oldest version this reader still accepts.
+    /// </summary>
+    /// <remarks>
+    /// Version 1 files keep loading unchanged - they predate the <c>script</c> key, and a key that is
+    /// absent keeps its default - so an old project is not refused by the upgrade. A version above
+    /// this writer's is refused, because it may carry keys this parser would drop on the next save.
+    /// </remarks>
+    private const int oldest_format_version = 1;
 
     private static readonly UTF8Encoding utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -167,7 +177,7 @@ internal static class document_io
                 if (!parse_int(value, path, number, out var version, out error)) {
                     return false;
                 }
-                if (version != format_version) {
+                if (version < oldest_format_version || version > format_version) {
                     error = format_error(path, number,
                         "unsupported document version " + version.ToString(CultureInfo.InvariantCulture));
                     return false;

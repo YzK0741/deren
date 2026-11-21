@@ -1928,6 +1928,43 @@ namespace deren.editor {
                 }
                 host_logger.write("Editor selftest: uid/name/transform of every node match");
 
+                // THE WRITER'S HEADER IS THE VERSION CONTRACT the reader enforces: a file carrying keys
+                // this writer emits (the per-node `script`) must not still claim the old version, or an
+                // old build accepts it and drops the key on its next save.
+                if (!document_io.try_serialize(document, out var header, out _) ||
+                    !header.Contains("version = 2", StringComparison.Ordinal)) {
+                    return selftest_failure("the writer still claims document version 1");
+                }
+
+                // THE VERSION RULE: version 1 documents predate the per-node `script` key and must keep
+                // loading, so upgrading the editor does not refuse an old project; a version this writer
+                // does not speak is refused instead of being parsed and truncated on the next save.
+                var legacy_path = Path.Combine(directory, $"editor-selftest-legacy-{Guid.NewGuid():N}.scene.toml");
+                File.WriteAllText(legacy_path,
+                    "[document]\n" +
+                    "    version = 1\n" +
+                    "    name = \"legacy\"\n" +
+                    "\n[[node]]\n" +
+                    "    uid = \"" + Guid.NewGuid().ToString("D") + "\"\n" +
+                    "    name = \"legacy-root\"\n" +
+                    "    visible = true\n" +
+                    "    flags = 0\n" +
+                    "    position = [0, 0, 0]\n" +
+                    "    rotation = [0, 0, 0]\n" +
+                    "    scale = [1, 1, 1]\n");
+                if (!document_io.try_load(legacy_path, out var legacy, out var legacy_error) || legacy == null) {
+                    return selftest_failure($"a version 1 document no longer loads: {legacy_error}");
+                }
+                if (legacy.roots.Count != 1 || legacy.roots[0].script != null) {
+                    return selftest_failure("a version 1 document did not load as written");
+                }
+                File.WriteAllText(legacy_path, "[document]\n    version = 3\n    name = \"future\"\n");
+                if (document_io.try_load(legacy_path, out _, out _)) {
+                    return selftest_failure("a document from a future version was accepted");
+                }
+                File.Delete(legacy_path);
+                host_logger.write("Editor selftest: a version 1 document still loads and a future version is refused");
+
                 var root = document.roots.Count != 0 ? document.roots[0] : null;
                 if (root == null || selection_state == null) {
                     return selftest_failure("the document has no root to edit");
