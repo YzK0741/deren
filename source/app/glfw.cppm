@@ -148,8 +148,13 @@ export namespace deren::app {
             }
 #ifdef _WIN32
             if (borderless) {
-                install_borderless_frame();
-                borderless_ = true;
+                // FAILING LOUDLY IS THE POINT: a window whose frame could not be installed stays an
+                // undecorated popup - no resize band, no taskbar entry, no maximize - while the
+                // managed UI would still draw caption buttons over it. The editor's whole shell is
+                // that caption, so a silent downgrade is worse than refusing to start.
+                if (!install_borderless_frame()) {
+                    deren::utility::panic("the borderless window frame could not be installed");
+                }
             } else if (dark_frame) {
                 auto const hwnd = glfwGetWin32Window(window_);
                 BOOL const dark = TRUE;
@@ -175,9 +180,10 @@ export namespace deren::app {
         ~glfw_window() {
             if (window_ != nullptr) {
 #ifdef _WIN32
-                if (borderless_) {
-                    remove_borderless_frame();
-                }
+                // NOT GATED ON A "BORDERLESS" FLAG: the lookup is by HWND, so a slot an earlier
+                // window left behind (a failed install, or a subclass that outlived its owner) is
+                // cleared here instead of being "restored" onto an unrelated window later.
+                remove_borderless_frame();
 #endif
                 glfwDestroyWindow(window_);
                 release_platform();
@@ -277,7 +283,6 @@ export namespace deren::app {
 
     private:
         GLFWwindow* window_;
-        bool borderless_ = false;
 
         // GLFW'S PLATFORM STATE IS PROCESS WIDE. A second glfwInit() registers another copy of the
         // Win32 window class and re-runs the platform's global setup, and any glfwTerminate() tears
@@ -353,7 +358,7 @@ export namespace deren::app {
         // taskbar, and WM_NCHITTEST defines the 6 dp band the user can grab.
         static LRESULT CALLBACK frame_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
             frame_state* state = find_frame(hwnd);
-            if (state == nullptr) {
+            if (state == nullptr || state->previous == nullptr) {
                 return DefWindowProcW(hwnd, message, wparam, lparam);
             }
             switch (message) {
@@ -421,10 +426,13 @@ export namespace deren::app {
             }
         }
 
-        void install_borderless_frame() noexcept {
+        // TRUE when the frame is installed and the window can be resized, moved and maximized like a
+        // decorated one. FALSE leaves the window as GLFW created it: an undecorated popup with no
+        // resize band and no taskbar entry. The caller must not pretend otherwise.
+        bool install_borderless_frame() noexcept {
             auto const hwnd = glfwGetWin32Window(window_);
             if (hwnd == nullptr || frame_count >= frame_capacity || find_frame(hwnd) != nullptr) {
-                return;
+                return false;
             }
             // An undecorated GLFW window is WS_POPUP: it has no resize frame and no taskbar entry.
             // The thick frame supplies both; the subclass above hides what it would otherwise draw.
@@ -433,11 +441,22 @@ export namespace deren::app {
                               style | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
             auto const previous = reinterpret_cast<WNDPROC>(
                 SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&glfw_window::frame_proc)));
+            if (previous == nullptr) {
+                // THE SUBCLASS DID NOT TAKE: putting the thick frame back on a window whose procedure
+                // is still GLFW's own would fight our own frame_proc assumptions (no NCCALCSIZE
+                // answer, no hit-test band), so restore the popup style instead of reporting a frame
+                // the window does not have.
+                SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+                SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                return false;
+            }
             frames[frame_count] = frame_state{.hwnd = hwnd, .previous = previous};
             ++frame_count;
             // The style change invalidates the frame; recompute it now so the first frame is correct.
             SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                          SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            return true;
         }
 
         void remove_borderless_frame() noexcept {
