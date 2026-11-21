@@ -61,16 +61,9 @@ import deren.utility;
  * vsync = true     # true = FIFO_LATEST_READY (vsync), false = mailbox (uncapped)
  * max_fps = 0      # 0 = uncapped (what a throughput measurement needs), else a frame rate cap
  * clear_color = [0.02, 0.02, 0.03]  # background clear color: exactly 3 channels, each clamped to 0..1
- * camera_fit = "exterior"  # "exterior" fits the whole model from outside; "interior" stands inside
- *                          # and looks down the longest horizontal axis (a hall / nave / corridor)
- *                          # NOTE: still parsed and checked, but this build does not apply it - the
- *                          # managed host owns the initial framing (see the field's note below)
  * fxaa   = false   # anti-alias the final image (adds one fullscreen pass; needs fxaa.frag.spv)
  * taa = false            # temporal anti-aliasing (jitter + resolved history)
  * rt_shadows = false    # ray-traced sun shadows (needs a device with ray queries; else ignored)
- * animation_time = -1.0 # pin a keyframe animation at N seconds (-1 = play it; playback is wall-clock)
- *                       # NOTE: still parsed and checked, but not applied by this build - the managed
- *                       # host pins animation times (see the field's note below)
  *
  * [debug]
  * grid_side = 0          # > 1 enables the instancing stress grid (0 = off)
@@ -134,21 +127,6 @@ namespace deren::app_config {
         bool vsync = true;                                                           // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                                        // 0 = uncapped; a positive value caps the render loop
         deren::utility::vessel::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (exactly 3 channels, each clamped to 0..1)
-        // Initial camera framing ([render] camera_fit): how main() aims the orbit camera at the
-        // imported scene. "exterior" (default) fits the WHOLE model from outside - the right answer
-        // for a compact object, and what every earlier version did. "interior" stands inside the
-        // scene and looks along its longest horizontal axis, because that is the axis a hall, a nave
-        // or a corridor runs down; a building framed from outside is a facade and nothing else, which
-        // makes it useless as a global-illumination reference (there is no interior to bounce in).
-        // See the log's "initial camera" line for the numbers this resolves to, and use
-        // --capture-camera to pin an exact pose.
-        //
-        // NOT APPLIED BY THIS BUILD: since the managed host took over the camera, nothing here reads
-        // this value - the host owns the initial framing. It is still parsed and range-checked (an
-        // unknown value falls back to "exterior" with a log line) so existing configs and the
-        // generated template keep loading without an unknown-key warning; deleting it is a separate
-        // change, because the template generator and the test fixtures still write it.
-        deren::utility::vessel::string camera_fit = "exterior";
         // The raster sun shadow term ([render] shadow): the runtime's `shadow_enabled` flag, which decides
         // whether the cascaded shadow maps are rendered and sampled at all. true by default (every frame
         // before this key was reachable from a file had it on). A measurement that wants no shadow
@@ -252,18 +230,6 @@ namespace deren::app_config {
         // It is the one reference in this project that no separate estimator can flatter, because it is not
         // an estimator. Off by default, and off is byte-exact.
         bool furnace = false;
-        // Pin the keyframe animation at a time in seconds ([render] animation_time), or -1 to play it: a
-        // NEGATIVE value is the default and plays as always. Playback is driven by the wall clock
-        // (frame_clock::delta_seconds), so a capture of an animated scene is NOT reproducible - two runs of
-        // one config differ, measured - and anything that has to compare two captures of one pose (the
-        // skinned-mesh ray-tracing work is the first) needs this. It scrubs and pauses, which is what the
-        // debug overlay's time slider does, so the pose is a function of the value alone.
-        //
-        // NOT APPLIED BY THIS BUILD: the managed host pins animation times itself now, so the native side
-        // reads this into the settings and stops there. Kept (and still validated as finite) so existing
-        // configs and the generated template do not start reporting an unknown key; removing it needs the
-        // template generator and the fixtures changed in the same breath.
-        float animation_time = -1.0f;
         bool ssao = true;
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
@@ -381,47 +347,6 @@ namespace deren::app_config {
         // frame the previous chain produces. When both model flags are on, `game_toon` wins (the frame's
         // three-way choice is where that precedence lives); a normal run asks for one model at a time.
         bool game_toon = false;
-        /**
-         * HOW MANY COPIES OF THE GAME-TOON CHARACTER TO STAGE ([render] game_toon_copies, 1..16).
-         *
-         * The character stage already draws a list of leaves; what this exercises is the per-character head
-         * frame, so every copy is the SAME imported model at a different X offset with its head basis. One
-         * is the shipping path and must stay byte-identical. `--game-toon-copies` clamps the command-line
-         * override to 1..16 (the engine's head-state array has `max_game_toon_characters` slots); the file
-         * value is narrowed with `saturating_int32` so 2^32 + 3 cannot arrive as a plausible 3.
-         *
-         * NOT APPLIED BY THIS BUILD: nothing in the native renderer reads this field any more - the staging
-         * it described is the historic GameToon X path, and the managed host drives the character list now.
-         * It is parsed and validated so existing configs and the generated template keep loading without an
-         * unknown-key warning; deleting it belongs with the template generator and fixture change.
-         */
-        std::int32_t game_toon_copies = 1;
-        /**
-         * THE FRAME'S STATIC SURROUND AS A SECOND MODEL ([render] background_glb): the path of a glTF/GLB
-         * whose geometry is the environment rather than the subject. Empty by default and that default is the
-         * feature's contract: with no path the frame is exactly the frame this renderer produced before the
-         * key existed (one import, one leaf set), which is what the render gate's recorded references are.
-         *
-         * THE PATH IS RESOLVED ONLY FOR A PROJECT ENTRY SCENE: `load_project` rewrites it against the project
-         * root, so a config can name `backgrounds/court.glb` relative to its project. `load_settings` alone
-         * stores it verbatim.
-         *
-         * NOT APPLIED BY THIS BUILD: the second import described below lives in the managed host now, so no
-         * native code reads this field. It is parsed (and its path resolved) so existing configs and the
-         * generated template keep loading without an unknown-key warning; deleting it belongs with the
-         * template generator and fixture change.
-         *
-         * WHAT IT DID, IN ONE SENTENCE: the same importer (`runtime::import_scene`) ran a second time into
-         * the same scene tree with `environment = true`, which flagged every leaf it created
-         * (`primitive::environment`) so the toon character stage skipped it and it never cast a shadow -
-         * while the scene pass drew it through the ordinary PBR/unlit path, where a matte ground and a glTF
-         * emissive backdrop belong.
-         *
-         * THE OFFSET WAS DERIVED, NOT CONFIGURED: the imported roots were translated so the background's
-         * y = 0 plane (the author's ground) landed on the SUBJECT's lowest point after the subject's
-         * centering shift.
-         */
-        deren::utility::vessel::string background_glb = {};
         bool validation_layers = default_validation_layers; // Vulkan validation layers + debug messenger ([render])
     };
 
@@ -695,8 +620,7 @@ namespace deren::app_config {
      * `pbr`, `unlit` and `default` objects stay on the deferred path and never enter the character stage.
      * `game_toon` objects are routed to the character-forward stage; each such object gets its
      * character index, up to `max_game_toon_characters`. `gaussian` objects are .ply clouds and are
-     * staged together in the shared splat pass. The historic GameToon X staging (`game_toon_copies`)
-     * remains its path when the object list is empty.
+     * staged together in the shared splat pass.
      */
     export struct scene_object_settings {
         deren::utility::vessel::string name = {};

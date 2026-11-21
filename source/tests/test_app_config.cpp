@@ -241,12 +241,11 @@ namespace {
         CHECK(settings.render.ssao_radius > 1.49f && settings.render.ssao_radius < 1.51f);
         CHECK(settings.render.ssao_intensity > 0.49f && settings.render.ssao_intensity < 0.51f);
         CHECK(settings.render.ssao_samples == 4);
-        CHECK(settings.render.rt_shadows);                                                       // fixture: the ray-traced sun shadows
-        CHECK(!settings.render.rt_mask_bake);                                                    // fixture: the bake off (the A/B)
-        CHECK(settings.render.rt_skin_bake);                                                     // fixture: the per-frame skin refit on
-        CHECK(settings.render.animation_time > 0.74f && settings.render.animation_time < 0.76f); // fixture: a pinned pose
-        CHECK(settings.render.furnace);                                                          // fixture: the analytic verification mode
-        CHECK(settings.render.unlit);                                                            // fixture: the flat render mode
+        CHECK(settings.render.rt_shadows);    // fixture: the ray-traced sun shadows
+        CHECK(!settings.render.rt_mask_bake); // fixture: the bake off (the A/B)
+        CHECK(settings.render.rt_skin_bake);  // fixture: the per-frame skin refit on
+        CHECK(settings.render.furnace);       // fixture: the analytic verification mode
+        CHECK(settings.render.unlit);         // fixture: the flat render mode
         CHECK(settings.render.fxaa);
         CHECK(!settings.render.bloom);                                                       // fixture turns the bright-pass bloom chain off
         CHECK(settings.render.render_scale > 0.49f && settings.render.render_scale < 0.51f); // fixture: a half-scale render chain
@@ -266,12 +265,6 @@ namespace {
         // fixture: the THIRD toon model was PARSED, not merely defaulted - the same trap the `taa` comment
         // records: a parser that silently drops the key still passes a defaults-only test.
         CHECK(settings.render.game_toon);
-        // fixture: three copies is the non-default that proves the number was parsed, not defaulted
-        CHECK(settings.render.game_toon_copies == 3);
-        // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
-        // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
-        // "" and the comparison would fail
-        CHECK(settings.render.background_glb == "bg/test-background.glb");
         CHECK(!settings.gui.show);
         // The IBL bake sizes are compiled constants now ([lighting] env_size/env_mip_count/irr_size/lut_size
         // are gone): the fixture's old irr_size = 64 must be ignored, not merely defaulted, or a config could
@@ -315,8 +308,6 @@ namespace {
         // default: the GAME-SHADER toon model is OFF - a run that does not ask for it gets the frame the
         // previous chain produces (the flag's contract; `character_forward` is the stage, this is the model).
         CHECK(!settings.render.game_toon);
-        // default: NO background model - the frame is the one import it always was (see the key's note)
-        CHECK(settings.render.background_glb.empty());
         CHECK(settings.scene.objects.empty());       // default: the historic single-object import
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
         CHECK(settings.render.shadow);               // default: the raster shadow term runs (every frame before the key had it)
@@ -328,7 +319,6 @@ namespace {
         CHECK(!settings.render.rt_shadows);             // default: the cascaded shadow maps, not traced rays
         CHECK(!settings.render.rt_mask_bake);           // default: OFF - the per-triangle rule measured worse than the raster path
         CHECK(!settings.render.rt_skin_bake);           // default: OFF - the bind-pose shadow is what the L2.2b baseline measures
-        CHECK(settings.render.animation_time < 0.0f);   // default: animations play (no pose pinned)
         CHECK(settings.render.shadow_map_size == 2048); // default: 2048^2 per cascade layer
         CHECK(settings.gui.show);
     }
@@ -461,7 +451,6 @@ namespace {
         CHECK(settings.render.window_title == "deren");
         CHECK(!settings.render.vsync);       // generator default: Mailbox (uncapped)
         CHECK(settings.render.max_fps == 0); // generator default: 0 = uncapped, and the compiled default too
-        CHECK(settings.render.camera_fit == "exterior");
         CHECK(!settings.render.unlit);
         // [render] shadow mapping
         CHECK(settings.render.shadow_cascades == 3);
@@ -492,10 +481,9 @@ namespace {
         CHECK(settings.render.ssao_samples == 8);
         // [render] ray tracing: written by the generator like every other switch, so it round-trips
         CHECK(!settings.render.rt_shadows);
-        CHECK(!settings.render.rt_mask_bake);         // default: the mask bake is off (see the generated-defaults fixture)
-        CHECK(!settings.render.rt_skin_bake);         // default: the per-frame skin refit is off (same fixture)
-        CHECK(settings.render.animation_time < 0.0f); // default: -1, i.e. play (the generator writes it out)
-        CHECK(!settings.render.furnace);              // default: a normal frame, not the verification mode
+        CHECK(!settings.render.rt_mask_bake); // default: the mask bake is off (see the generated-defaults fixture)
+        CHECK(!settings.render.rt_skin_bake); // default: the per-frame skin refit is off (same fixture)
+        CHECK(!settings.render.furnace);      // default: a normal frame, not the verification mode
         // [render] validation
         CHECK(settings.render.validation_layers);
         // [gui]
@@ -714,19 +702,20 @@ namespace {
         std::filesystem::remove("asset-config.toml");
     }
 
-    /// MULTIPLE GAME-TOON CHARACTERS ARE AN OPTION, NOT A POSITIONAL: `--game-toon-copies` overrides the
-    /// file's `[render] game_toon_copies` and both `--flag value` and `--flag=value` are accepted.
-    void test_resolve_from_argv_game_toon_copies() {
-        char const* with_space[] = {"vk_test", "--game-toon-copies", "2"};
-        deren::app_config::app_settings const from_space =
-            deren::app_config::resolve_from_argv(3, with_space, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
-        CHECK(from_space.render.game_toon_copies == 2);
-        CHECK(from_space.model == "Models/tri.gltf");
-
-        char const* with_equals[] = {"vk_test", "--game-toon-copies=4"};
-        deren::app_config::app_settings const from_equals =
-            deren::app_config::resolve_from_argv(2, with_equals, VR_TEST_SOURCE_DIR "/source/tests/fixtures/config_full.toml");
-        CHECK(from_equals.render.game_toon_copies == 4);
+    /// THE FOUR RETIRED [render] KEYS ARE STILL LEGAL: `camera_fit`, `animation_time`, `game_toon_copies`
+    /// and `background_glb` are accepted by the schema and read by nothing, so an old file loads without an
+    /// unknown-key warning - the same rule `[lighting] environment_hdr` follows.
+    void test_retired_render_keys_stay_legal() {
+        std::ofstream("retired-render-keys.toml") << "[render]\n"
+                                                     "camera_fit = \"interior\"\n"
+                                                     "animation_time = 0.5\n"
+                                                     "game_toon_copies = 3\n"
+                                                     "background_glb = \"bg/x.glb\"\n";
+        auto const valid = deren::app_config::validate_settings_file("retired-render-keys.toml");
+        CHECK(valid); // an accepted-but-unread key must not fail validation
+        auto const settings = deren::app_config::load_settings("retired-render-keys.toml");
+        CHECK(settings.render.window_width == 1080); // the rest of the file still loads with its defaults
+        std::filesystem::remove("retired-render-keys.toml");
     }
 
     /// THE EXTENSION IS WHAT PICKS THE LOADER, and the cases below are the ones a viewer would otherwise get
@@ -947,7 +936,6 @@ namespace {
                                                    "taa_blend_min = inf\n"
                                                    "shadow_bias_constant = nan\n"
                                                    "shadow_bias_slope = -inf\n"
-                                                   "animation_time = nan\n"
                                                    "shadow_cascade_blend = nan\n"
                                                    "sun_intensity = nan\n"
                                                    "clear_color = [nan, 0.25, inf]\n"
@@ -963,7 +951,6 @@ namespace {
         CHECK(nonfinite.render.taa_blend_min == defaults.render.taa_blend_min);
         CHECK(nonfinite.render.shadow_bias_constant == defaults.render.shadow_bias_constant);
         CHECK(nonfinite.render.shadow_bias_slope == defaults.render.shadow_bias_slope);
-        CHECK(nonfinite.render.animation_time == defaults.render.animation_time);
         CHECK(nonfinite.render.shadow_cascade_blend == defaults.render.shadow_cascade_blend);
         CHECK(nonfinite.render.sun_intensity == defaults.render.sun_intensity);
         // ONE NON-FINITE CHANNEL IS NOT A REASON TO DROP THE WHOLE COLOUR: `clear_color` fills channel by
@@ -980,7 +967,6 @@ namespace {
                                                 "ssao_radius = 0.75\n"
                                                 "shadow_bias_slope = 2.5\n"
                                                 "taa_blend_min = 0.25\n"
-                                                "animation_time = 1.5\n"
                                                 "clear_color = [0.1, 0.2, 0.3]\n"
                                                 "[debug]\n"
                                                 "demo_light_radius = 0.5\n";
@@ -988,7 +974,6 @@ namespace {
         CHECK(finite.render.ssao_radius == 0.75f);
         CHECK(finite.render.shadow_bias_slope == 2.5f);
         CHECK(finite.render.taa_blend_min == 0.25f);
-        CHECK(finite.render.animation_time == 1.5f);
         CHECK(finite.render.clear_color[0] == 0.1f && finite.render.clear_color[2] == 0.3f);
         CHECK(finite.lighting.demo_light_radius == 0.5f);
         std::filesystem::remove("finite-scalars.toml");
@@ -1241,7 +1226,7 @@ std::int32_t main() {
     test_area_light_derivation_matches_the_reference_package();
     test_resolve_from_argv_merges_config_and_positional();
     test_resolve_from_argv_asset_options();
-    test_resolve_from_argv_game_toon_copies();
+    test_retired_render_keys_stay_legal();
     test_model_format_follows_the_extension();
     test_scene_objects_parse_and_sanitise();
     test_project_launch_settings();

@@ -75,6 +75,10 @@ namespace deren::app_config {
                 append_unknown_keys(*paths, "paths", {"shaders_dir", "model_dir", "asset_library", "screenshot_dir"}, unknown);
             }
             if (auto const* render = table.get_as<toml::table>("render")) {
+                // `camera_fit`, `animation_time`, `game_toon_copies` and `background_glb` are accepted but NOT
+                // parsed here: older configs still spell them, and the managed host owns the behaviour they
+                // used to select, so this module only keeps them legal in the schema (the same rule as
+                // `[lighting] environment_hdr`). An old file therefore loads without an unknown-key warning.
                 append_unknown_keys(*render, "render",
                                     {"window_width", "window_height", "window_title", "dark_window_frame", "borderless_window", "vsync", "max_fps", "clear_color",
                                      "exposure", "tone_mapping", "sun_intensity", "shadow", "rt_shadows", "rt_reflections",
@@ -410,16 +414,6 @@ namespace deren::app_config {
                     settings.render.rt_reflection_materials = std::move(joined);
                 }
             }
-            if (toml::node const* node = render->get("animation_time")) {
-                if (std::optional<float> const value = finite_scalar(node)) {
-                    settings.render.animation_time = *value;
-                }
-            }
-            if (toml::node const* node = render->get("camera_fit")) {
-                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
-                    settings.render.camera_fit = *value;
-                }
-            }
             if (toml::node const* node = render->get("shadow_cascades")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
                     // The 1..4 check (and its fallback log line) is at the end of this function; saturating
@@ -538,27 +532,6 @@ namespace deren::app_config {
             if (toml::node const* node = render->get("game_toon")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.game_toon = *value;
-                }
-            }
-            if (toml::node const* node = render->get("game_toon_copies")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    // Saturated, not cast: the value is a count of character copies, so the upstream parser
-                    // is the only place that knows it is a number and not a bit pattern. A wrapping cast
-                    // would let 2^32 + 3 arrive as a "valid" 3. Nothing is consumed from this field by this
-                    // build yet (see the field's note in configuration.cppm), but the reader still must not
-                    // invent a plausible value.
-                    settings.render.game_toon_copies = saturating_int32(*value);
-                }
-            }
-            // THE STATIC SURROUND'S SECOND MODEL ([render] background_glb): an empty string is the default and
-            // means "this frame has no background model", which keeps every recorded reference valid. The path
-            // is stored verbatim here; only the project entry path (`load_project`) resolves it, against the
-            // project root. NO RENDERER CONSUMES IT in this build - the managed host owns the background
-            // import - so it is parsed purely so an existing config keeps loading without an unknown-key
-            // warning. The old comment pointed at a resolver in `main.cpp` that no longer exists.
-            if (toml::node const* node = render->get("background_glb")) {
-                if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
-                    settings.render.background_glb = *value;
                 }
             }
             if (toml::node const* node = render->get("offscreen")) {
@@ -1255,10 +1228,6 @@ namespace deren::app_config {
             deren::utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);
             settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<std::int32_t>(max_demo_lights));
         }
-        if (settings.render.camera_fit != "exterior" && settings.render.camera_fit != "interior") {
-            deren::utility::log("app_config: invalid camera_fit '{}' (use exterior/interior), falling back to exterior", settings.render.camera_fit);
-            settings.render.camera_fit = "exterior";
-        }
         return settings;
     }
 
@@ -1453,7 +1422,6 @@ namespace deren::app_config {
         resolve(settings.gui.rml_document);
         resolve(settings.gui.rml_font);
         resolve(settings.gui.rml_fallback_font);
-        resolve(settings.render.background_glb);
         resolve(settings.reflection_probe.asset);
         deren::utility::vessel::vector<deren::input::action_binding> input_actions;
         auto const input = manifest.table()["input"];
@@ -1508,7 +1476,6 @@ namespace deren::app_config {
         deren::utility::vessel::string config_path = default_config_path;
         std::optional<std::string> asset_library_override;
         std::optional<std::string> asset_override;
-        std::optional<std::int64_t> game_toon_copies_override;
         deren::utility::vessel::vector<std::string_view> positional;
         for (std::int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
@@ -1543,29 +1510,6 @@ namespace deren::app_config {
                 asset_override = std::string(arg.substr(8));
                 continue;
             }
-            if (arg == "--game-toon-copies") {
-                if (i + 1 < argc) {
-                    char* end = nullptr;
-                    long const parsed = std::strtol(argv[++i], &end, 10);
-                    if (end != argv[i] && *end == '\0') {
-                        game_toon_copies_override = static_cast<std::int64_t>(parsed);
-                    } else {
-                        deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", argv[i]);
-                    }
-                }
-                continue;
-            }
-            if (arg.starts_with("--game-toon-copies=")) {
-                std::string const text(arg.substr(19));
-                char* end = nullptr;
-                long const parsed = std::strtol(text.c_str(), &end, 10);
-                if (end != text.c_str() && *end == '\0') {
-                    game_toon_copies_override = static_cast<std::int64_t>(parsed);
-                } else {
-                    deren::utility::log("app_config: ignoring non-numeric --game-toon-copies value '{}'", text);
-                }
-                continue;
-            }
             positional.push_back(arg);
         }
 
@@ -1586,12 +1530,6 @@ namespace deren::app_config {
         }
         if (asset_override) {
             settings.asset = *asset_override;
-        }
-        if (game_toon_copies_override) {
-            // The engine's head-state array is 16 slots (`max_game_toon_characters`); clamp at the
-            // command-line boundary too, so `--game-toon-copies 40` is not accepted as a value that
-            // main then silently rewrites.
-            settings.render.game_toon_copies = static_cast<std::int32_t>(std::clamp<std::int64_t>(*game_toon_copies_override, 1, 16));
         }
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).

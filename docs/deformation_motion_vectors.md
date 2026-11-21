@@ -144,13 +144,13 @@ scope, stated.
 Nothing in the tree can currently show this bug or prove the fix, for two independent reasons, both
 verified:
 
-**(a) There is no reproducible capture of a DEFORMING mesh.** `[render] animation_time`
-(`config.example.toml:82-90`, applied at `main.cpp:421-427`) pins the pose, and a pinned pose uploads the
-same skin matrices every frame - so the previous-frame deformation equals the current one and the
-deformation term of the motion vector is **exactly zero**. The pinned-pose capture cannot distinguish the
-fixed renderer from the broken one. With the pose unpinned, `main.cpp:699-700` drives the controller from
-`frame_clock.delta_seconds()` - the wall clock - so the pose at a given frame count differs run to run
-and no gate can exist.
+**(a) There is no reproducible capture of a DEFORMING mesh.** A pose can be pinned - the managed host calls
+`animation.set_animation_time` itself, and the old `[render] animation_time` key is retired and read by
+nothing - and a pinned pose uploads the same skin matrices every frame, so the previous-frame deformation
+equals the current one and the deformation term of the motion vector is **exactly zero**. The pinned-pose
+capture cannot distinguish the fixed renderer from the broken one. With the pose unpinned, the runtime's
+controller is driven by `frame_clock.delta_seconds()` - the wall clock - so the pose at a given frame count
+differs run to run and no gate can exist.
 
 This project already made exactly this argument once, for the camera, and built the answer:
 `--capture-sweep` advances the camera by a fixed number of degrees **per frame index** precisely so that

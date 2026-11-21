@@ -19,7 +19,6 @@ window_title = "deren"
 vsync = false
 max_fps = 0
 clear_color = [0.02, 0.02, 0.03]
-camera_fit = "exterior"
 offscreen = false
 sun_intensity = 1.0
 
@@ -44,9 +43,8 @@ ssao_radius = 0.5
 ssao_intensity = 1.0
 ssao_samples = 8
 
-# ---- [render] ray-traced effects + animation ----
+# ---- [render] ray-traced effects ----
 rt_shadows = false
-animation_time = -1.0
 
 # ---- [debug] investigation switches: a gate or a person flips these,
 # ---- not a project. They are documented in config.example.toml. ----
