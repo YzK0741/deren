@@ -1802,13 +1802,28 @@ namespace deren::app {
         // unconditionally; the difference is that a project shipping its own HDR never pays for it.
         bool slot0_environment_set = false;
 
+        // A FAILED FRAME ENDS THE SESSION WITH A NON-ZERO CODE: a renderer that could not record,
+        // submit or present must not look like a clean exit to a script or CI job. `closed` is the
+        // ordinary way out (window closed, ESC) and keeps the exit code it had.
+        int exit_code = 0;
+        auto const ends_session = [&exit_code](deren::engine::frame_status status) {
+            if (status == deren::engine::frame_status::closed) {
+                return true;
+            }
+            if (deren::engine::is_failure(status)) {
+                exit_code = 4;
+                return true;
+            }
+            return false;
+        };
+
         while (true) {
             if (capture.frames > 0 && captured_frames == disable_streaming_frame) {
                 runtime.set_visibility_texture_streaming(false);
             }
             // Phase 1: poll window events (ESC / native close -> closed, minimized -> skipped)
             deren::engine::frame_status const polled = runtime.poll_events();
-            if (polled == deren::engine::frame_status::closed || deren::engine::is_failure(polled)) {
+            if (ends_session(polled)) {
                 break;
             }
             if (polled == deren::engine::frame_status::skipped) {
@@ -1982,11 +1997,15 @@ namespace deren::app {
             }
             // Phase 2: pace + acquire the next frame slot.
             deren::engine::frame_status const paced = runtime.pace_and_acquire();
-            if (paced == deren::engine::frame_status::closed || deren::engine::is_failure(paced)) {
+            if (ends_session(paced)) {
                 break;
             }
             if (paced == deren::engine::frame_status::skipped) {
                 frame_stats.on_skipped();
+                // THE MANAGED TICK ALREADY RAN THIS ITERATION: begin_frame() refuses to hand out a
+                // second input frame until finish_frame() closes this one, so a skip that forgot it
+                // would stop the game's update() for the rest of the session.
+                action_state.finish_frame();
                 std::this_thread::yield();
                 continue;
             }
@@ -2028,7 +2047,7 @@ namespace deren::app {
                 return 3;
             }
             deren::engine::frame_status const rec = runtime.begin_recording();
-            if (rec == deren::engine::frame_status::closed || deren::engine::is_failure(rec)) {
+            if (ends_session(rec)) {
                 break;
             }
             if (game_ui) {
@@ -2063,19 +2082,22 @@ namespace deren::app {
             }
             runtime.prepare_scene_recording();
             deren::engine::frame_status const recorded = runtime.record_graph();
-            if (recorded == deren::engine::frame_status::closed || deren::engine::is_failure(recorded)) {
+            if (ends_session(recorded)) {
                 break;
             }
             deren::engine::frame_status const ended = runtime.end_recording();
-            if (ended == deren::engine::frame_status::closed || deren::engine::is_failure(ended)) {
+            if (ends_session(ended)) {
                 break;
             }
             deren::engine::frame_status const result = runtime.submit_and_present();
-            if (result == deren::engine::frame_status::closed || deren::engine::is_failure(result)) {
+            if (ends_session(result)) {
                 break;
             }
             if (result == deren::engine::frame_status::skipped) {
                 frame_stats.on_skipped();
+                // THE TICK MUST STILL CLOSE: the frame was recorded but never presented, and the
+                // managed update that ran earlier in this iteration is waiting for its finish.
+                action_state.finish_frame();
                 std::this_thread::yield();
                 continue;
             }
@@ -2178,6 +2200,6 @@ namespace deren::app {
             }
         }
         deren::utility::log("render loop finished");
-        return 0;
+        return exit_code;
     }
 } // namespace deren::app
