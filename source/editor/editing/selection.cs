@@ -35,6 +35,25 @@ internal sealed class selection
         this.primary = uid;
     }
 
+    internal bool contains(Guid uid) => this.uids.Contains(uid);
+
+    internal void toggle(Guid uid)
+    {
+        if (!this.uids.Remove(uid)) {
+            this.uids.Add(uid);
+            this.primary = uid;
+        } else if (this.primary == uid) {
+            this.primary = this.uids.Count == 0 ? Guid.Empty : this.uids[^1];
+        }
+    }
+
+    internal void replace(IEnumerable<Guid> values, Guid primary)
+    {
+        this.uids.Clear();
+        this.uids.AddRange(values);
+        this.primary = primary;
+    }
+
     /// <summary>
     /// Drops the whole selection. Does nothing when it is already empty.
     /// </summary>

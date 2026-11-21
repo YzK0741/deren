@@ -10,8 +10,9 @@ namespace deren.scripting {
         internal static native_api core;
         internal static Assembly? game_assembly;
 
-        /// <summary>Directory the project assembly was loaded from: where `deren.toml` lives.</summary>
+        /// <summary>The directory passed to `deren run`, which owns the project manifest and content.</summary>
         internal static string project_directory = string.Empty;
+        internal static string assembly_directory = string.Empty;
 
         private static game_entry? game;
 
@@ -45,7 +46,10 @@ namespace deren.scripting {
             core = *api;
             try {
                 var path = Path.GetFullPath(game_path.decode());
-                project_directory = Path.GetDirectoryName(path) ?? string.Empty;
+                assembly_directory = Path.GetDirectoryName(path) ?? string.Empty;
+                project_directory = argc > 2 && Marshal.PtrToStringUTF8((IntPtr)argv[1]) == "run" &&
+                    Marshal.PtrToStringUTF8((IntPtr)argv[2]) is { Length: > 0 } root
+                    ? Path.GetFullPath(root) : assembly_directory;
                 var context = AssemblyLoadContext.GetLoadContext(typeof(managed_bootstrap).Assembly)!;
                 game_assembly = context.LoadFromAssemblyPath(path);
             } catch (Exception error) {
@@ -70,7 +74,7 @@ namespace deren.scripting {
                 return (int)script_status.script_failure;
             }
             game = created;
-            // The project's `deren.toml` sits next to the assembly it was loaded from. Parse the
+            // Read the manifest from the directory passed to the launcher. Parse the
             // lighting profile before preinit so the project can read it during startup; the
             // runtime side is applied later, once the scene API is bound.
             project_config.load(project_directory);

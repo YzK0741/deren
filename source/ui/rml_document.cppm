@@ -102,6 +102,7 @@ export namespace deren::ui {
         }
         bool wants_keyboard() const;
         bool set_text(std::string_view id, std::string_view text);
+        bool set_markup(std::string_view id, std::string_view markup);
         bool set_value(std::string_view id, std::string_view value);
         bool set_visible(std::string_view id, bool visible);
         deren::utility::vessel::string text(std::string_view id) const;

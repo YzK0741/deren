@@ -21,9 +21,9 @@ namespace deren.editor;
 internal static class document_io
 {
     /// <summary>
-    /// The file format version this writer speaks: 2 added the optional per-node <c>script</c> key.
+    /// The file format version this writer speaks: 3 adds optional per-node script parameters.
     /// </summary>
-    private const int format_version = 2;
+    private const int format_version = 3;
 
     /// <summary>
     /// The oldest version this reader still accepts.
@@ -240,6 +240,9 @@ internal static class document_io
             if (node.script != null) {
                 text.Append("    script = ").Append(quote(node.script)).Append('\n');
             }
+            foreach (var (key, value) in node.script_parameters) {
+                text.Append("    script_parameter.").Append(quote(key)).Append(" = ").Append(quote(value)).Append('\n');
+            }
             text.Append("    visible = ").Append(node.visible ? "true" : "false").Append('\n');
             text.Append("    flags = ").Append(node.flags.ToString(CultureInfo.InvariantCulture)).Append('\n');
             text.Append("    position = ").Append(format_vector(node.local.position)).Append('\n');
@@ -276,6 +279,7 @@ internal static class document_io
             asset = builder.asset,
             pipeline = builder.pipeline,
             script = builder.script,
+            script_parameters = builder.script_parameters,
             local = builder.local,
             visible = builder.visible,
             flags = builder.flags,
@@ -336,6 +340,18 @@ internal static class document_io
                 return false;
             }
             builder.asset = asset;
+            return true;
+        }
+        const string parameter_prefix = "script_parameter.";
+        if (key.StartsWith(parameter_prefix, StringComparison.Ordinal)) {
+            if (!parse_quoted(key[parameter_prefix.Length..], path, number, out var parameter, out error) ||
+                !parse_quoted(value, path, number, out var raw, out error)) {
+                return false;
+            }
+            if (parameter.Length == 0 || !builder.script_parameters.TryAdd(parameter, raw)) {
+                error = format_error(path, number, "empty or duplicate script parameter");
+                return false;
+            }
             return true;
         }
         if (key == "script") {
@@ -694,6 +710,7 @@ internal static class document_io
         internal string? asset;
         internal string? pipeline;
         internal string? script;
+        internal readonly SortedDictionary<string, string> script_parameters = new(StringComparer.Ordinal);
         internal bool visible = true;
         internal uint flags;
         internal deren.transform_value local = new() {

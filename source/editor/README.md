@@ -14,6 +14,21 @@ not express otherwise: `scene_api.set_node_name` (ABI 40), `scene_api.set_scene_
 projection that follows the viewport shape, and the rml pointer events, `get_element_rect` and
 `set_element_style` entries of ABI 42 for the splitters and dock tabs (`docs/scripting_module_abi.md`).
 
+## Editor projects
+
+Create a project after building the editor:
+
+```powershell
+python scripts/tools/new_editor_project.py my_game --asset-library asset
+.\build\deren.exe run .\my_game
+```
+
+Omit `--asset-library` for a project-local asset library. The project owns `deren.toml`,
+`render.toml`, `scenes/`, `asset/` and `scripts/`. Its `[editor] scene` is the initial scene,
+and `[project] main_scene` supplies renderer settings. The asset library and any input actions come
+from this same manifest in Edit and Play. The editor binary, fonts and UI stay in the build output.
+Layout and preview caches for a separate project live under its `.deren/` directory.
+
 ## What P1 ships
 
 - One scene document with an outliner, a details panel, a toolbar and a status bar drawn by RmlUi.
@@ -99,10 +114,12 @@ edit the selected node's transform.
   and caches the resulting image in the editor output's `ui/thumbnails` folder. An asset without a
   cached image shows a placeholder glyph.
   double-click adds the asset as a root node at the origin, selects it, and records an undoable edit.
-- **World Outliner.** `#outliner_search` keeps a node when its own name or any descendant name contains
-  the filter, so typing a child still reveals its parent chain; the selected row is still marked with
-  a `"> "` prefix. Each row has a `#row_N_vis` glyph that toggles the runtime node's visibility (and
-  records one `Show Node`/`Hide Node` undo command).
+- **World Outliner.** Expand or collapse a group from its disclosure control. Ctrl-click toggles
+  individual nodes and Shift-click selects a range of visible rows. Search reveals matching nodes and
+  their ancestors, including matches inside collapsed groups. Edit > Duplicate Selection copies each
+  selected subtree with fresh node IDs. Drag a row onto another node to parent the selection under it,
+  or onto Scene Root to move it to the top level. Reparenting preserves the world transform and skips
+  the edit if the required local transform contains shear. Duplicate and reparent each record one undo.
 - **Scene files.** File > Open Scene and Save Scene As accept an absolute path or a path relative to
   the project's scenes folder. Opening a scene with unsaved edits prompts before replacing it.
   Undo and redo update the dirty indicator relative to the most recent save.
@@ -133,20 +150,15 @@ restores the same boxes). The caption buttons need a real window and are verifie
 | `document/document_io.cs` | The strict TOML reader/writer for `*.scene.toml`. |
 | `document/scene_sync.cs` | One `rebuild` at startup, then per-node `create_one`/`destroy_one`/`push` into the activated tree. |
 | `editing/undo_stack.cs`, `undo_command.cs`, `selection.cs` | The undoable edits, the 64-entry history and the selection set. |
-| `panels/outliner_panel.cs`, `details_panel.cs`, `status_bar.cs`, `content_browser_panel.cs` | Text into the fixed RmlUi ids (`row_0..row_63`, `detail_*`, `asset_0..asset_23`, `status`). |
+| `panels/outliner_panel.cs`, `details_panel.cs`, `status_bar.cs`, `content_browser_panel.cs` | Outliner rows keyed by node UID, plus details, asset tiles and status. |
 | `ui/editor.rml` | The document markup and its inline style: menu bar, toolbar, viewport column, bottom dock, outliner column and the three splitters. |
 | `main.toml` | The entry scene the manifest points at: window size and title, and the `[render] fxaa` switch the viewport needs. |
 | `deren.toml.in` | The project manifest template CMake configures into the build tree. |
 
-The RmlUi managed document API exposes `set_text`, `set_value`, `set_visible`, `try_poll_event`,
-`try_get_element_rect`, `try_set_element_style` and `close` only - it cannot create elements - so the
-outliner is 64 pre-built rows (`row_0` .. `row_63`), the content browser is 24 pre-built tiles
-(`asset_0` .. `asset_23`) and the selected outliner row is marked with a `"> "` text prefix. The details
-panel uses the same trick: its rows are authored once in `ui/editor.rml` and `details_panel` maps their
-`change` events back to properties. It rewrites a row only when the selection changes or an edit
-commits, because rewriting every frame would overwrite text the user is still typing. Visibility is a
-button rather than a checkbox because a checkbox `change` value is not round-tripped unambiguously by
-this bridge.
+The Outliner generates its rows through `try_set_markup` whenever the visible node order changes.
+Node names go through `set_text` so they are displayed as text. The Content Browser still uses 24
+authored tile slots and the Details panel maps its authored controls to node properties. Input values
+are refreshed on selection changes and committed edits so a frame does not overwrite active typing.
 
 ## Document format
 
@@ -174,17 +186,24 @@ block per node in depth-first order, where a parent always appears before its ch
 are written so they round-trip exactly.
 
 To attach a C# behaviour, build a DLL against `Deren.Managed` and put it and its managed
-dependencies in the built editor's `scripts` folder. In Details, set the node's **Script**
-value to `YourAssembly.dll:your_namespace.your_behaviour`. The type derives from `script_base`
-and has a public parameterless constructor. Play calls `on_create`, `on_update` and
-`on_destroy` in the play process. The declaration is optional and is saved as `script` in
-the scene file.
+dependencies in the **project's** `scripts/` directory. Choose the behaviour in Details. The type
+is public, derives from `script_base` and has a public parameterless constructor. **Refresh**
+rescans the DLLs without restarting the editor.
+
+Mark a public writable instance field with `[editor_parameter]` to expose it in Details. Supported
+types are `int`, `float`, `bool`, `vector_3`, `node_id` and `asset_reference`. Commit numbers and
+vectors with **Apply**. Vector input uses comma-separated X, Y and Z. Node and asset references use pickers. A blank or **Default** value uses
+the field initializer. The scene stores overrides and Play applies them before `on_create`. Scene
+documents written by versions 1 and 2 still load.
+
+Open **Output Log** to see live Play messages from `host_logger.write` and runtime errors. Clicking
+a script callback error selects its node in the editor. Play continues to work from a temporary scene
+copy, including unsaved edits.
 
 ## Limits
 
-One open document, 64 visible outliner rows, 24 asset tiles, a fixed set of details rows (no
-add/remove property, no asset picker), and the Output Log
-body is still a placeholder (no engine log feed). The content browser supports double-click placement but has no
+One open document, 24 asset tiles, a fixed set of details rows (no
+add/remove property outside declared script parameters). The content browser supports double-click placement but has no
 asset rename or file import. The Window menu moves the sidebar between left and right, puts the
 browser and log dock above or below the viewport, and swaps the order of Outliner and Details.
 Splitters keep working in each arrangement. Panel sizes and positions are saved in the editor

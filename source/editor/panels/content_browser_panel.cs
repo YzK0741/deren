@@ -14,6 +14,7 @@ namespace deren.editor {
 
         private readonly rml_document ui;
         private readonly asset_thumbnail_cache thumbnails;
+        private readonly string ui_directory;
         private readonly string?[] displayed_thumbnails = new string?[tile_capacity];
         // Last write time of the file behind displayed_thumbnails. Comparing the file identity alone is
         // not enough: a rebuilt thumbnail can land on the same path, and then the slot would keep the
@@ -22,9 +23,10 @@ namespace deren.editor {
         private readonly List<string> visible = new(tile_capacity);
         private string selected = string.Empty;
 
-        internal content_browser_panel(rml_document ui, asset_thumbnail_cache thumbnails) {
+        internal content_browser_panel(rml_document ui, asset_thumbnail_cache thumbnails, string ui_directory) {
             this.ui = ui;
             this.thumbnails = thumbnails;
+            this.ui_directory = ui_directory;
         }
 
         /// <summary>Asset id of the last picked tile, or an empty string when nothing is picked.</summary>
@@ -71,7 +73,7 @@ namespace deren.editor {
             if (displayed_thumbnails[tile] == image && displayed_stamps[tile] == stamp) {
                 return;
             }
-            bool shown = image != null && ui.set_value(image_id, $"thumbnails/{Path.GetFileName(image)}");
+            bool shown = image != null && ui.set_value(image_id, Path.GetRelativePath(ui_directory, image).Replace('\\', '/'));
             ui.try_set_element_style(image_id, "display", shown ? "block" : "none");
             if (!shown) {
                 ui.set_value(image_id, string.Empty);

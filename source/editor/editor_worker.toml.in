@@ -1,9 +1,0 @@
-[project]
-name = "deren editor worker"
-main_scene = "scene.toml"
-
-[paths]
-asset_library = "@DEREN_REPO_ROOT@/asset"
-
-[scripts]
-assembly = "@DEREN_EDITOR_ASSEMBLY@"

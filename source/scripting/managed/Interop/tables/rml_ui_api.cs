@@ -37,6 +37,7 @@ namespace deren.scripting {
         // need them report module_unavailable. is_valid() must not require them.
         internal delegate* unmanaged<ulong, utf8_view, element_rect_layout*, script_status> get_element_rect;
         internal delegate* unmanaged<ulong, utf8_view, utf8_view, utf8_view, script_status> set_element_style;
+        internal delegate* unmanaged<ulong, utf8_view, utf8_view, script_status> set_markup;
         internal readonly bool is_valid() => open != null && close != null && set_text != null &&
             set_value != null && set_visible != null && poll_event != null;
     }
@@ -66,14 +67,20 @@ namespace deren.scripting {
             }
             void* value = null;
             uint size = 0;
-            var status = api->get_module((uint)native_module.rml_ui, &value, &size);
+            var status = api->get_module((uint)native_module.rml_ui_extended, &value, &size);
+            if (status == script_status.module_unavailable) {
+                status = api->get_module((uint)native_module.rml_ui, &value, &size);
+            }
             if (status != script_status.success) {
                 return status;
             }
-            if (value == null || size != (uint)sizeof(rml_ui_api_layout)) {
+            uint current_size = (uint)sizeof(rml_ui_api_layout);
+            uint previous_size = current_size - (uint)sizeof(nint);
+            if (value == null || (size != current_size && size != previous_size)) {
                 return script_status.module_invalid;
             }
-            var resolved = *(rml_ui_api_layout*)value;
+            rml_ui_api_layout resolved = default;
+            Buffer.MemoryCopy(value, &resolved, current_size, size);
             if (!resolved.is_valid()) {
                 return script_status.module_invalid;
             }

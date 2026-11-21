@@ -1163,7 +1163,7 @@ namespace {
             *table = rml_module_mode == 3   ? &incomplete
                      : rml_module_mode == 4 ? &legacy
                                             : &deren::ui::rml_scripting::table();
-            *byte_size = sizeof(rml_ui_api) + (rml_module_mode == 2 ? 8 : 0);
+            *byte_size = rml_module_mode == 2 ? sizeof(rml_ui_api) + sizeof(void*) : offsetof(rml_ui_api, set_markup);
             return script_status::success;
         }
         if (module == static_cast<std::uint32_t>(native_module::audio)) {

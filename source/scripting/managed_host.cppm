@@ -567,7 +567,8 @@ export namespace deren::scripting {
         ui = 2,
         audio = 3,
         rml_ui = 4,
-        node_bounds = 5
+        node_bounds = 5,
+        rml_ui_extended = 6
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.

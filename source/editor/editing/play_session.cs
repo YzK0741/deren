@@ -10,6 +10,7 @@ using deren.scripting;
 namespace deren.editor {
     internal sealed class play_session : IDisposable {
         private readonly string project_directory;
+        private readonly string cache_directory;
         private Process? process;
         // THE CHILD MUST NOT OUTLIVE THE EDITOR: a stop file is a cooperative handshake, and it never
         // runs when the editor crashes, is killed from the task manager, or throws out of its update.
@@ -19,9 +20,11 @@ namespace deren.editor {
         private string? workspace;
         private DateTime stop_deadline;
         private bool forced;
+        private play_log_reader log = new();
 
-        internal play_session(string project_directory) {
+        internal play_session(string project_directory, string cache_directory) {
             this.project_directory = Path.GetFullPath(project_directory);
+            this.cache_directory = Path.GetFullPath(cache_directory);
         }
 
         /// Deletes the workspaces a previous editor process left behind - a crash cannot run the
@@ -59,22 +62,12 @@ namespace deren.editor {
                 return false;
             }
             try {
-                workspace = Path.Combine(project_directory, "play-sessions", Guid.NewGuid().ToString("N"));
+                log = new play_log_reader();
+                workspace = Path.Combine(cache_directory, "play-sessions", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(workspace);
                 var snapshot = Path.Combine(workspace, "play.scene.toml");
                 File.WriteAllText(snapshot, copy);
                 File.WriteAllText(Path.Combine(workspace, "camera.json"), JsonSerializer.Serialize(camera, camera_json));
-                File.Copy(Path.Combine(project_directory, "editor_worker.toml"), Path.Combine(workspace, "deren.toml"));
-                File.WriteAllText(Path.Combine(workspace, "scene.toml"), """
-                    [paths]
-                    screenshot_dir = "captures"
-
-                    [render]
-                    window_title = "deren - Play"
-                    window_width = 1280
-                    window_height = 720
-                    fxaa = true
-                    """);
                 var executable = Environment.ProcessPath ??
                     throw new InvalidOperationException("The rendering executable path is unavailable.");
                 var start_info = new ProcessStartInfo(executable) {
@@ -83,7 +76,8 @@ namespace deren.editor {
                     CreateNoWindow = true,
                 };
                 start_info.ArgumentList.Add("run");
-                start_info.ArgumentList.Add(workspace);
+                start_info.ArgumentList.Add(project_directory);
+                start_info.ArgumentList.Add("--editor-worker=play");
                 start_info.ArgumentList.Add("--editor-play");
                 start_info.ArgumentList.Add(snapshot);
                 job = create_job();
@@ -120,43 +114,25 @@ namespace deren.editor {
             }
         }
 
-        internal bool poll(out string message) {
+        internal bool poll(Action<Guid, string, bool> receive, out string message, out bool failed) {
             message = string.Empty;
+            failed = false;
             if (process == null) {
                 return false;
             }
-            if (!process.HasExited) {
+            bool finished = process.HasExited;
+            log.read(Path.Combine(workspace!, "deren-debug.log"), finished, receive);
+            if (!finished) {
                 if (!stopping || DateTime.UtcNow < stop_deadline) {
                     return false;
                 }
                 terminate();
                 return false;
             }
-            bool failed = !stopping && process.ExitCode != 0;
+            failed = !stopping && process.ExitCode != 0;
             message = failed ? $"Play exited with code {process.ExitCode}"
                 : forced ? "Play stopped (the renderer was terminated after the stop deadline)" : "Play stopped";
-            if (failed) {
-                var log_path = Path.Combine(workspace!, "deren-debug.log");
-                try {
-                    if (File.Exists(log_path)) {
-                        var script_lines = new List<string>();
-                        foreach (string line in File.ReadLines(log_path)) {
-                            if (line.StartsWith("scripts: ", StringComparison.Ordinal)) {
-                                script_lines.Add(line["scripts: ".Length..]);
-                            }
-                        }
-                        if (script_lines.Count > 0) {
-                            // The editor has no scrolling log tab yet, so the message has to carry the
-                            // script errors that explain the failure - the last one alone hides the
-                            // first error when a script cascade follows it.
-                            const int tail = 8;
-                            var first = Math.Max(0, script_lines.Count - tail);
-                            message = $"{message}\n{string.Join("\n", script_lines.GetRange(first, script_lines.Count - first))}";
-                        }
-                    }
-                } catch (IOException) { }
-                host_logger.write(message);
-            }
+            receive(Guid.Empty, message, failed);
             cleanup();
             return true;
         }
@@ -268,7 +244,7 @@ namespace deren.editor {
             forced = false;
             if (workspace != null) {
                 try {
-                    var parent = Path.Combine(project_directory, "play-sessions");
+                    var parent = Path.Combine(cache_directory, "play-sessions");
                     if (Path.GetDirectoryName(Path.GetFullPath(workspace)) == parent) {
                         Directory.Delete(workspace, recursive: true);
                     }

@@ -329,12 +329,16 @@ namespace deren::ui {
         return this->draws;
     }
     bool rml_document::set_text(std::string_view id, std::string_view text) {
+        return set_markup(id, Rml::StringUtilities::EncodeRml(Rml::String(text)));
+    }
+
+    bool rml_document::set_markup(std::string_view id, std::string_view markup) {
         auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
         auto* element = context ? context->GetDocument(0)->GetElementById(Rml::String(id)) : nullptr;
         if (!element) {
             return false;
         }
-        element->SetInnerRML(Rml::StringUtilities::EncodeRml(Rml::String(text)));
+        element->SetInnerRML(Rml::String(markup));
         return true;
     }
     bool rml_document::set_value(std::string_view id, std::string_view value) {
