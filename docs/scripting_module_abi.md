@@ -1078,6 +1078,11 @@ Status values are returned through the ABI; no exception crosses the native boun
   capture) or on a platform without the move loop every entry answers `module_unavailable`; a null
   output pointer is `invalid_argument`. The C# wrapper is `deren.window_control`; the editor uses it
   from its own caption buttons instead of relying on the system title bar.
+- v43 also documents what the pointer feedback added in v42 already emitted: types `6` (wheel, the
+  scroll amount in `x`) and `7` (cancel, the pointer was lost with no release) are part of the
+  `poll_event` contract, so a managed drag can end on a focus loss instead of waiting for a release
+  that never comes. No binary change: the host emitted both since v42 and the C# side already
+  carried them.
 
 ## Audio module
 
@@ -1164,8 +1169,9 @@ Element ids are the document's own ids: an unknown id reports `invalid_node`, wh
 path, a string over the 1 MiB cap, or a `visible` byte outside 0/1 is `invalid_argument`.
 
 `poll_event` with a null buffer only peeks: it writes the event's type (`1` click, `2` change,
-`3` pointer down, `4` pointer move, `5` pointer up), id length, value length and - for pointer
-events - the position, button and modifiers into the record and leaves the queue alone; a null
+`3` pointer down, `4` pointer move, `5` pointer up, `6` pointer wheel, `7` pointer cancel), id
+length, value length and - for pointer events - the position, button and modifiers into the record
+and leaves the queue alone; a null
 buffer with a non-zero capacity is `invalid_argument`. With a non-null buffer it copies the id then
 the value (UTF-8, no terminators) and consumes exactly one event; a buffer that cannot hold both
 leaves the event queued and reports `invalid_argument`. An empty queue returns `success` with a
@@ -1181,7 +1187,11 @@ divides the framebuffer coordinates it forwards by the document's pixel ratio, t
 resolves `dp` units during layout, so a managed splitter can compare `event.x` against
 `get_element_rect` numbers directly at any window scale. `button` is the window button the host
 forwarded (`0` left) and `modifiers` is the same bit mask the input event carried; both are zero
-for moves.
+for moves. A wheel event (`6`) carries its scroll amount in `x` - positive away from the user - with
+`y`, `button` and `modifiers` as the input reported them, so a managed panel can scroll the element
+its `id` names. A cancel event (`7`) means the host lost the pointer without a release (the window
+lost focus): a managed drag must end at that point and drop its target, because no matching release
+will follow.
 
 `get_element_rect` answers `x`, `y`, `width`, `height` of an element's border box in
 density-independent pixels; an empty element id is the document root, i.e. the whole viewport,

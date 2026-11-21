@@ -29,6 +29,19 @@ namespace deren::ui {
         // `generated_texture` pointers and lets ReleaseTexture skip a real free.
         constexpr std::string_view scene_color_uri = "deren://scene";
         Rml::TextureHandle const scene_color_texture = reinterpret_cast<Rml::TextureHandle>(std::uintptr_t{1});
+
+        // RMLUI SPEAKS UTF-8 AND URL PATHS. generic_string() answers in the ANSI code page and a narrow
+        // std::filesystem::path constructor reads that same code page, while a native Windows path
+        // (backslashes plus a drive colon) is not a URL: RmlUi resolves relative references against the
+        // document source URL, so handing it the native form makes every relative texture and font
+        // reference fail. Both directions therefore go through the generic UTF-8 form.
+        std::string utf8_text(std::filesystem::path const& path) {
+            auto const text = path.generic_u8string();
+            return std::string(text.begin(), text.end());
+        }
+        std::filesystem::path path_from_utf8(std::string_view text) {
+            return std::filesystem::path(std::u8string(reinterpret_cast<char8_t const*>(text.data()), text.size()));
+        }
     } // namespace
 
     struct rml_render_interface final : Rml::RenderInterface {
@@ -114,7 +127,7 @@ namespace deren::ui {
                 dimensions = {1920, 1080};
                 return scene_color_texture;
             }
-            auto bytes = utility::read_binary_to_vector(std::filesystem::path(source), 64u * 1024u * 1024u);
+            auto bytes = utility::read_binary_to_vector(path_from_utf8(source), 64u * 1024u * 1024u);
             if (!bytes) {
                 return 0;
             }
@@ -197,7 +210,14 @@ namespace deren::ui {
                 auto value = control->GetValue();
                 result.value.assign(value.data(), value.size());
             }
-            render_interface.document->events.push_back(std::move(result));
+            // THE DOM QUEUE IS CAPPED TOO: a session that never polls must not grow it without bound.
+            // The oldest event goes first so the newest interaction is the one that survives.
+            constexpr std::size_t max_events = 256;
+            auto& queue = render_interface.document->events;
+            if (queue.size() >= max_events) {
+                queue.erase(queue.begin());
+            }
+            queue.push_back(std::move(result));
         }
     };
     namespace {
@@ -233,8 +253,8 @@ namespace deren::ui {
         }
         render_interface.document = this;
 
-        if (!Rml::LoadFontFace(font.generic_string()) ||
-            (!fallback_font.empty() && !Rml::LoadFontFace(fallback_font.generic_string(), true))) {
+        if (!Rml::LoadFontFace(utf8_text(font)) ||
+            (!fallback_font.empty() && !Rml::LoadFontFace(utf8_text(fallback_font), true))) {
             this->close();
             return false;
         }
@@ -244,7 +264,7 @@ namespace deren::ui {
             this->close();
             return false;
         }
-        auto* const document = context->LoadDocument(markup.generic_string());
+        auto* const document = context->LoadDocument(utf8_text(markup));
         if (!document) {
             this->close();
             return false;
@@ -357,7 +377,10 @@ namespace deren::ui {
             auto* focus = context->GetFocusElement();
             for (auto* node = focus; node != nullptr; node = node->GetParentNode()) {
                 if (node == element) {
-                    this->input({.type = input_type::focus_lost});
+                    // BLUR THE CONTROL, DO NOT SYNTHESIZE A WINDOW FOCUS LOSS: the synthetic event also
+                    // queues a pointer cancel and drops the hover chain, which is exactly what a panel
+                    // that hides its rows every frame must not do to the row under the pointer.
+                    focus->Blur();
                     break;
                 }
             }
@@ -404,15 +427,6 @@ namespace deren::ui {
         return result;
     }
     void rml_document::push_pointer(pointer_type type, int x, int y, int button, unsigned modifiers, std::string_view id, float wheel) {
-        // A session that never polls must not grow this without bound; such a session also reports no
-        // pointer feedback to anyone, so dropping the newest event loses nothing anyone reads.
-        constexpr std::size_t max_pointer_events = 256;
-        if (this->pointer_events.size() >= max_pointer_events) {
-            if (type != pointer_type::up && type != pointer_type::cancel) {
-                return;
-            }
-            this->pointer_events.erase(this->pointer_events.begin());
-        }
         auto const ratio = this->density_independent_pixel_ratio;
         pointer_event event;
         event.type = type;
@@ -425,6 +439,29 @@ namespace deren::ui {
         event.y = static_cast<float>(y) / ratio;
         event.button = button;
         event.modifiers = modifiers;
+        // EVERY MOVE IS REPORTED (a managed drag needs the moves after the pointer leaves the pressed
+        // element), so the queue is not coalesced; overflow protection lives in the cap below.
+        // A session that never polls must not grow this without bound. Once the cap is reached, the
+        // continuous input goes first: an older move is evicted to make room for a press or a release,
+        // and a press or a release that has nothing left to evict is kept rather than dropped (an
+        // unpaired release is harmless, an unpaired press would look like a drag that never ends).
+        constexpr std::size_t max_pointer_events = 256;
+        if (this->pointer_events.size() >= max_pointer_events) {
+            bool evicted = false;
+            for (auto it = this->pointer_events.begin(); it != this->pointer_events.end(); ++it) {
+                if (it->type == pointer_type::move) {
+                    this->pointer_events.erase(it);
+                    evicted = true;
+                    break;
+                }
+            }
+            if (!evicted && (event.type == pointer_type::move || event.type == pointer_type::wheel)) {
+                return;
+            }
+            if (!evicted) {
+                this->pointer_events.erase(this->pointer_events.begin());
+            }
+        }
         this->pointer_events.push_back(std::move(event));
     }
     bool rml_document::element_rect(std::string_view id, float& x, float& y, float& width, float& height) const {
@@ -621,14 +658,18 @@ namespace deren::ui {
             return this->has_mouse_capture();
         case input_type::focus_lost:
             this->push_pointer(pointer_type::cancel, 0, 0, 0, 0, {});
-            this->pressed_buttons = 0;
             if (auto* focus = context->GetFocusElement()) {
                 focus->Blur();
             }
             context->ProcessMouseLeave();
-            for (int button = 0; button < 3; ++button) {
-                context->ProcessMouseButtonUp(button, 0);
+            // RELEASE EVERY BUTTON THE DOCUMENT THINKS IS DOWN: button accepts 0..7 and pressed_buttons
+            // tracks the same eight, so releasing only 0..2 left 3..7 stuck down after an OS focus loss.
+            for (int button = 0; button < 8; ++button) {
+                if (button < 3 || (this->pressed_buttons & (1u << button)) != 0) {
+                    context->ProcessMouseButtonUp(button, 0);
+                }
             }
+            this->pressed_buttons = 0;
             return false;
         }
         return false;
