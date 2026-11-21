@@ -760,7 +760,10 @@ namespace game {
             if (frame->input == null) {
                 return script_status.success;
             }
-            input_state.begin_frame(action_indices, frame->input);
+            // The exact length, not the map's size: the native side sends one byte per action slot it
+            // has, so a producer/consumer mismatch (a stale map after a hot reload) throws in has_flag
+            // instead of reading past the buffer or silently reading a neighbour's byte.
+            input_state.begin_frame(action_indices, frame->input, checked((int)frame->input_count));
             try {
                 for (var index = 0; index < instance.scripts.Count; ++index) {
                     var script = instance.scripts[index];

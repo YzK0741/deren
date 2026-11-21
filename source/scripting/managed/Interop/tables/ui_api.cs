@@ -64,7 +64,12 @@ namespace deren.scripting {
             return is_resolved();
         }
 
-        internal static script_status initialize(native_api* api) {
+        /// <summary>
+        /// Drops the borrowed table: no widget description may reach a host that is tearing down.
+        /// `is_resolved()` and therefore `debug_ui.available` answer false afterwards, which is the
+        /// truth once the session is over - the table they described belongs to a destroyed host.
+        /// </summary>
+        internal static void shutdown() {
             begin_panel = null;
             end_panel = null;
             text = null;
@@ -74,6 +79,11 @@ namespace deren.scripting {
             combo = null;
             button = null;
             wants_mouse = null;
+        }
+
+        internal static script_status initialize(native_api* api) {
+            // Clear first: a re-initialization after a failed one must not keep half a table.
+            shutdown();
 
             void* table = null;
             uint byte_size = 0;
