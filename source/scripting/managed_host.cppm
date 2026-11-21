@@ -1,4 +1,4 @@
-// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.1.0  (independent of the app version in CMakeLists project(VERSION))
 // The managed ABI itself is tracked by managed_abi_version.
 
 export module deren.scripting.managed_host;
@@ -415,8 +415,11 @@ export namespace deren::scripting {
         // subtree is invalid_argument (that would carry the new parent away with it).
         script_status (*reparent_node)(std::uint64_t tree, node_handle node, node_handle parent,
                                        std::uint8_t keep_transform) = nullptr;
-        // ABI 38: VIEW/SCREEN MAPPING. viewport_size is the presentation (up-scaled) extent in
-        // pixels. project_point maps a world position to {x, y, view_depth}: x and y are pixels with
+        // ABI 38: VIEW/SCREEN MAPPING. viewport_size is the RENDER extent in pixels - the size the
+        // shading passes ran at, i.e. with the render scale already applied. It is NOT the window's
+        // or the presented image's size (the host answers the render extent, see run.cpp).
+        // project_point maps a world position to {x, y, view_depth}: x and y are pixels of that same
+        // render grid with
         // the origin at the top-left, and view_depth is the view-space w, positive in front of the
         // camera (x/y are still written when it is not, but they are meaningless there). screen_ray
         // is the inverse: a pixel position becomes the camera position and a normalised world-space
@@ -462,10 +465,12 @@ export namespace deren::scripting {
         // own UI draws the minimise/maximise/close buttons and the drag area. `window_minimize` and
         // `window_toggle_maximize` change the window state; `window_is_maximized` writes 0 or 1;
         // `window_close` requests the same shutdown the system close button does; `window_begin_drag`
-        // hands a caption press to the system move loop and BLOCKS until the button is released
-        // (false when the platform has no such loop). A null out-pointer, no window, or an
-        // unsupported platform is invalid_argument; a still-pending frame is fine - these act on the
-        // window, not on the scene, so they need no active scene and never touch frame data.
+        // hands a caption press to the system move loop and BLOCKS until the button is released.
+        // A null out-pointer is invalid_argument. No window (an offscreen capture), a host built
+        // before these entries, and a platform without the move loop all answer module_unavailable,
+        // so a managed UI can tell "this build cannot move the window" apart from "the call failed".
+        // A still-pending frame is fine - these act on the window, not on the scene, so they need no
+        // active scene and never touch frame data.
         script_status (*window_minimize)() = nullptr;
         script_status (*window_toggle_maximize)() = nullptr;
         script_status (*window_is_maximized)(std::uint8_t* maximized) = nullptr;

@@ -1,4 +1,4 @@
-// module version: 0.4.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.5.0  (independent of the app version in CMakeLists project(VERSION))
 
 export module deren.app.scripting;
 
@@ -264,9 +264,10 @@ export namespace deren::app {
         /**
          * @brief ABI 38: the query side of the renderer state the debug overlay already shows.
          *
-         * viewport_size reports the presentation (up-scaled) extent in pixels. project_point and
-         * screen_ray map between world space and that same pixel grid using the matrices the current
-         * frame renders with, so a managed HUD lines up with the 3D view. counters fills the
+         * viewport_size reports the RENDER extent in pixels - the size the shading passes ran at,
+         * with the render scale already applied, not the window's or the presented image's size.
+         * project_point and screen_ray map between world space and that same pixel grid using the
+         * matrices the current frame renders with, so a managed HUD lines up with the 3D view. counters fills the
          * diagnostic struct from the runtime's own sizes, and gpu_timing_summary hands back the
          * overlay's per-pass timing text, borrowed until the next frame. False means the host has no
          * runtime yet.

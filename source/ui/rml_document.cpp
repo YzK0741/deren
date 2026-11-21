@@ -14,7 +14,6 @@ module;
 #include <RmlUi/Core/Input.h>
 #include <RmlUi/Core/RenderInterface.h>
 #include <RmlUi/Core/StringUtilities.h>
-#include <cmath>
 #include <stb/stb_image.h>
 
 module deren.ui.rml_document;

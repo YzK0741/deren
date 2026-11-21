@@ -1083,6 +1083,10 @@ Status values are returned through the ABI; no exception crosses the native boun
   `poll_event` contract, so a managed drag can end on a focus loss instead of waiting for a release
   that never comes. No binary change: the host emitted both since v42 and the C# side already
   carried them.
+- Module id `5` (`node_bounds`) landed during the ABI 43 work: the picking and framing query the
+  editor's viewport needs. `native_module::node_bounds` resolves to a two-entry table and, being a
+  new optional module, changes nothing in the core layout or in `managed_abi_version` - see "Node
+  bounds module" below.
 
 ## Audio module
 
@@ -1228,3 +1232,39 @@ payload as optional arguments, so existing handlers compile unchanged.
 `managed_host_rml_*` runs the real wrappers for absent, wrong-size and incomplete tables;
 `managed_host_rml_layout` and `managed_host_rml_module_optional_absent` cover the ABI 42 pointer,
 rect and style surface, including a host that predates the optional entries.
+
+## Node bounds module
+
+Module id 5 is optional. `native_module::node_bounds` resolves through `get_module` to a table of
+two function pointers, `query` then `pick`, and the caller compares the returned byte size against
+its own layout before calling either, so a host that publishes only the first entry still answers
+the query. It exists so a managed editor can frame and select a scene without guessing a bound from
+the asset's own numbers: the renderer already holds each node's transformed asset bounds.
+
+| Entry | Arguments after the implicit function name | Result |
+| --- | --- | --- |
+| query | tree, node handle, output `vector_3` center, output float radius | The visible asset subtree's world bounds |
+| pick | tree, `vector_3` origin, `vector_3` direction, output node handle | The nearest visible node the ray hits |
+
+`query` walks the node and its descendants and unions the world-space boxes of every VISIBLE node
+that has asset bounds, transforming each box by that node's world matrix; the answer is the union's
+centre and its half-diagonal as the radius. A node whose subtree has no bounds at all answers its
+own world pivot with radius `0`, which is what lets a camera focus an empty group. A stale or
+foreign handle is `invalid_node` and an unknown tree `scene_not_found`; a null output pointer is
+`invalid_argument`, and the two output values are left alone on failure.
+
+`pick` casts the ray against the same boxes and answers the nearest visible hit as a node handle;
+a miss is `success` with a zero handle, so a caller distinguishes "nothing there" from a failure by
+the handle alone. Invisible nodes and their subtrees are skipped, a non-finite origin or direction
+and a zero-length direction are `invalid_argument`, and a null output pointer is `invalid_argument`
+too. The ray is in world space and its parameter is the same for every node, so the nearest hit is
+the smallest entry distance rather than the closest centre. An unknown tree is `scene_not_found`;
+a handle from a live tree is returned unchanged, so it can be used with the scene module's other
+entries.
+
+C# exposes this as `scene_tree.try_get_bounds(node, out center, out radius)` and
+`scene_tree.try_pick_node(origin, direction, out node)`: both answer `false` when the host
+publishes no table or the call fails, so a game that runs on an older host still loads. A miss is
+`true` with a default node, mirroring the native contract, so the caller tests the returned node's
+`is_valid` rather than the bool. `native_module.node_bounds` is `5` in C# as well; the module id
+alone does not change `managed_abi_version`.
