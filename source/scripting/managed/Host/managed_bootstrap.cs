@@ -153,6 +153,7 @@ namespace deren.scripting {
             } finally {
                 screen_snapshot.shutdown();
                 rml_ui_api.shutdown();
+                ui_api.shutdown();
                 audio_api.shutdown();
             }
         }
