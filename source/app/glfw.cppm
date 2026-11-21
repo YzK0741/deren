@@ -131,7 +131,7 @@ export namespace deren::app {
             if (offscreen) {
                 return;
             }
-            if (glfwInit() != GLFW_TRUE) {
+            if (!acquire_platform()) {
                 deren::utility::panic("glfwInit failed");
             }
             glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -180,7 +180,7 @@ export namespace deren::app {
                 }
 #endif
                 glfwDestroyWindow(window_);
-                glfwTerminate();
+                release_platform();
             }
         }
 
@@ -278,6 +278,33 @@ export namespace deren::app {
     private:
         GLFWwindow* window_;
         bool borderless_ = false;
+
+        // GLFW'S PLATFORM STATE IS PROCESS WIDE. A second glfwInit() registers another copy of the
+        // Win32 window class and re-runs the platform's global setup, and any glfwTerminate() tears
+        // the platform down under every window still open - so initialization is counted and the
+        // platform lives exactly as long as the first window to the last one.
+        inline static unsigned live_windows = 0;
+
+        static bool acquire_platform() {
+            if (live_windows != 0) {
+                ++live_windows;
+                return true;
+            }
+            if (glfwInit() != GLFW_TRUE) {
+                return false;
+            }
+            live_windows = 1;
+            return true;
+        }
+
+        static void release_platform() {
+            if (live_windows == 0) {
+                return;
+            }
+            if (--live_windows == 0) {
+                glfwTerminate();
+            }
+        }
 
 #ifdef _WIN32
         // The subclassed window procedure and the procedure it replaced. A subclass keeps working
@@ -454,6 +481,13 @@ export namespace deren::app {
             if (window_ == nullptr) {
                 return;
             }
+            // THE SEAM POINTER IS SHARED BY EVERY WINDOW, so it is registered rather than assigned:
+            // a seam installed later must not be forgotten when an earlier one is destroyed, and a
+            // destroyed seam must not leave the callbacks routing through freed memory. The newest
+            // live seam receives the events; the application owns one window, and a second seam is
+            // expected to outlive the first only when it replaces it.
+            next_live = live_head;
+            live_head = this;
             active = this;
             glfwSetKeyCallback(window_, [](GLFWwindow* event_window, int code, int, int action, int mods) {
                 if (active->window_ != event_window) {
@@ -554,7 +588,18 @@ export namespace deren::app {
                 glfwSetMouseButtonCallback(window_, previous_button);
                 glfwSetScrollCallback(window_, previous_scroll);
                 glfwSetCharCallback(window_, nullptr);
-                active = nullptr;
+                // Unlink first: `active` falls back to the newest seam still alive, never to a
+                // pointer into the windows that was just torn down and never to null while another
+                // seam is installed.
+                for (glfw_action_input** link = &live_head; *link != nullptr; link = &(*link)->next_live) {
+                    if (*link == this) {
+                        *link = next_live;
+                        break;
+                    }
+                }
+                if (active == this) {
+                    active = live_head;
+                }
             }
         }
 
@@ -601,6 +646,10 @@ export namespace deren::app {
         float cursor_x = 0.0F;
         float cursor_y = 0.0F;
         bool has_cursor = false;
+        // The registry of live seams, newest first: see the constructor and destructor for why a single
+        // shared `active` pointer is not enough.
+        glfw_action_input* next_live = nullptr;
         static inline glfw_action_input* active = nullptr;
+        static inline glfw_action_input* live_head = nullptr;
     };
 } // namespace deren::app
