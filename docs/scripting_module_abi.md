@@ -101,6 +101,15 @@ struct input_event {
     std::uint32_t codepoint;
 };
 
+// The orbit pose the managed game owns, passed by pointer through get_camera / set_camera.
+// It carries no abi_layout entry, so this size is guarded only by the sender's own static_assert.
+struct camera_state {
+    float yaw_degrees = 0.0F;
+    float pitch_degrees = 0.0F;
+    float distance = 2.2F;
+    vector_3 target{};
+};
+
 struct managed_api {
     script_status(* update)(frame_info const* frame) = nullptr;
     script_status(* stop)() = nullptr;
@@ -141,8 +150,8 @@ mouse button, cursor move (with the delta since the previous move), scroll, type
 focus loss. The callback arrives on the render thread, in the order the window produced the events,
 and `context` is handed back untouched. The host keeps no input state of its own - what a wheel
 notch or an escape key means is the game's decision - and this stream is separate from the
-named-action bytes in `frame_info`, which the engine's own action map fills. A null callback stops
-the forwarding.
+named-action bytes in `frame_info`, which the host fills from the project's `[input.actions]`
+bindings. A null callback stops the forwarding.
 
 `native_api.request_screenshot` is the scripted counterpart of the F12 key: it asks the renderer
 to capture the next frame recorded after the request, which is then saved under
@@ -237,8 +246,8 @@ struct scene_api {
     load_asset;
     release_asset;
     bind_asset;
-    get_camera;
-    set_camera;
+    get_camera;             // (camera_state* value)
+    set_camera;             // (camera_state const* value)
     set_environment_hdr;
     asset_pipeline_count;
     asset_pipeline;
@@ -373,6 +382,12 @@ leaves the pointer null, and the C# wrapper reports `module_unavailable`.
   must be below the engine's `max_game_toon_characters` (16); a non-finite value, a degenerate
   front/right axis, or a flag above 1 is `invalid_argument`. A slot that is never published keeps
   the glTF basis, so a project that ignores the feature gets the same picture as one that does not.
+- `get_camera` copies the renderer's orbit pose into `value`, and `set_camera` writes one back.
+  `camera_state` is 24 bytes: yaw and pitch in degrees, a positive distance, and a world-space
+  target; `set_camera` converts the angles to radians and stores the pose as given, without
+  normalising yaw or clamping pitch. A null pointer, a non-finite angle or target component, or a
+  distance of zero or less is `invalid_argument`; both entries answer `scene_not_found` when no
+  scene is active or the host exposes no camera entry.
 
 - `set_capture_camera` installs the offscreen cube-capture camera (`enabled == 0` restores the
   orbit camera and turns the capture pass off). A live camera needs a finite position, a face in
@@ -546,6 +561,30 @@ bool global_environment.try_set_hdr(string? path);
 `path` is a baked `.ibl` or an equirectangular `.hdr`; an empty string restores the procedural
 sky. The call queues the change and returns whether the host accepted the path.
 
+The camera the game scripts is one orbit pose, not a handle:
+
+```csharp
+public struct orbit_camera {
+    public float yaw_degrees;
+    public float pitch_degrees;
+    public float distance;
+    public vector_3 target;
+    public bool try_apply();
+    public bool try_apply(out script_status status);
+    public static bool try_get(out orbit_camera value);
+    public static bool try_get(out orbit_camera value, out script_status status);
+}
+```
+
+`orbit_camera` mirrors the native `camera_state` field for field; `try_apply` calls
+`scene_api.assign_camera` (the table's `set_camera`) and `try_get` calls `scene_api.query_camera`
+(the table's `get_camera`). Those wrappers answer `module_unavailable` when the table is not bound or
+the host leaves the camera slot null. With no active scene both answer `scene_not_found`;
+`set_camera` also returns `invalid_argument` for a null pointer and for a pose whose angles,
+distance or target are not finite, or whose distance is zero or less - so a default `orbit_camera`
+(distance `0`) is refused and a caller states a positive distance. The managed type is
+`deren.orbit_camera`; `camera_state` is only the native record name.
+
 Screen space and frame counters are read-only:
 
 ```csharp
@@ -629,6 +668,10 @@ carried a head position it also sends the centre, so the shader's head-sphere te
 origin; when it did not, the `has_center` flag stays 0 and that term is switched off rather than
 measured from the world origin.
 
+`head_basis` is declared in namespace `deren.scripting` (as are `host_logger` and `frame_scheduler`),
+not in `deren` like the scene types around it, so a project needs `using deren.scripting;` to name
+it. `head_basis_desc` and `scene_api.set_head_basis` are the wire side of the same feature.
+
 The toon light rig is the character stage's ten-lane value block, editable at runtime:
 
 ```csharp
@@ -710,6 +753,61 @@ A loaded handle owns one decoded and resolved source model. Binding imports that
 target tree; the handle can be released after binding. Releasing it does not invalidate bound
 nodes. The asset is selected by library id, so a managed project does not need a matching
 `[[scene.objects]]` entry.
+
+### Input
+
+```csharp
+public static class input_events {
+    public static bool try_set_callback(Action<input_event>? value);
+    public static bool try_set_callback(Action<input_event>? value, out script_status status);
+    public static bool active { get; }
+}
+
+public readonly struct input_event {
+    public input_event(input_type type, int button, bool down, int key, float x, float y,
+                       float dx, float dy, float wheel, uint codepoint);
+    public input_type type { get; }   // mouse_move, mouse_button, scroll, key, character, focus_lost
+    public int button { get; }        // mouse_button: 0 left, 1 right, 2 middle
+    public bool down { get; }         // mouse_button and key
+    public int key { get; }           // key: a GLFW code
+    public float x { get; }           // pointer events: the cursor in window pixels
+    public float y { get; }
+    public float dx { get; }          // mouse_move: movement since the previous event
+    public float dy { get; }
+    public float wheel { get; }       // scroll: positive is up/away
+    public uint codepoint { get; }    // character: one Unicode scalar
+}
+
+public static class key_code { /* escape = 256, enter = 257, space = 32, a = 65, ... */ }
+
+public static class input_state {
+    public static bool is_down(string action);
+    public static bool was_pressed(string action);
+    public static bool was_released(string action);
+}
+```
+
+`input_events` wraps `native_api.set_input_event_callback`: one handler for the whole window, and
+`null` removes it. `try_set_callback` returns false only when the host publishes no input entry at
+all (an older host, `module_unavailable`), never because there is no window. An exception the
+handler throws is caught at the boundary and logged as `Game: input handler threw: <message>`, so it
+never unwinds into the host; `active` reports whether a handler is installed.
+
+`key_code` names the GLFW key codes the host forwards so a game does not hard-code numbers:
+`escape` 256, `enter` 257, `tab` 258, `backspace` 259, `space` 32, the four arrows (`left` 263,
+`right` 262, `up` 265, `down` 264), the letter keys the demo binds (`a` 65, `d` 68, `e` 69, `f` 70,
+`q` 81, `r` 82, `s` 83, `w` 87), and the left shift/control/alt trio (340, 341, 342). Any other
+code still arrives as its raw value in `input_event.key`.
+
+`input_state` reads the frame's named-action bytes rather than the event stream. `frame_info.input`
+holds one flag byte per action declared under `[input.actions]` in the project file, in declaration
+order, and `input_count` is how many there are; the bits are 1 down, 2 pressed this frame, and 4
+released this frame. The name-to-index map is the project's own: `input_state.begin_frame(map, bytes)`
+is internal to Deren.Managed (reachable through `InternalsVisibleTo("Game")`) and is what the
+project's `update` calls once per frame, with `end_frame` when it returns; the sample game
+hard-codes the map so its indices match its `deren.toml` order. A query made outside that update
+throws `InvalidOperationException`, and one for a name the map does not hold throws
+`ArgumentException`, because a silent `false` would hide a typo in an action name.
 
 ### Frame events
 
@@ -819,6 +917,41 @@ host does so it can assert the message, the managed location and the stack cross
 A host that answers anything else (or publishes no entry at all, i.e. older than v37) makes the
 managed side write the same report to stderr and then call `Environment.FailFast`, so the fault is
 never silent.
+
+### Scripts
+
+`script_base` is the base class a project instantiates; the host never creates one or calls its
+hooks. Binding is internal - `attach(ulong scene_id, node_handle)` stores the id, the node and the
+managed thread, and `detach` clears the node and the id - and only `InternalsVisibleTo("Game")`
+lets a project reach it; the editor assembly is named `Game` too, which is how its play mode binds
+behaviours.
+
+```csharp
+public abstract class script_base {
+    protected scene_access scene { get; }
+    protected node_id self { get; }
+    protected transform_value transform { get; set; }
+    public virtual void on_create();
+    public virtual void on_update(float delta_time);
+    public virtual void on_destroy();
+}
+```
+
+The three hooks are empty and virtual; the project decides when they run. The editor's play mode
+attaches a script (with the live scene id) and then calls `on_create`, and calls `on_destroy` when
+it detaches; the sample game attaches with scene id `0`, calls `on_update` for each attached script
+from its `update`, and calls `on_destroy` on shutdown - it never calls `on_create`. `self` is the
+node the script is attached to; `scene` is that node's tree (`try_spawn`, `try_despawn`);
+`transform` reads and writes `self`'s local transform and throws `InvalidOperationException` when
+the native call fails.
+
+Every `scene_access` entry calls `owner.ensure_bound()` before it reaches the table, and a `node_id`
+taken from a script's `self` carries that script and does the same; `ensure_bound` throws
+`InvalidOperationException` unless the script is attached (`node.value != 0`) and the call arrives
+on the managed thread that ran `attach`. A `node_id` obtained from `scene_tree` has no owner, so its
+calls answer `invalid_node` instead of throwing, and a default `scene_access`/`node_id` reports
+`invalid_argument`/`invalid_node` rather than reaching the host.
+
 ## 6. Project entry
 
 ```csharp
@@ -885,7 +1018,9 @@ Status values are returned through the ABI; no exception crosses the native boun
   and reports each module table's size through `get_module`'s `byte_size`. The managed bootstrap
   compares all of it against its own mirrors before it binds and refuses to start on a mismatch,
   so a field added, removed, or reordered without a version bump fails loudly instead of calling
-  through a signature the callee does not have.
+  through a signature the callee does not have. `camera_state` is the one shared record without a
+  `abi_layout` entry (section 2): its size is guarded only by the native `static_assert`, so a
+  change to it belongs with a version bump and a matching change to `orbit_camera`.
 - A field addition, removal, reorder, or signature change bumps the global version.
 - A new optional MODULE id does not bump the version: it is discovered through
   `get_module` and size-checked like the others, so a host that does not publish it leaves an
