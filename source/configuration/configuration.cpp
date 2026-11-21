@@ -320,9 +320,24 @@ namespace deren::app_config {
                     // THE SLOT IS THE ELEMENT'S INDEX, not the count of channels accepted so far: a rejected
                     // (non-finite) channel used to leave `i` behind, so `[nan, 0.25, 0.3]` wrote 0.25 into red
                     // and shifted the whole colour. A poisoned channel now keeps its own default in place.
-                    for (std::size_t i = 0; i < color->size() && i < settings.render.clear_color.size(); ++i) {
-                        if (std::optional<float> const channel = finite_scalar(&(*color)[i])) {
-                            settings.render.clear_color[i] = *channel;
+                    //
+                    // A COLOUR IS THREE NUMBERS OR IT IS NOT A COLOUR. A 1- or 2-element array used to fill the
+                    // channels it carried and leave the rest at the compiled default, so `clear_color = [0.5]`
+                    // quietly produced a half-red background the user never described - and nothing in the log
+                    // said the rest of the value came from somewhere else. The documented contract is RGB, so a
+                    // wrong length now leaves the whole default, with one line saying why (the same rule
+                    // `read_finite_vec3` applies to every other vector in this file).
+                    if (color->size() != settings.render.clear_color.size()) {
+                        deren::utility::log("app_config: clear_color needs exactly 3 channels (RGB), got {}; keeping the default", color->size());
+                    } else {
+                        for (std::size_t i = 0; i < color->size(); ++i) {
+                            // finite_clamped, not finite_scalar: the contract is "RGB in 0..1", so a value
+                            // outside that range is outside the documented range and is clamped into it, the
+                            // way `exposure` and `sun_intensity` are. A non-finite channel still keeps its own
+                            // default (clamping cannot rescue a NaN: every comparison against one is false).
+                            if (std::optional<float> const channel = finite_clamped(&(*color)[i], 0.0, 1.0)) {
+                                settings.render.clear_color[i] = *channel;
+                            }
                         }
                     }
                 }
@@ -446,7 +461,11 @@ namespace deren::app_config {
             }
             if (toml::node const* node = render->get("shadow_map_size")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.render.shadow_map_size = static_cast<std::int32_t>(*value);
+                    // Saturated before the narrowing, like grid_side: a raw cast is a modulo conversion, so
+                    // `shadow_map_size = 4294969344` arrived at the 256..8192 check as a plausible 2048 and
+                    // was accepted as if the file had said so. Saturation makes it a clearly out-of-range
+                    // number, which the check rejects (and reports) below.
+                    settings.render.shadow_map_size = saturating_int32(*value);
                 }
             }
             if (toml::node const* node = render->get("ssao")) {
@@ -523,13 +542,20 @@ namespace deren::app_config {
             }
             if (toml::node const* node = render->get("game_toon_copies")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.render.game_toon_copies = static_cast<std::int32_t>(*value);
+                    // Saturated, not cast: the value is a count of character copies, so the upstream parser
+                    // is the only place that knows it is a number and not a bit pattern. A wrapping cast
+                    // would let 2^32 + 3 arrive as a "valid" 3. Nothing is consumed from this field by this
+                    // build yet (see the field's note in configuration.cppm), but the reader still must not
+                    // invent a plausible value.
+                    settings.render.game_toon_copies = saturating_int32(*value);
                 }
             }
             // THE STATIC SURROUND'S SECOND MODEL ([render] background_glb): an empty string is the default and
             // means "this frame has no background model", which keeps every recorded reference valid. The path
-            // is NOT touched here - `main.cpp` resolves a relative one against the executable's directory,
-            // because that is where the assets are and the config loader has no idea where the exe sits.
+            // is stored verbatim here; only the project entry path (`load_project`) resolves it, against the
+            // project root. NO RENDERER CONSUMES IT in this build - the managed host owns the background
+            // import - so it is parsed purely so an existing config keeps loading without an unknown-key
+            // warning. The old comment pointed at a resolver in `main.cpp` that no longer exists.
             if (toml::node const* node = render->get("background_glb")) {
                 if (std::optional<std::string_view> const value = node->value<std::string_view>()) {
                     settings.render.background_glb = *value;
@@ -573,7 +599,11 @@ namespace deren::app_config {
             read_bool("async_present", settings.render.async_present);
             if (toml::node const* node = debug_source("gbuffer_channel")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.render.gbuffer_channel = static_cast<std::int32_t>(*value);
+                    // Saturated like grid_side: a modulo cast turns 2^32 + 1 into the valid-looking channel 1,
+                    // which draws a real channel instead of the one the file asked for. The range itself is
+                    // the pass's (gbuffer_debug_pass::set_channel clamps to its declared channel count), so
+                    // this reader only has to stop inventing a plausible value.
+                    settings.render.gbuffer_channel = saturating_int32(*value);
                 }
             }
             if (toml::node const* grid_side_node = debug_source("grid_side")) {
@@ -586,7 +616,9 @@ namespace deren::app_config {
             }
             if (toml::node const* node = debug_source("demo_lights")) {
                 if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.lighting.demo_lights = static_cast<std::int32_t>(*value);
+                    // Saturated for the same reason as grid_side: the 0..max_demo_lights clamp below runs on
+                    // the narrowed value, so 2^32 used to arrive as a plausible 0 and 2^32 + 1 as 1.
+                    settings.lighting.demo_lights = saturating_int32(*value);
                 }
             }
             // The generated lights' geometry (see the struct's note): a radius and a range, both as
@@ -745,20 +777,53 @@ namespace deren::app_config {
                 if (!probe->contains(key)) {
                     return;
                 }
-                auto const* values = probe->get_as<toml::array>(key);
-                if (!values || values->size() != 3) {
-                    target[0] = std::numeric_limits<float>::quiet_NaN();
-                    return;
+                // EVERY COMPONENT IS SANITISED, not just the first. The NaN sentinel is how an unusable
+                // probe tells `set_local_probe` to refuse it, and a value that is not three finite numbers
+                // must not leave a plausible half-vector behind: marking only `target[0]` left `[NaN, 0, 0]`
+                // for a two-element array, and a non-finite component written explicitly (`[inf, 0, 0]`)
+                // sailed through as an infinity because only the *missing* case was checked. Both are now
+                // the same answer - three NaNs - so whatever reads a single channel (the log, a future
+                // consumer, a test) cannot report a number the file never supplied.
+                float const nan = std::numeric_limits<float>::quiet_NaN();
+                deren::utility::vessel::array<float, 3> parsed = {nan, nan, nan};
+                // A component list that parses part way must not leave the good prefix behind (a file that
+                // said [1.0, inf, 2.0] is not "1.0, NaN, NaN"): one failure discards the whole array below.
+                bool complete = true;
+                if (toml::array const* values = probe->get_as<toml::array>(key); values != nullptr && values->size() == parsed.size()) {
+                    for (std::size_t i = 0; i < parsed.size(); ++i) {
+                        std::optional<double> const component = (*values)[i].value<double>();
+                        if (!component || !std::isfinite(*component) || std::abs(*component) > std::numeric_limits<float>::max()) {
+                            complete = false;
+                            break;
+                        }
+                        parsed[i] = static_cast<float>(*component);
+                    }
+                } else {
+                    complete = false; // present, but not an array of three numbers
                 }
-                for (std::size_t i = 0; i < 3; ++i) {
-                    target[i] = static_cast<float>((*values)[i].value_or(std::numeric_limits<double>::quiet_NaN()));
+                if (!complete) {
+                    parsed = {nan, nan, nan};
                 }
+                target = parsed;
             };
             vec("position", r.position);
             vec("box_min", r.minimum);
             vec("box_max", r.maximum);
-            r.fade = probe->contains("fade") ? static_cast<float>((*probe)["fade"].value_or(std::numeric_limits<double>::quiet_NaN())) : .5f;
-            r.gain = probe->contains("gain") ? static_cast<float>((*probe)["gain"].value_or(std::numeric_limits<double>::quiet_NaN())) : 1.f;
+            // `fade`/`gain` take the same sentinel for a non-finite or non-numeric value: the defaults are
+            // only used when the key is absent, so a stated-but-unusable number cannot silently become the
+            // default and make a broken probe look like a deliberate one.
+            auto scalar = [&](char const* key, float fallback) {
+                if (!probe->contains(key)) {
+                    return fallback;
+                }
+                std::optional<double> const value = (*probe)[key].value<double>();
+                if (!value || !std::isfinite(*value) || std::abs(*value) > std::numeric_limits<float>::max()) {
+                    return std::numeric_limits<float>::quiet_NaN();
+                }
+                return static_cast<float>(*value);
+            };
+            r.fade = scalar("fade", r.fade);
+            r.gain = scalar("gain", r.gain);
         }
         // THE ENVIRONMENT AND AREA-LIGHT PROFILE ([lighting] profile): the numeric IBL knobs and the reference
         // package's area light are calibrated together, so they live in a TOML file named by one key. `[lighting]`
@@ -861,14 +926,18 @@ namespace deren::app_config {
                     settings.gui.show = *value;
                 }
             }
+            // THE PANEL SIZE IS PIXELS, which are floats (ImGui takes them as such, and DPI scaling makes
+            // 380.5 a meaningful size). Reading only `value<std::int64_t>()` silently ignored a fractional
+            // size and kept the default, so a DPI-scaled config did not do what it said. finite_scalar takes
+            // the numeric branch of the TOML node, so a plain integer still reads as before.
             if (toml::node const* node = gui->get("panel_width")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.gui.panel_width = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.gui.panel_width = *value;
                 }
             }
             if (toml::node const* node = gui->get("panel_height")) {
-                if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                    settings.gui.panel_height = static_cast<float>(*value);
+                if (std::optional<float> const value = finite_scalar(node)) {
+                    settings.gui.panel_height = *value;
                 }
             }
         }
@@ -999,7 +1068,10 @@ namespace deren::app_config {
                     }
                     if (toml::node const* node = source->get("animation")) {
                         if (std::optional<std::int64_t> const value = node->value<std::int64_t>()) {
-                            object.animation = static_cast<std::int32_t>(*value);
+                            // A clipping index, not a count: it is narrowed here and resolved against the
+                            // imported clip list after the scene loads, so a wrapping cast could turn an
+                            // absurd 64-bit number into a plausible index and play the wrong clip.
+                            object.animation = saturating_int32(*value);
                         }
                     }
                     if (toml::node const* node = source->get("animation_speed")) {
@@ -1536,13 +1608,14 @@ namespace deren::app_config {
             char* end = nullptr;
             // `strtol` answers in `long`, whose width is the PLATFORM's (32 bits on Windows, 64 on Linux): the
             // conversion is explicit so the fixed-width type this file uses everywhere else is not narrowed by
-            // whichever platform happened to compile it. The clamp below is what bounds the value anyway.
-            std::int32_t const side = static_cast<std::int32_t>(std::strtol(arg.c_str(), &end, 10));
+            // whichever platform happened to compile it. THE CLAMP RUNS IN 64-BIT SPACE, BEFORE THAT NARROWING:
+            // strtol saturates a long overflow to LONG_MAX, and casting that to int32 first would turn the
+            // clamp into a rule about whatever the low 32 bits happened to be.
+            std::int64_t const side = static_cast<std::int64_t>(std::strtol(arg.c_str(), &end, 10));
             if (end != arg.c_str() && *end == '\0') {
                 // grid side: clamp instead of trusting the raw value - a huge argv number would
-                // otherwise make the instancing stress reserve enormous buffers (and strtol
-                // overflow saturates to LONG_MAX, which the clamp also absorbs)
-                settings.grid_side = std::clamp(side, std::int32_t{0}, std::int32_t{90});
+                // otherwise make the instancing stress reserve enormous buffers
+                settings.grid_side = saturating_int32(std::clamp<std::int64_t>(side, 0, 90));
             } else {
                 deren::utility::log("app_config: ignoring unrecognized positional argument '{}' (expected a numeric grid side)", arg);
             }
