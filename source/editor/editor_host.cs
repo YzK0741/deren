@@ -871,13 +871,14 @@ namespace deren.editor {
             document.mark_dirty();
             record_undo(asset_id == null ? "Create" : "Add Asset",
                 () => {
-                    if (!destroy_runtime(node)) { return; }
+                    if (!destroy_runtime(node)) { return false; }
                     remove_document_node(parent, node);
                     if (asset_id != null) {
                         if (document.find(previous_selection) != null) { selection_state?.select(previous_selection); }
                         else { selection_state?.clear(); }
                     }
                     mark_dirty_and_refresh();
+                    return true;
                 },
                 () => {
                     if (!insert_document_node(parent, index, node) || !create_subtree(parent, node)) {
@@ -885,10 +886,11 @@ namespace deren.editor {
                         remove_document_node(parent, node);
                         notice = $"Cannot recreate node: {node.name}";
                         refresh_panels(force_details: true);
-                        return;
+                        return false;
                     }
                     if (asset_id != null) { selection_state?.select(node.uid); }
                     mark_dirty_and_refresh();
+                    return true;
                 });
             refresh_panels(force_details: asset_id != null);
             return true;
@@ -915,14 +917,27 @@ namespace deren.editor {
             document.mark_dirty();
             record_undo("Delete",
                 () => {
-                    insert_document_node(parent, index, node);
-                    create_subtree(parent, node);
+                    // THE UNDO OF A DELETE IS A CREATE, and a create can fail (the asset the node
+                    // names may be gone). Reporting it keeps the entry on the undo side instead of
+                    // leaving a node in the document that the scene has no runtime counterpart for.
+                    if (!insert_document_node(parent, index, node) || !create_subtree(parent, node)) {
+                        if (node.runtime.is_valid) { destroy_runtime(node); }
+                        remove_document_node(parent, node);
+                        notice = $"Cannot restore node: {node.name}";
+                        refresh_panels(force_details: true);
+                        return false;
+                    }
+                    document.mark_dirty();
                     mark_dirty_and_refresh();
+                    return true;
                 },
                 () => {
-                    remove_document_node(parent, node);
-                    destroy_runtime(node);
+                    if (!destroy_runtime(node) || !remove_document_node(parent, node)) {
+                        return false;
+                    }
+                    document.mark_dirty();
                     mark_dirty_and_refresh();
+                    return true;
                 });
             selection_state.clear();
             refresh_panels();
@@ -975,16 +990,8 @@ namespace deren.editor {
             }
             document.mark_dirty();
             record_undo("Rename",
-                () => {
-                    node.name = previous;
-                    push_runtime(node);
-                    mark_dirty_and_refresh();
-                },
-                () => {
-                    node.name = trimmed;
-                    push_runtime(node);
-                    mark_dirty_and_refresh();
-                });
+                () => apply_node_name(node, previous),
+                () => apply_node_name(node, trimmed));
             rename_field = string.Empty;
             ui?.set_value(rename_field_id, string.Empty);
             refresh_panels(force_details: true);
@@ -1114,17 +1121,43 @@ namespace deren.editor {
             return true;
         }
 
+        /// <summary>
+        /// Writes one name onto the document node and the runtime node. When the runtime refuses the
+        /// name the document is put back, so the outliner never shows a label the scene does not have.
+        /// </summary>
+        private bool apply_node_name(document_node node, string name) {
+            var previous = node.name;
+            node.name = name;
+            if (!push_runtime(node)) {
+                node.name = previous;
+                return false;
+            }
+            mark_dirty_and_refresh();
+            return true;
+        }
+
         /// <summary>Writes a snapshot back onto the document node and the runtime node.</summary>
-        private void restore_node(document_node node, node_snapshot snapshot, bool mark_dirty) {
+        private bool restore_node(document_node node, node_snapshot snapshot, bool mark_dirty) {
+            var previous = new node_snapshot(node);
             node.name = snapshot.name;
             node.local = snapshot.local;
             node.visible = snapshot.visible;
             node.flags = snapshot.flags;
             node.script = snapshot.script;
-            push_runtime(node);
+            if (!push_runtime(node)) {
+                // THE RUNTIME REFUSED THE SNAPSHOT: putting the document back keeps the two sides
+                // equal, and returning false keeps the history entry where it was.
+                node.name = previous.name;
+                node.local = previous.local;
+                node.visible = previous.visible;
+                node.flags = previous.flags;
+                node.script = previous.script;
+                return false;
+            }
             if (mark_dirty) {
                 mark_dirty_and_refresh();
             }
+            return true;
         }
 
         /// <summary>The editable values of one node, captured before and after an edit.</summary>
@@ -1144,7 +1177,7 @@ namespace deren.editor {
             internal readonly string? script;
         }
 
-        private void record_undo(string label, Action undo, Action redo) {
+        private void record_undo(string label, Func<bool> undo, Func<bool> redo) {
             undo_history?.push(new delegate_undo_command(label, undo, redo));
         }
 
@@ -1471,18 +1504,28 @@ namespace deren.editor {
             if (!cancel && !before.Equals(after)) {
                 document?.mark_dirty();
                 record_undo(label,
-                    () => { apply_gizmo_transform(node, before); mark_dirty_and_refresh(); },
-                    () => { apply_gizmo_transform(node, after); mark_dirty_and_refresh(); });
+                    () => {
+                        if (!apply_gizmo_transform(node, before)) { return false; }
+                        mark_dirty_and_refresh();
+                        return true;
+                    },
+                    () => {
+                        if (!apply_gizmo_transform(node, after)) { return false; }
+                        mark_dirty_and_refresh();
+                        return true;
+                    });
             } else if (cancel && !before.Equals(after)) {
                 apply_gizmo_transform(node, before);
             }
             refresh_panels(force_details: true);
         }
 
-        private void apply_gizmo_transform(document_node node, transform_value value) {
-            if (tree?.try_set_transform(node.runtime, value) == true) {
-                node.local = value;
+        private bool apply_gizmo_transform(document_node node, transform_value value) {
+            if (tree?.try_set_transform(node.runtime, value) != true) {
+                return false;
             }
+            node.local = value;
+            return true;
         }
 
         private void show_scene_path(bool saving) {
@@ -1602,7 +1645,10 @@ namespace deren.editor {
                 if (pipelines.Length < 2) {
                     return;
                 }
-                var before = node.pipeline ?? pipelines[0];
+                // A node with no explicit pipeline runs its asset's declared default, so that is what
+                // "before" has to mean: the cycle starts from the default and undo restores the null
+                // that says "ask the asset" instead of pinning the default into the document.
+                var before = node.pipeline;
                 string pipeline = pipelines[(Array.IndexOf(pipelines, node.pipeline) + 1) % pipelines.Length];
                 if (!tree.try_set_pipeline(node.runtime, pipeline)) {
                     return;
@@ -1616,11 +1662,34 @@ namespace deren.editor {
             }
         }
 
-        private void restore_pipeline(document_node node, string pipeline) {
-            if (tree?.try_set_pipeline(node.runtime, pipeline) == true) {
-                node.pipeline = pipeline;
-                mark_dirty_and_refresh();
+        /// <summary>
+        /// Writes a pipeline back onto the runtime node and the document. A null pipeline means "the
+        /// asset's declared default": the runtime is still given the concrete name it needs, while the
+        /// document records the absence so a save keeps the scene as it was authored.
+        /// </summary>
+        private bool restore_pipeline(document_node node, string? pipeline) {
+            if (tree == null) {
+                return false;
             }
+            var target = pipeline;
+            if (target == null) {
+                if (node.asset == null || !asset_manager.try_load(node.asset, out var asset)) {
+                    return false;
+                }
+                try {
+                    if (!asset_manager.try_get_default_pipeline(asset, out target) || target == null) {
+                        return false;
+                    }
+                } finally {
+                    asset_manager.release(asset);
+                }
+            }
+            if (!tree.try_set_pipeline(node.runtime, target)) {
+                return false;
+            }
+            node.pipeline = pipeline;
+            mark_dirty_and_refresh();
+            return true;
         }
 
         private bool handle_asset_drag(rml_event input) {
@@ -2075,8 +2144,23 @@ namespace deren.editor {
                 if (count_nodes(document.roots) != count + 1 || added?.asset != runtime_selftest_asset || !added.runtime.is_valid) {
                     return selftest_failure("double click did not load and select the asset after startup");
                 }
-                if (runtime_selftest_asset == "laevatain" && added.pipeline != "game_toon") {
-                    return selftest_failure("Laevatain did not retain its game_toon default");
+                if (runtime_selftest_asset == "laevatain") {
+                    // THE DOCUMENT KEEPS THE ABSENCE: binding applies the asset's declared default to
+                    // the runtime (see scene_sync.try_bind_asset) without writing it back into the
+                    // node, so the check belongs on the asset side and on the document staying null.
+                    if (added.pipeline != null) {
+                        return selftest_failure("Laevatain's asset default was written into the document");
+                    }
+                    if (!asset_manager.try_load(runtime_selftest_asset, out var laevatain)) {
+                        return selftest_failure("Laevatain could not be loaded for its default check");
+                    }
+                    try {
+                        if (!asset_manager.try_get_default_pipeline(laevatain, out var declared) || declared != "game_toon") {
+                            return selftest_failure("Laevatain did not declare its game_toon default");
+                        }
+                    } finally {
+                        asset_manager.release(laevatain);
+                    }
                 }
                 selftest_asset_uid = added.uid;
                 host_logger.write($"Editor selftest: runtime double click loaded and selected {runtime_selftest_asset}");
@@ -2224,6 +2308,13 @@ namespace deren.editor {
             }
 
             var character = document.find(selftest_asset_uid)!;
+            // BINDING MUST NOT WRITE THE ASSET DEFAULT INTO THE DOCUMENT: a null pipeline already
+            // means "use the default", and pinning it here would move the save point and make the
+            // undo of the next pipeline change land on a state the file never had.
+            if (character.pipeline != null) {
+                host_logger.write("Editor mixed selftest: binding wrote the asset default into the document");
+                return false;
+            }
             selection_state.select(character.uid);
             string? original_pipeline = character.pipeline;
             cycle_pipeline();
