@@ -279,12 +279,22 @@ namespace deren::app {
 
     } // namespace
 
+    // ABI 31: THE GAME'S INPUT HANDLER. One game, one handler, so the slot is file scope; the app
+    // delivers on the render thread as events happen, which is why nothing here allocates. Declared
+    // above stop() so a stopped session can drop it: the managed delegate points into a host that is
+    // about to unload, and a stale slot would call into it on the next event.
+    namespace {
+        void (*input_callback)(void* context, scripting::input_event const* event) = nullptr;
+        void* input_context = nullptr;
+    } // namespace
+
     void script_scene::stop() {
-        this->closing = true;
         if (std::exchange(this->running, false) && this->scripts.stop != nullptr &&
             this->scripts.stop() != scripting::script_status::success) {
             utility::log("scripts: managed game stopped with script errors");
         }
+        input_callback = nullptr;
+        input_context = nullptr;
         this->clear_asset_binder();
     }
 
@@ -358,6 +368,22 @@ namespace deren::app {
         tree = nullptr;
         tree_id = 0;
         asset_binder = binder;
+        // Every failure below must leave the scene as it found it: the editor retries play() after a
+        // rejected game, and a half-installed host plus the owned audio session made that retry fail
+        // with "an audio scripting session is already active" for a session that no longer exists.
+        auto const rollback = [this]() {
+            host = {};
+            asset_binder = {};
+            tree = nullptr;
+            tree_id = 0;
+            // A game that installed its input handler before failing must not leave it behind: the
+            // slot outlives the attempt and would deliver the next event into a dead context.
+            input_callback = nullptr;
+            input_context = nullptr;
+            if (std::exchange(owns_audio_session, false)) {
+                scripting::audio_host::end_session();
+            }
+        };
 
         auto const runtime_dir = utility::executable_directory() / "managed";
 #if defined(_WIN32)
@@ -384,6 +410,7 @@ namespace deren::app {
             api, scripts);
         starting_scene = nullptr;
         if (result.status != scripting::host_status::success) {
+            rollback();
             if (result.status == scripting::host_status::runtime_discovery_failed ||
                 result.status == scripting::host_status::runtime_initialization_failed) {
                 return std::unexpected(std::format("Cannot start .NET 10 for '{}'. Check the installed runtime (host detail 0x{:08x}).",
@@ -393,6 +420,7 @@ namespace deren::app {
                                                runtime_dir.string(), static_cast<int>(result.status), static_cast<std::uint32_t>(result.detail)));
         }
         if (tree == nullptr) {
+            rollback();
             return std::unexpected("The managed game did not activate a scene tree.");
         }
         running = true;
@@ -516,13 +544,7 @@ namespace deren::app {
                                                                   : scripting::script_status::invalid_argument;
     }
 
-    // ABI 31: THE GAME'S INPUT HANDLER. One game, one handler, so the slot is file scope; the app
-    // delivers on the render thread as events happen, which is why nothing here allocates.
-    namespace {
-        void (*input_callback)(void* context, scripting::input_event const* event) = nullptr;
-        void* input_context = nullptr;
-    } // namespace
-
+    // ABI 31: THE GAME'S INPUT HANDLER. The storage is declared above stop(), which clears it.
     void script_scene::set_input_event_callback(void (*callback)(void* context, scripting::input_event const* event),
                                                 void* context) {
         input_callback = callback;
@@ -568,10 +590,10 @@ namespace deren::app {
         if (owner == nullptr || owner->host.set_environment_hdr == nullptr) {
             return scripting::script_status::scene_not_found;
         }
+        // The host answers with the real reason (no renderer, bad slot, missing file) so managed
+        // code can report it; collapsing every refusal into asset_not_found hid a missing host.
         return owner->host.set_environment_hdr(owner->host.context, std::string_view{path.data, path.length},
-                                               environment_slot)
-                   ? scripting::script_status::success
-                   : scripting::script_status::asset_not_found;
+                                               environment_slot);
     }
 
     script_scene* script_scene::current_owner() {
@@ -1821,7 +1843,8 @@ namespace deren::app {
         auto const* entry = find_managed_tree_entry(tree);
         auto const* owner = entry ? entry->owner : nullptr;
         if (entry && entry->active && owner && owner->asset_binder.before_remove) {
-            owner->asset_binder.before_remove(owner->asset_binder.context);
+            // The node goes along: the host state a removal invalidates is scoped to one subtree.
+            owner->asset_binder.before_remove(owner->asset_binder.context, node);
         }
         return scene->destroy_node(id) ? scripting::script_status::success : scripting::script_status::invalid_node;
     }
