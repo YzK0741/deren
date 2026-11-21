@@ -151,6 +151,7 @@ namespace deren.scripting {
             try {
                 return project_stop == null ? script_status.script_failure : project_stop();
             } finally {
+                screen_snapshot.shutdown();
                 rml_ui_api.shutdown();
                 audio_api.shutdown();
             }

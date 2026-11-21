@@ -15,6 +15,10 @@ namespace deren.editor {
         private readonly rml_document ui;
         private readonly asset_thumbnail_cache thumbnails;
         private readonly string?[] displayed_thumbnails = new string?[tile_capacity];
+        // Last write time of the file behind displayed_thumbnails. Comparing the file identity alone is
+        // not enough: a rebuilt thumbnail can land on the same path, and then the slot would keep the
+        // old texture forever.
+        private readonly long[] displayed_stamps = new long[tile_capacity];
         private readonly List<string> visible = new(tile_capacity);
         private string selected = string.Empty;
 
@@ -33,7 +37,9 @@ namespace deren.editor {
                 return false;
             }
             id = visible[tile];
-            return true;
+            // An empty id is never a real asset: reporting one as a tile would make the click handler
+            // act on a key that cannot be loaded.
+            return id.Length != 0;
         }
 
         /// <summary>Picks the asset shown by a tile slot; false for hidden slots.</summary>
@@ -51,13 +57,20 @@ namespace deren.editor {
         }
 
         private void update_thumbnail(int tile, string asset) {
-            var path = thumbnails.path_for(asset);
-            string? image = File.Exists(path) ? path : null;
-            if (displayed_thumbnails[tile] == image) {
-                return;
-            }
             var slot = $"asset_{tile}";
             var image_id = $"{slot}_image";
+            if (asset.Length == 0) {
+                clear_thumbnail(tile, image_id, slot);
+                return;
+            }
+            var path = thumbnails.path_for(asset);
+            // A missing file clears the slot; an existing one also carries its stamp so a rebuild is
+            // noticed even when the cache hands back the same path.
+            var stamp = File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0;
+            string? image = stamp == 0 ? null : path;
+            if (displayed_thumbnails[tile] == image && displayed_stamps[tile] == stamp) {
+                return;
+            }
             bool shown = image != null && ui.set_value(image_id, $"thumbnails/{Path.GetFileName(image)}");
             ui.try_set_element_style(image_id, "display", shown ? "block" : "none");
             if (!shown) {
@@ -65,12 +78,30 @@ namespace deren.editor {
             }
             ui.set_visible($"{slot}_placeholder", !shown);
             displayed_thumbnails[tile] = shown ? image : null;
+            displayed_stamps[tile] = shown ? stamp : 0;
+        }
+
+        /// <summary>Drops a slot's image and its remembered state; a later refresh can refill it.</summary>
+        private void clear_thumbnail(int tile, string image_id, string slot) {
+            if (displayed_thumbnails[tile] == null && displayed_stamps[tile] == 0) {
+                return;
+            }
+            ui.set_value(image_id, string.Empty);
+            ui.try_set_element_style(image_id, "display", "none");
+            ui.set_visible($"{slot}_placeholder", true);
+            displayed_thumbnails[tile] = null;
+            displayed_stamps[tile] = 0;
         }
 
         /// <summary>Rewrites every slot from the asset library and the search filter.</summary>
         internal void refresh(IReadOnlyList<string> assets, string filter) {
             visible.Clear();
             for (var index = 0; index < assets.Count && visible.Count < tile_capacity; index++) {
+                // An empty id cannot be rendered or selected, and keeping it in the list would put an
+                // empty key behind a tile that looks like a real asset.
+                if (assets[index].Length == 0) {
+                    continue;
+                }
                 if (filter.Length == 0 || assets[index].Contains(filter, StringComparison.OrdinalIgnoreCase)) {
                     visible.Add(assets[index]);
                 }
@@ -80,6 +111,9 @@ namespace deren.editor {
                 if (tile >= visible.Count) {
                     ui.set_visible(slot, false);
                     ui.try_set_element_style(slot, "display", "none");
+                    // Forget the hidden slot: its key is filtered out, so its stamp must not be trusted
+                    // when a different key with a stale file lands on the same tile later.
+                    clear_thumbnail(tile, $"{slot}_image", slot);
                     continue;
                 }
                 var id = visible[tile];
@@ -91,7 +125,8 @@ namespace deren.editor {
                 ui.try_set_element_style(slot, "border-color", id == selected ? "#0070e0" : "#3c3c3c");
             }
             ui.set_text("browser_count", $"{visible.Count} / {assets.Count} asset(s)");
-            ui.set_visible("browser_empty", assets.Count == 0);
+            // The grid is empty whenever nothing is visible, including when the filter matches nothing.
+            ui.set_visible("browser_empty", visible.Count == 0);
         }
     }
 }

@@ -101,7 +101,13 @@ namespace deren {
             }
 
             status = scene_api.destroy_tree(handle);
-            handle = 0;
+            // THE HANDLE IS THE ONLY WAY BACK: the ABI leaves the tree alive when the call fails, so
+            // zeroing it here would leak a tree the host still owns and nothing could release. The one
+            // failure that means the host no longer has it is scene_not_found, so the handle is dead
+            // there too and only then is clearing it right.
+            if (status == script_status.success || status == script_status.scene_not_found) {
+                handle = 0;
+            }
             return status == script_status.success;
         }
 

@@ -313,6 +313,12 @@ internal static class document_io
             if (!parse_quoted(value, path, number, out var name, out error)) {
                 return false;
             }
+            // The runtime refuses a name past its byte cap, so a file holding one would load a value
+            // the scene can never show. Rejecting it here keeps the line number in the error.
+            if (scene_sync.name_utf8_byte_count(name) > scene_sync.max_name_utf8_bytes) {
+                error = format_error(path, number, $"node name over {scene_sync.max_name_utf8_bytes} UTF-8 bytes");
+                return false;
+            }
             builder.name = name;
             builder.has_name = true;
             return true;
