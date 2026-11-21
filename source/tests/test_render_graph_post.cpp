@@ -152,6 +152,14 @@ int main() {
     deren::engine::pass::post_composite_pass composite;
     deren::engine::pass::fxaa_pass fxaa;
     deren::engine::pass::upscale_pass upscale;
+    // THE RESOLVE'S FILTER IS A STARTUP VALUE THE APP HANDS OVER ([render] upscale). It is pinned here
+    // because the app's own mapping is a one-line translation of a spelling into this enum, and the
+    // property that must not drift is the pass holding - and reporting - what it was told.
+    CHECK(upscale.filter() == deren::engine::pass::upscale_filter::easu); // the shipped default
+    upscale.set_filter(deren::engine::pass::upscale_filter::linear);
+    CHECK(upscale.filter() == deren::engine::pass::upscale_filter::linear);
+    upscale.set_filter(deren::engine::pass::upscale_filter::easu);
+    CHECK(upscale.filter() == deren::engine::pass::upscale_filter::easu);
     CHECK(composite.record_content({}) == rhi::error::invalid_argument);
     CHECK(fxaa.record_content({}) == rhi::error::invalid_argument);
     CHECK(upscale.record_content({}) == rhi::error::invalid_argument);
