@@ -77,8 +77,8 @@ that disagrees. A version integer alone cannot catch "same version, different pa
 can, and it costs one call at startup.
 
 `scene_api`, `ui_api` and `camera_state` are deliberately not in the list: the first two report their
-own size through `get_module`, and `camera_state` has no C# mirror (the camera entries take the six
-numbers directly).
+own size through `get_module`, and `camera_state` has no entry of its own either - the managed mirror
+is `deren.orbit_camera`, and only the native `static_assert` checks the record's size.
 
 ### P2: owned UTF-8, one copy (done)
 
