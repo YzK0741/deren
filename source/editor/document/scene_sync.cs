@@ -82,9 +82,11 @@ internal static class scene_sync
             return false;
         }
         try {
-            if (node.pipeline == null && asset_manager.try_get_default_pipeline(asset, out var declared)) {
-                node.pipeline = declared;
-            }
+            // THE DOCUMENT IS NOT REWRITTEN HERE. A null pipeline already means "the asset's declared
+            // default" (push() then skips the set and the bind leaves the default in place), so
+            // copying the declared name into the node would claim an edit nobody made: the save point
+            // would move, a save would write lines the file never had, and the undo of a later
+            // pipeline change could not get back to the authored state.
             if (!tree.try_bind_asset(parent_runtime, asset, node.local, out var bound, out status)) {
                 return false;
             }

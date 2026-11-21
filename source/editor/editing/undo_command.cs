@@ -9,6 +9,11 @@ namespace deren.editor;
 /// A command owns everything it needs to run both ways, so <see cref="undo"/> and <see cref="redo"/>
 /// are safe to call any number of times and in either order. A command must not push another
 /// command from <see cref="undo"/> or <see cref="redo"/>.
+/// <para>
+/// Both directions REPORT whether the document and the runtime accepted the change: a runtime
+/// command can fail (a destroyed asset, a refused transform), and a history that stepped anyway
+/// would leave the two sides disagreeing while the label claimed the edit had been reverted.
+/// </para>
 /// </remarks>
 internal interface i_undo_command
 {
@@ -18,14 +23,16 @@ internal interface i_undo_command
     string label { get; }
 
     /// <summary>
-    /// Reverts the edit.
+    /// Reverts the edit. Returns false when the document could not be put back, in which case the
+    /// command must stay where it is in the history.
     /// </summary>
-    void undo();
+    bool undo();
 
     /// <summary>
-    /// Reapplies the edit.
+    /// Reapplies the edit. Returns false when the document could not be moved forward, in which case
+    /// the command must stay where it is in the history.
     /// </summary>
-    void redo();
+    bool redo();
 }
 
 /// <summary>
@@ -34,13 +41,13 @@ internal interface i_undo_command
 internal sealed class delegate_undo_command : i_undo_command
 {
     private readonly string text;
-    private readonly Action undo_action;
-    private readonly Action redo_action;
+    private readonly Func<bool> undo_action;
+    private readonly Func<bool> redo_action;
 
     /// <summary>
     /// Creates a command from its label and the two delegate bodies.
     /// </summary>
-    internal delegate_undo_command(string label, Action undo, Action redo)
+    internal delegate_undo_command(string label, Func<bool> undo, Func<bool> redo)
     {
         ArgumentNullException.ThrowIfNull(label);
         ArgumentNullException.ThrowIfNull(undo);
@@ -54,14 +61,8 @@ internal sealed class delegate_undo_command : i_undo_command
     public string label => this.text;
 
     /// <inheritdoc/>
-    public void undo()
-    {
-        this.undo_action();
-    }
+    public bool undo() => this.undo_action();
 
     /// <inheritdoc/>
-    public void redo()
-    {
-        this.redo_action();
-    }
+    public bool redo() => this.redo_action();
 }
