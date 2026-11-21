@@ -232,6 +232,9 @@ namespace deren.editor {
             status_line = new status_bar(opened_document);
             undo_history = new undo_stack();
             selection_state = new selection();
+            // A crashed editor cannot run the cooperative stop that removes its play/thumbnail
+            // workspaces, so the next launch sweeps whatever an earlier process left behind.
+            play_session.sweep_stale_workspaces(managed_bootstrap.project_directory);
             thumbnails = new asset_thumbnail_cache(managed_bootstrap.project_directory);
             playing = new play_session(managed_bootstrap.project_directory);
             browser = new content_browser_panel(opened_document, thumbnails);
@@ -2022,6 +2025,18 @@ namespace deren.editor {
                     return selftest_failure("cancelling the close prompt did not keep the document");
                 }
                 host_logger.write("Editor selftest: close confirmation");
+                // A crashed editor cannot run the cooperative stop that removes its play/thumbnail
+                // workspaces, and the startup sweep is what takes them away on the next launch.
+                foreach (var transient in new[] { "play-sessions", "thumbnail-jobs" }) {
+                    var stale = Path.Combine(managed_bootstrap.project_directory, transient, "selftest-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(stale);
+                    File.WriteAllText(Path.Combine(stale, "left-behind.txt"), "a crashed session left this behind");
+                    play_session.sweep_stale_workspaces(managed_bootstrap.project_directory);
+                    if (Directory.Exists(stale)) {
+                        return selftest_failure($"the startup sweep left a stale '{transient}' workspace");
+                    }
+                }
+                host_logger.write("Editor selftest: stale play workspaces swept");
                 selection_state.select(document.roots[0].uid);
                 refresh_panels(force_details: true);
                 host_logger.write("Editor selftest: passed");
