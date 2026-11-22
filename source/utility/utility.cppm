@@ -753,6 +753,8 @@ namespace deren::utility {
      * @brief ask the user for an existing file with the platform's open dialog
      * @param title window/prompt title; a backend that builds a command line refuses a shell-hostile one
      * @param filter_patterns `;`-separated glob patterns, e.g. "*.glb;*.gltf"; empty means all files
+     * @param initial_directory folder the dialog opens in; empty keeps the platform's own choice
+     * @param filter_label name the filter entry shows; empty keeps the generic "Files" wording
      * @return the chosen path, or std::nullopt when the user cancelled OR no backend could ask
      * @ingroup utility
      *
@@ -764,7 +766,10 @@ namespace deren::utility {
      *       a decision and the caller quietly falls back to its default model, while an unavailable backend
      *       is a limitation the user should hear about rather than guess at.
      */
-    export std::optional<std::filesystem::path> ask_open_file(std::string_view title, std::string_view filter_patterns = {});
+    export std::optional<std::filesystem::path> ask_open_file(std::string_view title,
+                                                              std::string_view filter_patterns = {},
+                                                              std::filesystem::path const& initial_directory = {},
+                                                              std::string_view filter_label = {});
 
     /**
      * @brief xxh3_128bits hash function

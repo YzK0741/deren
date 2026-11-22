@@ -316,6 +316,7 @@ export namespace deren::app {
         bool (*window_is_maximized)(void* context, std::uint8_t* maximized) = nullptr;
         bool (*window_close)(void* context) = nullptr;
         bool (*window_begin_drag)(void* context) = nullptr;
+        void (*scene_transforms_changed)(void* context) = nullptr;
     };
 
     class script_scene {
@@ -361,7 +362,6 @@ export namespace deren::app {
     private:
         struct placement {
             scripting::transform_value transform;
-            bool dirty = false;
         };
 
         static placement* find(scripting::node_handle handle);

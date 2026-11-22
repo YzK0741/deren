@@ -14,20 +14,69 @@ not express otherwise: `scene_api.set_node_name` (ABI 40), `scene_api.set_scene_
 projection that follows the viewport shape, and the rml pointer events, `get_element_rect` and
 `set_element_style` entries of ABI 42 for the splitters and dock tabs (`docs/scripting_module_abi.md`).
 
-## Editor projects
+## Editor projects and standalone games
 
 Create a project after building the editor:
 
 ```powershell
-python scripts/tools/new_editor_project.py my_game --asset-library asset
+python scripts/tools/new_editor_project.py my_game
+.\build\deren.exe run .\my_game --editor
 .\build\deren.exe run .\my_game
 ```
 
-Omit `--asset-library` for a project-local asset library. The project owns `deren.toml`,
-`render.toml`, `scenes/`, `asset/` and `scripts/`. Its `[editor] scene` is the initial scene,
-and `[project] main_scene` supplies renderer settings. The asset library and any input actions come
-from this same manifest in Edit and Play. The editor binary, fonts and UI stay in the build output.
-Layout and preview caches for a separate project live under its `.deren/` directory.
+The project owns `deren.toml`, `render.toml`, `scenes/`, `asset/` and `scripts/`.
+`[project] main_scene` points at the renderer settings, `[editor] scene` names the scene
+opened for editing, and `[game] scene` names the saved scene run by default. Projects
+without `[game]` keep their existing launch behavior. `--scene scenes/other.scene.toml`
+overrides the startup scene for that launch; with `--editor` it opens the file for editing.
+Scene paths in the game are relative to the project directory.
+
+Edit, Play and standalone share the asset library, renderer settings and input action
+bindings. Play runs an unsaved copy of the scene and uses the editor camera; standalone
+reads the saved file and uses the configured camera. Both use the same scene loader and
+behaviour lifecycle. A behaviour can call `try_change_scene("scenes/other.scene.toml")`
+in `on_update` to queue a scene change for the next frame. The first accepted request
+wins, and a load failure logs the reason and leaves the current scene active.
+The editor UI stays in the build output. A project's layout and preview caches live in
+`.deren/`. Use `--asset-library` when the project shares an existing asset library.
+
+To try both launch modes with a small game:
+
+```powershell
+python scripts/tools/new_editor_project.py build/helmet-game --demo
+.\build\deren.exe run .\build\helmet-game
+.\build\deren.exe run .\build\helmet-game --editor
+```
+
+The demo uses the repository's helmet assets, builds its C# behaviour into `scripts/`
+and generates a short WAV. Move with A/D, play the sound with Space, and switch
+between Workshop and Hangar with Enter. The behaviour source is in `script-source/`.
+
+## Windows game export
+
+Export a saved scene project with Python 3.12+ after building `deren`. The
+destination must be a new directory outside the source project.
+
+```powershell
+python scripts/tools/export_windows_game.py build/helmet-standalone-v2 dist/helmet-game
+```
+
+Double-click `deren.exe` in the export, or move the whole folder and open it
+there. The executable starts `project/deren.toml` by default. The package contains
+the Windows engine binaries, shaders, a private .NET runtime, and the game files.
+The target machine needs a compatible Vulkan graphics driver.
+
+The export includes saved scenes, compiled behaviour DLLs in `scripts/`, audio,
+UI files, and renderer inputs. It copies a project-local asset library in full.
+For a shared library it includes the assets named in saved scenes. Repeat
+`--asset ID` for assets only referenced in code or script parameters, and
+`--data PATH` for other project-relative data the game reads. External asset
+entries are copied with their asset folders and license files. Referenced glTF
+buffers, textures and motion files within the asset library are included too.
+Renderer inputs must use project-relative paths.
+
+`--build` selects a different build output and `--dotnet-root` selects the
+.NET installation used to assemble the private runtime.
 
 ## What P1 ships
 
@@ -59,14 +108,9 @@ render chain's image for that draw instead of a texture the document owns. The i
 loader reports (1920x1080) is only a placeholder: the element is sized in CSS. One viewport element is
 authored, and one image is handed to the overlay per frame.
 
-The image is the frame's display-encoded LDR target, and it exists only on frames a resolve pass
-finishes: FXAA at the default `render_scale = 1.0`, or the upscale pass below it. When neither runs,
-`post_composite` writes the swapchain itself, `runtime.current_scene_color()` reports no image, and
-the overlay skips the scene draws, which leaves the viewport empty rather than stale. That is why
-`main.toml` must keep `[render] fxaa = true`: at the editor's 1.0 render scale it is the resolve, and
-without it the viewport never receives an image. `fxaa` and `upscale` are alternatives, not a stack:
-a chain below `render_scale = 1.0` resolves through the upscale pass instead, and FXAA is switched
-off there.
+The image is the frame's display-encoded LDR target. At full render scale FXAA resolves it when
+enabled. If the document samples the scene without FXAA, a same-size copy keeps the viewport
+available. Below full render scale the upscale pass resolves the scene.
 
 The element fills its viewport column (`width: 100%; height: 100%` in `ui/editor.rml`). That column's
 shape changes with the window and with the splitters, so `editor_host` reads the element rectangle
@@ -107,7 +151,7 @@ edit the selected node's transform.
   window to close. The window is resizable from its edges because the caption installs a thin
   hit-test band; maximising honours the monitor work area. The default is off, so other projects keep
   their decorated window and the dark `dark_window_frame` frame.
-- **Content browser.** `asset_manager.list()` is read once at startup and rendered into the 24 authored
+- **Content browser.** The asset catalogue is rendered into the 24 authored
   tiles (`asset_0` .. `asset_23`); `#browser_search` filters the id list (`OrdinalIgnoreCase`) and
   `#browser_count` reports "shown / total". A tile click moves a `#4a9eff` border to that tile and
   writes `asset: <id>` into the status bar. **Build Thumbnail** renders the selected asset offscreen
@@ -156,20 +200,64 @@ restores the same boxes). The caption buttons need a real window and are verifie
 | `deren.toml.in` | The project manifest template CMake configures into the build tree. |
 
 The Outliner generates its rows through `try_set_markup` whenever the visible node order changes.
-Node names go through `set_text` so they are displayed as text. The Content Browser still uses 24
+Node names go through `set_text` so they are displayed as text. The Content Browser uses 24
 authored tile slots and the Details panel maps its authored controls to node properties. Input values
 are refreshed on selection changes and committed edits so a frame does not overwrite active typing.
+
+## Project scenes and presentation settings
+
+Use **File > Project Scenes** to open a saved scene or select **Set as Startup Scene**.
+This updates the game's startup scene in the manifest. **Open Scene by Path** still opens
+files outside the project scene list.
+
+**File > Project Settings** edits exposure, sun direction and intensity, background, FXAA,
+and TAA. **Preview** updates the viewport without writing the project. **Cancel** restores
+the saved presentation. **Save** changes the affected keys in the renderer TOML, preserving
+the other settings and comments. Background mode and color saved here override the referenced
+lighting profile; other calibration in the profile stays intact. Play, standalone and
+export all read the saved values.
+
+## Environment maps
+
+The **Environment** group under Details lists the environment maps in use. **Scene map** is the
+project-wide HDR: it writes `[lighting] environment_hdr` in the renderer TOML, and *(procedural sky)*
+clears it. **Choose a file...** opens the platform dialog in the asset library and stores the pick
+relative to the project.
+
+Select a node and use the **Environment** row of Details to give that object its own map: the
+dropdown lists the same HDRs, *(scene map)* returns the object to the project-wide map, and picking
+a file allocates a free environment lane automatically. Objects that ask for the same map share one
+lane, so the sixteen engine slots are spent only on distinct maps; when every lane is already filled
+and none is free of objects, a new map reuses the lane the selected object already owned, and the
+status line says so because the other objects on that lane change with it. A lane row appears under
+Environment as soon as a lane is used, and setting it to *(procedural sky)* empties it and returns
+every object that sampled it to the scene map. The lane number, not the path, is what the scene node
+stores, so a map shared by several objects is uploaded once. A node may only name a lane the document
+fills: a hand-edited file with `environment = 3` and no `slot_3` is refused on load, because a node on
+an empty lane would sample a descriptor nobody sets and render unlit. One dropdown pick is one undo
+step, even though it changes both the lane and the node.
+
+## Importing models
+
+In Content Browser, choose **Import** and browse for a GLB or glTF 2.0 model, or paste its path.
+The destination is the project's configured asset library. Use the suggested asset ID or enter a
+different one. The importer creates a PBR asset folder, preserves the relative paths of external
+buffers and textures inside the model's directory, and refuses missing files or duplicate IDs.
+The new asset stays selected in Content Browser; double-click it or drag it into the viewport.
+Use **Refresh** to rescan asset folders changed outside the editor. Existing scene instances keep
+their loaded data. Imported files belong to the project, so undoing a placement only removes
+the instance from the scene.
 
 ## Document format
 
 `document_io` owns a strict subset of TOML. Reading rejects an unknown or duplicated key, a duplicate
-uid, a missing or unknown parent, a version other than 1, an unparsable number and an unterminated
+uid, a missing or unknown parent, a version newer than 4 (an unsupported future file), an unparsable number and an unterminated
 string, and reports the file, line and reason. A file starts with `[document]`, then one `[[node]]`
 block per node in depth-first order, where a parent always appears before its children:
 
 ```toml
 [document]
-    version = 1
+    version = 4
     name = "untitled"
 
 [[node]]
@@ -182,8 +270,10 @@ block per node in depth-first order, where a parent always appears before its ch
     scale = [1, 1, 1]
 ```
 
-`uid` and `name` are required; `parent` (a parent uid), `asset`, and `pipeline` are optional. Floats
-are written so they round-trip exactly.
+`uid` and `name` are required; `parent` (a parent uid), `asset`, `pipeline` and `environment` (the
+lane the node samples, 0 for the scene map) are optional. An `[environment]` table between
+`[document]` and the first node stores the scene lanes as `slot_1`..`slot_15`; an absent lane stays
+absent, and an empty string means the procedural sky. Floats are written so they round-trip exactly.
 
 To attach a C# behaviour, build a DLL against `Deren.Managed` and put it and its managed
 dependencies in the **project's** `scripts/` directory. Choose the behaviour in Details. The type
@@ -203,12 +293,17 @@ copy, including unsaved edits.
 ## Limits
 
 One open document, 24 asset tiles, a fixed set of details rows (no
-add/remove property outside declared script parameters). The content browser supports double-click placement but has no
-asset rename or file import. The Window menu moves the sidebar between left and right, puts the
+add/remove property outside declared script parameters). The content browser supports file import
+and double-click placement. Asset rename is not available. The Window menu moves the sidebar between left and right, puts the
 browser and log dock above or below the viewport, and swaps the order of Outliner and Details.
 Splitters keep working in each arrangement. Panel sizes and positions are saved in the editor
 output's `editor-layout.json`. Reset Layout restores the default arrangement. The panels are docked
 inside the editor window.
+
+One animated asset can be placed only once per scene. The runtime owns a single animation player and
+a single skin-matrix region, so a second placement of the same asset is not driven by the player and
+renders with a mismatched skeleton. Use a single placement, or a different asset, until multi-instance
+skinning lands.
 
 ## Visual style
 

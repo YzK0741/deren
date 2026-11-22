@@ -40,6 +40,16 @@ internal sealed class scene_document
     private string? saved_content;
 
     /// <summary>
+    /// The HDR path of every custom environment lane, indexed by lane minus one: entry 0 is lane 1.
+    /// </summary>
+    /// <remarks>
+    /// Lane 0 is the project-wide map in the project's <c>[lighting] environment_hdr</c>, so it is not
+    /// stored here. A null entry keeps whatever the project configured for that lane; an empty string
+    /// asks for the procedural sky. The paths are stored as authored, relative to the project root.
+    /// </remarks>
+    internal readonly string?[] environment_slots = new string?[global_environment.slot_count - 1];
+
+    /// <summary>
     /// The root nodes in outliner order.
     /// </summary>
     internal IReadOnlyList<document_node> roots => this.root_nodes;

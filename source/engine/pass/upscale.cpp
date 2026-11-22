@@ -172,12 +172,13 @@ namespace deren::engine::pass {
         //     convention and the same expression as fxaa_pass::record, because a second spelling of the
         //     transfer is a second chance to double-encode the frame.
         easu_constants const es = make_easu_constants(io.frame.extent.width, io.frame.extent.height, io.extent.width, io.extent.height);
+        bool const scaled = io.frame.extent.width != io.extent.width || io.frame.extent.height != io.extent.height;
         push_constants const push = {
             .con0 = {es.con0[0], es.con0[1], es.con0[2], es.con0[3]},
             .con1 = {es.con1[0], es.con1[1], es.con1[2], es.con1[3]},
             .con2 = {es.con2[0], es.con2[1], es.con2[2], es.con2[3]},
             .con3 = {es.con3[0], es.con3[1], es.con3[2], es.con3[3]},
-            .mode = this->filter_kind == upscale_filter::easu ? 1.0f : 0.0f,
+            .mode = scaled && this->filter_kind == upscale_filter::easu ? 1.0f : 0.0f,
             .encode_gamma = is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f,
         };
         // THE RENDERING SCOPE RIDES THE CONTRACT (abi 20): one colour attachment, CLEAR + STORE (what the raw

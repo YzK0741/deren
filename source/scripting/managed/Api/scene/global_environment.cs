@@ -7,13 +7,13 @@ namespace deren {
     /// </summary>
     /// <remarks>
     /// Slot 0 is the scene-wide environment every material samples unless its record names another
-    /// slot. Slots 1..3 are the per-material lanes: a <see cref="material_override"/> carrying that
-    /// slot number makes its primitives sample that slot instead (the engine has four slots,
+    /// slot. Slots 1..15 are the per-material lanes: a <see cref="material_override"/> carrying that
+    /// slot number makes its primitives sample that slot instead (the engine has sixteen slots,
     /// `layout::heap_environment_capacity`).
     /// </remarks>
     public static class global_environment {
         /// <summary>The number of environment slots the renderer has (0 is the scene-wide one).</summary>
-        public const int slot_count = 4;
+        public const int slot_count = 16;
 
         /// <summary>
         /// Replaces the SCENE-WIDE environment (slot 0) with the file at <paramref name="path"/>: a

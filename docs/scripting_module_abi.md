@@ -166,12 +166,13 @@ queues the request: the host prepares and uploads the IBL between frames, so a s
 slot and the path were accepted, and a later decode failure keeps that slot's current environment.
 
 Slot 0 is the scene-wide environment every rendered scene shares, and it is the only slot with a
-BRDF LUT (the LUT is shared, so the custom slots upload none). Slots 1..3 are the per-material
+BRDF LUT (the LUT is shared, so the custom slots upload none). Slots 1..15 are the per-material
 lanes: a material record carries the slot number in its flags (`material_override.environment_slot`
 on the C# side), and the shaders sample that slot's cubemap pair out of the descriptor heap. The
-engine's `layout::heap_environment_capacity` is the bound; a larger slot is rejected with
-`invalid_argument`. There is still no per-scene-tree override - the lanes are selected per material
-- and one request is in flight at a time: a newer call replaces a queued one, whatever slot it names.
+engine's `layout::heap_environment_capacity` (sixteen) is the bound; a larger slot is rejected with
+`invalid_argument`. A node's lane is selected through `set_material_override` per subtree, which is
+what the editor turns into a per-object environment dropdown; one request is in flight at a time: a
+newer call replaces a queued one, whatever slot it names.
 C# projects call `deren.global_environment.try_set_hdr(string? path)` for slot 0 and
 `deren.global_environment.try_set_slot_hdr(int slot, string? path)` for any slot.
 
@@ -366,10 +367,10 @@ leaves the pointer null, and the C# wrapper reports `module_unavailable`.
   `set_shadow_enabled` turns the directional shadow pass on or off, and turning it off clears the
   maps rather than only hiding their contribution.
 - `set_material_override` writes per-object material factors for a node and its whole subtree: a
-  tint, metallic/roughness/emissive scales, an environment lane (0..3), and the unlit flag. The
+  tint, metallic/roughness/emissive scales, an environment lane (0..15), and the unlit flag. The
   factors replace the imported material rather than accumulating on it, and the host keeps one
   cloned row per leaf, so repeated calls rebuild that clone from the imported row. An `enabled` of
-  zero hands the subtree back to its imported materials. A non-finite factor or a lane above 3 is
+  zero hands the subtree back to its imported materials. A non-finite factor or a lane above 15 is
   `invalid_argument`; a node outside the active tree is `invalid_node`. Hidden subtrees are
   rewritten too, so they come back with the same factors.
 - `asset_face_frame` returns the face frame the glTF loader measured while decoding the asset: the
@@ -1104,8 +1105,8 @@ Status values are returned through the ABI; no exception crosses the native boun
 - v32 made the environment entry slot-aware: `set_global_environment_hdr(utf8_view path)` became
   `set_environment_hdr(utf8_view path, uint32 slot)`, and the C# side gained
   `global_environment.try_set_slot_hdr(int slot, string? path)` beside `try_set_hdr` (which is slot
-  0). Slots 1..3 are the per-material lanes the engine already sampled - a material record carries
-  the slot in its flags bits 10..11 and the shaders pick `custom_env_cube + slot - 1` out of the
+  0). Slots 1..15 are the per-material lanes the engine already sampled - a material record carries
+  the slot in its flags bits 10..13 and the shaders pick `custom_env_cube + slot - 1` out of the
   heap - so this closes the last gap: before it, nothing could load an environment into those
   slots, and every material had to sample the scene-wide one. A custom slot uploads only the
   environment pair (slot 0's BRDF LUT is shared), an out-of-range slot is `invalid_argument`, and a
@@ -1408,3 +1409,21 @@ publishes no table or the call fails, so a game that runs on an older host still
 `true` with a default node, mirroring the native contract, so the caller tests the returned node's
 `is_valid` rather than the bool. `native_module.node_bounds` is `5` in C# as well; the module id
 alone does not change `managed_abi_version`.
+
+### Editor asset authoring module
+
+Optional native module id 7 exposes three entries to the editor: the configured asset library root,
+the platform model picker, and a catalogue refresh. The first two return a UTF-8 path borrowed until
+the next path call. The picker returns `asset_not_found` when no file is selected. Refresh replaces
+the catalogue without clearing loaded asset handles or bound scene instances. The core ABI layout
+and existing module tables are unchanged.
+
+Optional native module id 8 (`asset_authoring_extended`) publishes the same three entries first, in
+the same order, and appends a fourth: the environment-map picker (`choose_environment`). It exists as
+its own id rather than a longer id-7 table so a `Game.dll` built against the three-entry layout keeps
+working - it never asks for id 8 and never sees the tail. The environment picker uses the same
+contract as the model picker: the chosen path is borrowed until the next path call, and
+`asset_not_found` reports a cancelled dialog. Its platform dialog opens in the asset library root and
+filters for `.hdr`; `utility::ask_open_file` grew `initial_directory` and `filter_label` parameters
+for it, and empty arguments keep the old behaviour. Both module ids are optional, so neither changes
+`managed_abi_version`.

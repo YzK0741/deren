@@ -11,8 +11,9 @@ namespace deren.editor;
 /// </summary>
 /// <remarks>
 /// The format is a strict subset of TOML owned by the editor. A file starts with one
-/// <c>[document]</c> table holding the <c>version</c> and <c>name</c>, followed by one
-/// <c>[[node]]</c> table per node in depth-first order, where every parent appears before its
+/// <c>[document]</c> table holding the <c>version</c> and <c>name</c>, then the optional
+/// <c>[environment]</c> table with one <c>slot_N</c> entry per custom environment lane, followed by
+/// one <c>[[node]]</c> table per node in depth-first order, where every parent appears before its
 /// children. Reading rejects a duplicate uid, an unknown or duplicated key, a missing or unknown
 /// parent, an unsupported version, an unparsable number and an unterminated string, and reports the
 /// file, line and reason. The writer keeps a stable key order, writes one blank line between node
@@ -21,9 +22,10 @@ namespace deren.editor;
 internal static class document_io
 {
     /// <summary>
-    /// The file format version this writer speaks: 3 adds optional per-node script parameters.
+    /// The file format version this writer speaks: 4 adds the scene environment lanes and the
+    /// per-node lane index.
     /// </summary>
-    private const int format_version = 3;
+    private const int format_version = 4;
 
     /// <summary>
     /// The oldest version this reader still accepts.
@@ -77,6 +79,17 @@ internal static class document_io
         text.Append("    version = ").Append(format_version.ToString(CultureInfo.InvariantCulture)).Append('\n');
         text.Append("    name = ").Append(quote(document.name)).Append('\n');
 
+        if (has_environment(document)) {
+            text.Append("\n[environment]\n");
+            for (var lane = 1; lane < global_environment.slot_count; ++lane) {
+                var map = document.environment_slots[lane - 1];
+                if (map != null) {
+                    text.Append("    slot_").Append(lane.ToString(CultureInfo.InvariantCulture))
+                        .Append(" = ").Append(quote(map)).Append('\n');
+                }
+            }
+        }
+
         var known = new HashSet<Guid>();
         if (!append_nodes(text, document.roots, null, known, out error)) {
             return false;
@@ -84,6 +97,16 @@ internal static class document_io
 
         content = text.ToString();
         return true;
+    }
+
+    private static bool has_environment(scene_document document)
+    {
+        for (var lane = 1; lane < global_environment.slot_count; ++lane) {
+            if (document.environment_slots[lane - 1] != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -115,8 +138,12 @@ internal static class document_io
         var built = new scene_document();
         var uids = new Dictionary<Guid, document_node>();
         var document_keys = new HashSet<string>(StringComparer.Ordinal);
+        var environment_keys = new HashSet<string>(StringComparer.Ordinal);
         var document_seen = false;
         var version_seen = false;
+        var environment_seen = false;
+        var nodes_seen = false;
+        var version = oldest_format_version;
         node_builder? current = null;
 
         var lines = text.Split('\n');
@@ -141,6 +168,22 @@ internal static class document_io
                 document_seen = true;
                 continue;
             }
+            if (content == "[environment]") {
+                if (!document_seen) {
+                    error = format_error(path, number, "[environment] before [document]");
+                    return false;
+                }
+                if (nodes_seen) {
+                    error = format_error(path, number, "[environment] must come before the node blocks");
+                    return false;
+                }
+                if (environment_seen) {
+                    error = format_error(path, number, "[environment] appears more than once");
+                    return false;
+                }
+                environment_seen = true;
+                continue;
+            }
             if (content == "[[node]]") {
                 if (!document_seen) {
                     error = format_error(path, number, "[[node]] before [document]");
@@ -149,6 +192,7 @@ internal static class document_io
                 if (current != null && !finish_node(current, built, uids, path, out error)) {
                     return false;
                 }
+                nodes_seen = true;
                 current = new node_builder { line = number };
                 continue;
             }
@@ -169,19 +213,26 @@ internal static class document_io
                 error = format_error(path, number, "key outside any section");
                 return false;
             }
+            if (environment_seen && !nodes_seen) {
+                if (!assign_environment(built, environment_keys, key, value, path, number, out error)) {
+                    return false;
+                }
+                continue;
+            }
             if (!document_keys.Add(key)) {
                 error = format_error(path, number, "duplicate key " + quote(key));
                 return false;
             }
             if (key == "version") {
-                if (!parse_int(value, path, number, out var version, out error)) {
+                if (!parse_int(value, path, number, out var declared, out error)) {
                     return false;
                 }
-                if (version < oldest_format_version || version > format_version) {
+                if (declared < oldest_format_version || declared > format_version) {
                     error = format_error(path, number,
-                        "unsupported document version " + version.ToString(CultureInfo.InvariantCulture));
+                        "unsupported document version " + declared.ToString(CultureInfo.InvariantCulture));
                     return false;
                 }
+                version = declared;
                 version_seen = true;
                 continue;
             }
@@ -207,12 +258,97 @@ internal static class document_io
             error = path + ": missing version in [document]";
             return false;
         }
+        if (!validate_environment(built, path, version, environment_seen, out error)) {
+            return false;
+        }
 
         if (!try_serialize(built, out var saved, out error)) {
             return false;
         }
         built.mark_saved(path, saved);
         document = built;
+        return true;
+    }
+
+    /// <summary>
+    /// Checks the environment data of a loaded document: the section and the per-node lane only exist
+    /// from version 4 on, and a node must never point at a lane the document does not carry a map for.
+    /// </summary>
+    /// <remarks>
+    /// The second rule matters because lane 0 is the scene-wide map while a lane index above 0 turns the
+    /// material override on: a node pointing at an empty lane would sample an undefined descriptor and
+    /// render unlit, which is the one state the editor never produces itself.
+    /// </remarks>
+    private static bool validate_environment(scene_document document, string path, int version, bool stated,
+                                             out string? error)
+    {
+        if (version < format_version && stated) {
+            error = path + ": [environment] needs document version " + format_version.ToString(CultureInfo.InvariantCulture);
+            return false;
+        }
+        string? failure = null;
+        foreach (var root in document.roots) {
+            visit(root);
+        }
+        error = failure;
+        return failure == null;
+
+        void visit(document_node node)
+        {
+            if (failure != null) {
+                return;
+            }
+            if (node.environment != 0) {
+                if (version < format_version) {
+                    failure = path + ": the environment lane of a node needs document version " +
+                        format_version.ToString(CultureInfo.InvariantCulture);
+                    return;
+                }
+                if (node.environment < 0 || node.environment >= global_environment.slot_count) {
+                    failure = path + ": environment lane " + node.environment.ToString(CultureInfo.InvariantCulture) +
+                        " is outside 0.." + (global_environment.slot_count - 1).ToString(CultureInfo.InvariantCulture);
+                    return;
+                }
+                if (string.IsNullOrEmpty(document.environment_slots[node.environment - 1])) {
+                    failure = path + ": node " + quote(node.name) + " samples environment lane " +
+                        node.environment.ToString(CultureInfo.InvariantCulture) + ", but the document does not set slot_" +
+                        node.environment.ToString(CultureInfo.InvariantCulture);
+                    return;
+                }
+            }
+            foreach (var child in node.children) {
+                visit(child);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads one key of the <c>[environment]</c> table: <c>slot_N</c> holds the HDR path of lane N,
+    /// an empty string asking for the procedural sky.
+    /// </summary>
+    private static bool assign_environment(scene_document document, HashSet<string> keys, string key, string value,
+                                           string path, int number, out string? error)
+    {
+        error = null;
+        if (!keys.Add(key)) {
+            error = format_error(path, number, "duplicate key " + quote(key));
+            return false;
+        }
+        const string slot_prefix = "slot_";
+        if (!key.StartsWith(slot_prefix, StringComparison.Ordinal) ||
+            !parse_int(key[slot_prefix.Length..], path, number, out var lane, out error)) {
+            error ??= format_error(path, number, "unknown key " + quote(key));
+            return false;
+        }
+        if (lane < 1 || lane >= global_environment.slot_count) {
+            error = format_error(path, number,
+                $"environment lane {lane} is outside 1..{global_environment.slot_count - 1}");
+            return false;
+        }
+        if (!parse_quoted(value, path, number, out var map, out error)) {
+            return false;
+        }
+        document.environment_slots[lane - 1] = map;
         return true;
     }
 
@@ -245,6 +381,10 @@ internal static class document_io
             }
             text.Append("    visible = ").Append(node.visible ? "true" : "false").Append('\n');
             text.Append("    flags = ").Append(node.flags.ToString(CultureInfo.InvariantCulture)).Append('\n');
+            if (node.environment != 0) {
+                text.Append("    environment = ").Append(node.environment.ToString(CultureInfo.InvariantCulture))
+                    .Append('\n');
+            }
             text.Append("    position = ").Append(format_vector(node.local.position)).Append('\n');
             text.Append("    rotation = ").Append(format_vector(node.local.rotation_degrees)).Append('\n');
             text.Append("    scale = ").Append(format_vector(node.local.scale)).Append('\n');
@@ -283,6 +423,7 @@ internal static class document_io
             local = builder.local,
             visible = builder.visible,
             flags = builder.flags,
+            environment = builder.environment,
         };
         if (builder.has_parent) {
             if (!uids.TryGetValue(builder.parent, out var parent)) {
@@ -380,6 +521,18 @@ internal static class document_io
                 return false;
             }
             builder.flags = flags;
+            return true;
+        }
+        if (key == "environment") {
+            if (!parse_int(value, path, number, out var environment, out error)) {
+                return false;
+            }
+            if (environment < 0 || environment >= global_environment.slot_count) {
+                error = format_error(path, number,
+                    $"environment lane {environment} is outside 0..{global_environment.slot_count - 1}");
+                return false;
+            }
+            builder.environment = environment;
             return true;
         }
         if (key == "position") {
@@ -713,6 +866,7 @@ internal static class document_io
         internal readonly SortedDictionary<string, string> script_parameters = new(StringComparer.Ordinal);
         internal bool visible = true;
         internal uint flags;
+        internal int environment;
         internal deren.transform_value local = new() {
             scale = new deren.vector_3 { x = 1.0f, y = 1.0f, z = 1.0f },
         };

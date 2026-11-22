@@ -101,12 +101,21 @@ export namespace deren::ui {
             return this->pressed_buttons != 0;
         }
         bool wants_keyboard() const;
+        [[nodiscard]] bool uses_scene_texture() const noexcept {
+            return this->scene_texture_loaded;
+        }
         bool set_text(std::string_view id, std::string_view text);
+        // Replaces the inner markup. On a `select` this also replaces its option list: the options a
+        // drop-down shows live in its widget, so a second write that only parsed new markup would
+        // append them to the old ones (the popup then lists every entry twice).
         bool set_markup(std::string_view id, std::string_view markup);
         bool set_value(std::string_view id, std::string_view value);
         bool set_visible(std::string_view id, bool visible);
         deren::utility::vessel::string text(std::string_view id) const;
         deren::utility::vessel::string value(std::string_view id) const;
+        // The number of options a `select` shows, or 0 for any other element. RmlUi keeps the options in
+        // the drop-down widget rather than in the element tree, so this is the only way to observe them.
+        std::uint32_t option_count(std::string_view id) const;
         deren::utility::vessel::vector<ui_event> take_events();
         // ABI 42: the pointer events forwarded since the previous call, in arrival order. At most 256
         // are retained; a session that never polls loses the ones beyond that rather than growing the
@@ -165,5 +174,6 @@ export namespace deren::ui {
         bool rendering = false;
         bool suppress_events = false;
         bool scissor_enabled = false;
+        bool scene_texture_loaded = false;
     };
 } // namespace deren::ui

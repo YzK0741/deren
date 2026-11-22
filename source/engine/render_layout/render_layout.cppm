@@ -159,12 +159,12 @@ export namespace deren::engine::render_layout {
     // this name caused in core.constructor.cppm is fixed THERE instead, by renaming the parameter - a local,
     // so the contract stays intact.
     inline constexpr std::uint32_t heap_slot_base = 16384; // 1 MiB / 64 B: the grid's slot 0
-    // 1324 slots are in use: the last is `software_tiles`' second frame lane (base + 1323), so the grid has 724
+    // 1629 slots are in use: the last is the sixteenth custom irradiance cube (base + 1628), so the grid has 1443
     // free slots after the used region - and the texture run at the front is what grew to 1024.
     inline constexpr std::uint32_t heap_slot_count = 3072; // second 1024-texture bank starts at offset 2048
-    /// Environment slot 0 is the scene-wide IBL; slots 1..3 are per-object custom HDRs. The slot index is the
-    /// value `material_record::flags` bits 10..11 carry, so the shader and this cap must agree.
-    inline constexpr std::uint32_t heap_environment_capacity = 4;
+    /// Environment slot 0 is the scene-wide IBL; slots 1..15 are per-object custom HDRs. The slot index is the
+    /// value `material_record::flags` bits 10..13 carry, so the shader and this cap must agree.
+    inline constexpr std::uint32_t heap_environment_capacity = 16;
     inline constexpr std::uint32_t heap_texture_bank_stride = 2048;
     inline constexpr std::uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)
     /// The SAMPLER heap is a second grid with its base, and it cannot share the resource one: the API caps
@@ -304,20 +304,20 @@ export namespace deren::engine::render_layout {
         static constexpr std::uint32_t irradiance_cube = heap_slot_base + 1045u; // binding 3, environment slot 0
         static constexpr std::uint32_t brdf_lut = heap_slot_base + 1046u;        // binding 4, shared by every slot
         /**
-         * @brief the CUSTOM environment slots (1..3), each a prefiltered cube + irradiance pair
+         * @brief the CUSTOM environment slots (1..15), each a prefiltered cube + irradiance pair
          *
          * A per-object `[[scene.objects]]` entry can select its HDR; slot 0 is the scene-wide IBL above and
-         * the three custom slots are what the application fills for objects that chose a different one. The
-         * material record carries the slot in flags bits 10..11, and the deferred stage picks the descriptor by
+         * the fifteen custom slots are what the application fills for objects that chose a different one. The
+         * material record carries the slot in flags bits 10..13, and the deferred stage picks the descriptor by
          * that index - so the shader needs ONE PAIR OF SLOT BASES, not one pair per environment.
          *
-         * 1365..1372 is the free window after `local_probe` (1364) and the software raster's last family
-         * (`software_route_arguments` occupies 1356..1363). Appending here rather than moving `env_cube` keeps
-         * every existing descriptor number, including the global environment the deferred stage reads when a
-         * material names slot 0.
+         * 1600..1629 is the free tail after `subtilis_page_arena` (1597) - the region grew from three slots to
+         * fifteen when per-object maps landed, and appending at the END of the used region is the rule every
+         * array that cannot move into a free window follows: growing in place (1365..1372) would have renumbered
+         * `rt_reflection` and every descriptor family after it.
          */
-        static constexpr std::uint32_t custom_env_cube = heap_slot_base + 1365u;        // slots 1..3 are +0..+2
-        static constexpr std::uint32_t custom_irradiance_cube = heap_slot_base + 1369u; // slots 1..3 are +0..+2
+        static constexpr std::uint32_t custom_env_cube = heap_slot_base + 1600u;        // slots 1..15 are +0..+14
+        static constexpr std::uint32_t custom_irradiance_cube = heap_slot_base + 1615u; // slots 1..15 are +0..+14
         /// @brief the ray-traced reflection image (RGB radiance, A = hit distance), written by the reflection pass
         static constexpr std::uint32_t rt_reflection = heap_slot_base + 1372u; // per frame slot, sampled by deferred
         /// @brief the same image as a STORAGE descriptor; the tracing pass writes it, deferred samples it

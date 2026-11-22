@@ -10,8 +10,8 @@ input[type="text"]:placeholder-shown { color: #9a9fa5; }
 #brand { width: 76dp; color: #efefef; font-size: 16dp; letter-spacing: 1dp; pointer-events: none; }
 .menu { box-sizing: border-box; height: 26dp; padding: 0 12dp; font-size: 13dp; line-height: 26dp; color: #c0c0c0; border-radius: 3dp; }
 .menu:hover { background-color: #383838; color: #ffffff; }
-.menu_dropdown { position: absolute; top: 30dp; width: 200dp; padding: 5dp; background-color: #2a2a2a; border: 1dp #454545; border-radius: 4dp; z-index: 20; }
-.menu_item { box-sizing: border-box; width: 100%; height: 29dp; padding: 0 10dp; font-size: 13dp; line-height: 29dp; border-radius: 2dp; }
+.menu_dropdown { display: block; position: absolute; top: 30dp; width: 224dp; padding: 5dp; background-color: #2a2a2a; border: 1dp #454545; border-radius: 4dp; z-index: 20; }
+.menu_item { display: block; box-sizing: border-box; width: 100%; height: 29dp; padding: 0 10dp; font-size: 13dp; line-height: 29dp; border-radius: 2dp; white-space: nowrap; }
 .menu_item:hover { background-color: #0070e0; color: #ffffff; }
 #project_label { flex-grow: 1; font-size: 12dp; line-height: 26dp; text-align: right; color: #858585; }
 #toolbar { display: flex; flex-direction: row; align-items: center; box-sizing: border-box; height: 50dp; flex-shrink: 0; padding: 0 14dp; background-color: #242424; border-bottom: 1dp #0f0f0f; }
@@ -63,8 +63,8 @@ input[type="text"]:placeholder-shown { color: #9a9fa5; }
 #browser_body { display: flex; flex-direction: column; height: 100%; }
 #browser_bar { display: flex; flex-direction: row; align-items: center; height: 28dp; flex-shrink: 0; margin-bottom: 12dp; }
 #browser_search { box-sizing: border-box; width: 280dp; height: 27dp; padding: 5dp 9dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; font-size: 12dp; }
-#browser_thumbnail { box-sizing: border-box; height: 27dp; margin-left: 8dp; padding: 0 10dp; line-height: 25dp; background-color: #303030; border: 1dp #414141; border-radius: 3dp; color: #d0d0d0; font-size: 12dp; }
-#browser_thumbnail:hover { background-color: #414141; color: #fff; }
+#browser_import, #browser_refresh, #browser_thumbnail { box-sizing: border-box; height: 27dp; margin-left: 8dp; padding: 0 10dp; line-height: 25dp; background-color: #303030; border: 1dp #414141; border-radius: 3dp; color: #d0d0d0; font-size: 12dp; }
+#browser_import:hover, #browser_refresh:hover, #browser_thumbnail:hover { background-color: #414141; color: #fff; }
 .asset_thumbnail { display: none; position: absolute; top: 4dp; left: 3dp; width: 112dp; height: 70dp; pointer-events: none; }
 #browser_count { flex-grow: 1; font-size: 12dp; line-height: 27dp; text-align: right; color: #929292; }
 #asset_grid { display: flex; flex-direction: row; flex-wrap: wrap; align-content: flex-start; flex-grow: 1; flex-shrink: 1; min-height: 0; flex-basis: 0; overflow: auto; }
@@ -95,6 +95,7 @@ input[type="text"]:placeholder-shown { color: #9a9fa5; }
 #details_title { display: block; box-sizing: border-box; height: 31dp; font-size: 14dp; line-height: 26dp; color: #e0e0e0; border-bottom: 1dp #414141; margin-bottom: 10dp; white-space: nowrap; overflow: hidden; }
 #details_empty { display: block; margin-top: 30dp; padding: 14dp; font-size: 12dp; line-height: 20dp; color: #909090; text-align: center; background-color: #202020; border: 1dp #303030; border-radius: 4dp; }
 #details_form { display: none; }
+#environment_group { display: block; }
 .detail_header { display: block; box-sizing: border-box; height: 29dp; padding: 0 7dp; margin-top: 12dp; margin-bottom: 4dp; font-size: 11dp; line-height: 29dp; color: #c3c3c3; background-color: #2e2e2e; border-bottom: 1dp #393939; text-transform: uppercase; }
 .detail_row { display: flex; flex-direction: row; align-items: center; box-sizing: border-box; height: 30dp; border-bottom: 1dp #2b2b2b; }
 .detail_label { box-sizing: border-box; width: 82dp; flex-shrink: 0; font-size: 12dp; line-height: 28dp; color: #a8a8a8; }
@@ -106,6 +107,14 @@ input[type="text"]:placeholder-shown { color: #9a9fa5; }
 #script_refresh, .script_apply { margin-left: 5dp; padding: 3dp 7dp; color: #d0d0d0; background-color: #303030; border: 1dp #414141; }
 #details input { box-sizing: border-box; flex-grow: 1; min-width: 0; height: 23dp; padding: 3dp 7dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 2dp; color: #dedede; font-size: 12dp; }
 #details .axis_input { width: 0; padding: 3dp 4dp; text-align: right; margin-right: 4dp; }
+/* The environment dropdowns reuse the project look field's popup shape so the two selects in the editor behave alike. */
+select.env_select { box-sizing: border-box; flex-grow: 1; min-width: 0; height: 23dp; padding: 0 7dp; padding-right: 23dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 2dp; color: #dedede; font-size: 12dp; cursor: pointer; }
+select.env_select:focus { border-color: #0070e0; }
+select.env_select selectarrow { width: 0; height: 0; margin-top: 9dp; margin-right: 8dp; border-left: 4dp transparent; border-right: 4dp transparent; border-top: 5dp #b9c5d3; pointer-events: none; }
+select.env_select selectbox { box-sizing: border-box; width: 100%; margin-top: 2dp; padding: 2dp; background-color: #252525; border: 1dp #505050; border-radius: 3dp; }
+select.env_select option { display: block; box-sizing: border-box; height: 26dp; line-height: 26dp; padding: 0 8dp; white-space: nowrap; color: #e5e5e5; }
+select.env_select option:checked { background-color: #234d74; }
+select.env_select option:hover { background-color: #32658e; color: #ffffff; }
 .axis { width: 13dp; flex-shrink: 0; height: 23dp; font-size: 10dp; line-height: 23dp; text-align: center; color: #eeeeee; border-radius: 2dp; pointer-events: none; }
 .axis_x { background-color: #804444; }
 .axis_y { background-color: #4d7346; }
@@ -117,7 +126,7 @@ input:focus { border-color: #0070e0; }
 scrollbarvertical { width: 9dp; background-color: #191919; }
 scrollbarvertical sliderbar { background-color: #4b4b4b; border: 2dp #191919; border-radius: 4dp; }
 scrollbarvertical sliderbar:hover { background-color: #686868; }
-#unsaved_prompt, #scene_path_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; background-color: #000000b0; align-items: center; justify-content: center; }
+#unsaved_prompt, #scene_path_prompt, #asset_import_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; background-color: #000000b0; align-items: center; justify-content: center; }
 #unsaved_dialog, #scene_path_dialog { box-sizing: border-box; width: 440dp; max-width: 94%; background-color: #242424; border: 1dp #4b4b4b; border-radius: 8dp; overflow: hidden; }
 #unsaved_body, #scene_path_body { display: block; padding: 22dp 24dp 22dp; }
 #unsaved_dialog h2, #scene_path_dialog h2 { display: block; margin: 0 0 8dp; color: #f0f0f0; font-size: 20dp; line-height: 26dp; }
@@ -144,6 +153,45 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 .win_glyph_min { width: 11dp; height: 1dp; background-color: #d0d0d0; }
 .win_glyph_max { box-sizing: border-box; width: 9dp; height: 9dp; border: 1dp #d0d0d0; }
 .win_glyph_close { width: 100%; height: 30dp; font-size: 15dp; line-height: 30dp; text-align: center; color: #d0d0d0; }
+#asset_import_dialog { width: 560dp; background-color: #242424; border: 1dp #424242; border-radius: 5dp; }
+#asset_import_body { padding: 19dp 22dp; }
+#asset_import_body h2 { margin: 0 0 12dp; font-size: 19dp; color: #efefef; }
+#asset_import_message { color: #c2c2c2; margin-bottom: 14dp; font-size: 13dp; }
+.asset_import_row { display: flex; align-items: center; margin-bottom: 8dp; }
+.asset_import_label { width: 72dp; color: #c2c2c2; }
+.asset_import_field { flex-grow: 1; min-width: 0; padding: 5dp 8dp; height: 20dp; color: #eeeeee; background-color: #111111; border: 1dp #454545; }
+.asset_import_button { padding: 5dp 11dp; margin-left: 8dp; background-color: #303030; border: 1dp #444444; border-radius: 3dp; }
+.asset_import_button:hover { background-color: #414141; }
+#asset_import_actions { display: flex; justify-content: flex-end; padding: 12dp 20dp; background-color: #1c1c1c; border-top: 1dp #3a3a3a; }
+#asset_import_accept { background-color: #0070e0; border-color: #137dee; min-width: 65dp; text-align: center; }
+#asset_import_accept:hover { background-color: #1685f4; }
+#project_scenes_prompt, #project_settings_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; align-items: center; justify-content: center; background-color: #00000088; }
+#project_settings_prompt { justify-content: flex-end; background-color: #00000016; }
+.project_dialog { width: 490dp; max-width: 94%; max-height: 93%; display: flex; flex-direction: column; overflow: hidden; background-color: #242424; border: 1dp #4b4b4b; border-radius: 6dp; }
+#project_settings_dialog { margin-right: 18dp; width: 410dp; }
+.project_dialog_body { padding: 18dp 20dp; overflow: auto; }
+.project_dialog_body h2 { display: block; margin: 0 0 10dp; color: #f0f0f0; font-size: 19dp; line-height: 24dp; }
+.project_dialog_message { min-height: 18dp; margin-top: 9dp; color: #bcbcbc; font-size: 13dp; }
+#project_settings_file { color: #9d9d9d; font-size: 12dp; margin-bottom: 14dp; }
+#project_scenes_list { height: 240dp; max-height: 40vh; overflow: auto; background-color: #1a1a1a; border: 1dp #383838; }
+.project_scene_row { display: block; box-sizing: border-box; width: 100%; padding: 7dp 9dp; text-align: left; color: #dddddd; }
+.project_scene_row:hover { background-color: #333333; }
+.project_scene_selected { background-color: #234d74; color: #ffffff; }
+.project_look_row { display: flex; align-items: center; margin-bottom: 8dp; }
+.project_look_label { width: 130dp; color: #c5c5c5; }
+.project_look_field { flex-grow: 1; min-width: 0; background-color: #151515; border: 1dp #444444; color: #eeeeee; padding: 4dp 7dp; }
+select.project_look_field { cursor: pointer; padding-right: 23dp; }
+select.project_look_field:focus { border-color: #4087c9; }
+select.project_look_field selectarrow { width: 0; height: 0; margin-top: 10dp; margin-right: 8dp; border-left: 4dp transparent; border-right: 4dp transparent; border-top: 5dp #b9c5d3; pointer-events: none; }
+select.project_look_field selectbox { box-sizing: border-box; width: 100%; margin-top: 2dp; padding: 2dp; background-color: #252525; border: 1dp #505050; border-radius: 3dp; }
+select.project_look_field option { display: block; box-sizing: border-box; height: 26dp; line-height: 26dp; padding: 0 8dp; white-space: nowrap; color: #e5e5e5; }
+select.project_look_field option:checked { background-color: #234d74; }
+select.project_look_field option:hover { background-color: #32658e; color: #ffffff; }
+.project_dialog_actions { display: flex; justify-content: flex-end; padding: 12dp 16dp; background-color: #1c1c1c; border-top: 1dp #383838; }
+.project_dialog_actions button { padding: 6dp 10dp; margin-left: 7dp; color: #dddddd; background-color: #303030; border: 1dp #484848; border-radius: 4dp; }
+.project_dialog_actions button:hover { background-color: #424242; }
+.project_dialog_actions .project_primary { background-color: #0070e0; border-color: #2088ed; color: #ffffff; }
+.project_dialog_actions .project_primary:hover { background-color: #1081f4; }
 </style></head>
 <body>
 <div id="menubar">
@@ -161,9 +209,11 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 </div>
 <div id="menu_file_items" class="menu_dropdown" style="visibility: hidden; left: 88dp;">
     <div id="menu_file_new" class="menu_item">New Scene</div>
-    <div id="menu_file_open" class="menu_item">Open Scene...</div>
+    <div id="menu_file_open" class="menu_item">Project Scenes...</div>
+    <div id="menu_file_open_path" class="menu_item">Open Scene by Path...</div>
     <div id="menu_file_save" class="menu_item">Save Scene</div>
     <div id="menu_file_save_as" class="menu_item">Save Scene As...</div>
+    <div id="menu_file_project_settings" class="menu_item">Project Settings...</div>
 </div>
 <div id="menu_edit_items" class="menu_dropdown" style="visibility: hidden; left: 137dp;">
     <div id="menu_edit_undo" class="menu_item">Undo</div>
@@ -226,6 +276,8 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 <div id="browser_body">
     <div id="browser_bar">
         <input id="browser_search" type="text" placeholder="Search assets"/>
+        <button id="browser_import">Import</button>
+        <button id="browser_refresh">Refresh</button>
         <button id="browser_thumbnail">Build Thumbnail</button>
         <div id="browser_count"></div>
     </div>
@@ -290,7 +342,13 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 
         <div class="detail_row"><div class="detail_label">Asset</div><div id="detail_asset" class="detail_text">-</div></div>
         <div class="detail_row"><div class="detail_label">Pipeline</div><button id="detail_pipeline" class="detail_text">-</button></div>
+        <div class="detail_row"><div class="detail_label">Environment</div><select id="detail_environment" class="env_select"></select></div>
         <div id="script_controls"></div>
+    </div>
+    <div id="environment_group">
+        <div class="detail_header">Environment</div>
+        <div id="environment_rows"></div>
+        <div class="detail_row"><div class="detail_label">Status</div><div id="environment_status" class="detail_text">-</div></div>
     </div>
 </div>
 </div>
@@ -316,6 +374,56 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
     <div id="scene_path_actions">
         <button id="scene_path_cancel">Cancel</button>
         <button id="scene_path_accept">Open</button>
+    </div>
+</div></div>
+<div id="asset_import_prompt"><div id="asset_import_dialog">
+    <div id="asset_import_body">
+        <h2>Import Model</h2>
+        <div id="asset_import_message"></div>
+        <div class="asset_import_row">
+            <label class="asset_import_label" for="asset_import_source">Source</label>
+            <input class="asset_import_field" id="asset_import_source" type="text" placeholder="Path to .glb or .gltf"/>
+            <button class="asset_import_button" id="asset_import_browse">Browse</button>
+        </div>
+        <div class="asset_import_row">
+            <label class="asset_import_label" for="asset_import_id">Asset ID</label>
+            <input class="asset_import_field" id="asset_import_id" type="text" placeholder="Use file name"/>
+        </div>
+    </div>
+    <div id="asset_import_actions">
+        <button class="asset_import_button" id="asset_import_cancel">Cancel</button>
+        <button class="asset_import_button" id="asset_import_accept">Import</button>
+    </div>
+</div></div>
+<div id="project_scenes_prompt"><div class="project_dialog">
+    <div class="project_dialog_body">
+        <h2>Project Scenes</h2>
+        <div id="project_scenes_list"></div>
+        <div class="project_dialog_message" id="project_scene_message"></div>
+    </div>
+    <div class="project_dialog_actions">
+        <button id="project_scene_close">Close</button>
+        <button id="project_scene_startup">Set as Startup Scene</button>
+        <button class="project_primary" id="project_scene_open">Open</button>
+    </div>
+</div></div>
+<div id="project_settings_prompt"><div id="project_settings_dialog" class="project_dialog">
+    <div class="project_dialog_body">
+        <h2>Project Settings</h2>
+        <div id="project_settings_file"></div>
+        <div class="project_look_row"><label class="project_look_label" for="look_exposure">Exposure</label><input class="project_look_field" type="text" id="look_exposure"/></div>
+        <div class="project_look_row"><label class="project_look_label" for="look_sun">Sun Intensity</label><input class="project_look_field" type="text" id="look_sun"/></div>
+        <div class="project_look_row"><label class="project_look_label" for="look_sun_dir">Sun X, Y, Z</label><input class="project_look_field" type="text" id="look_sun_dir"/></div>
+        <div class="project_look_row"><label class="project_look_label" for="look_background">Background</label><select class="project_look_field" id="look_background"><option value="0">Sky</option><option value="1">Solid Color</option><option value="2">Environment</option><option value="3">Blurred Environment</option></select></div>
+        <div class="project_look_row"><label class="project_look_label" for="look_color">Color R, G, B</label><input class="project_look_field" type="text" id="look_color"/></div>
+        <div class="project_look_row"><label class="project_look_label" for="look_fxaa">FXAA</label><select class="project_look_field" id="look_fxaa"><option value="off">Off</option><option value="on">On</option></select></div>
+        <div class="project_look_row"><label class="project_look_label" for="look_taa">TAA</label><select class="project_look_field" id="look_taa"><option value="off">Off</option><option value="on">On</option></select></div>
+        <div class="project_dialog_message" id="project_settings_message"></div>
+    </div>
+    <div class="project_dialog_actions">
+        <button id="project_settings_cancel">Cancel</button>
+        <button id="project_settings_preview">Preview</button>
+        <button class="project_primary" id="project_settings_save">Save</button>
     </div>
 </div></div>
 </body>

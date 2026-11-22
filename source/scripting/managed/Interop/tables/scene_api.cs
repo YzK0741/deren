@@ -123,7 +123,7 @@ namespace deren.scripting {
         private static delegate* unmanaged<orbit_camera*, script_status> set_camera;
         // Optional like the camera entries: a host that predates this pointer still works, and the
         // wrapper reports module_unavailable instead of dereferencing null. ABI 32 made it slot-aware:
-        // 0 is the scene-wide environment, 1..3 are the per-material lanes.
+        // 0 is the scene-wide environment, 1..15 are the per-material lanes (flags bits 10..13).
         private static delegate* unmanaged<utf8_view, uint, script_status> set_environment_hdr;
         // Optional too: the per-asset pipeline queries arrived with ABI 23.
         private static delegate* unmanaged<ulong, uint*, script_status> asset_pipeline_count;

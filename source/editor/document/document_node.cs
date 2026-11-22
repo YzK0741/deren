@@ -57,6 +57,13 @@ internal sealed class document_node
     internal uint flags;
 
     /// <summary>
+    /// The environment lane this node's materials sample: 0 is the scene-wide map and 1..15 are the
+    /// per-scene custom lanes the document stores. Written to the document so a saved scene keeps
+    /// the look it was authored with.
+    /// </summary>
+    internal int environment;
+
+    /// <summary>
     /// The child nodes; the list order is the outliner order and the runtime creation order.
     /// </summary>
     internal readonly List<document_node> children = [];

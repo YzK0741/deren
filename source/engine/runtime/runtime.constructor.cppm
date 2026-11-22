@@ -3056,12 +3056,13 @@ namespace deren::engine {
         // The toon family the loader classified this material's name into (0 == none). It rides the record's
         // fourth uint lane, which the std430 layout had already reserved as padding - see material_record.
         record.toon_family = info.toon_family;
-        record.flags = compressed_normal ? 8192u : 0u; // bit13: BC5 tangent-space normal
-        // bit12: this material opted into the traced-reflection whitelist at import. The gate itself lives
+        record.flags = compressed_normal ? 32768u : 0u; // bit15: BC5 tangent-space normal
+        // bit14: this material opted into the traced-reflection whitelist at import. The gate itself lives
         // where the name still exists (see `runtime::rt_reflection_material_matches`); the record only carries
-        // the answer to the per-pixel stages.
+        // the answer to the per-pixel stages. The two bits sit above the environment slot's bits10..13, which
+        // grew from two bits to four when the environment capacity reached 16.
         if (info.rt_reflection) {
-            record.flags |= 4096u;
+            record.flags |= 16384u;
         }
         if (info.normal.valid) {
             record.flags |= 1u;
@@ -3369,7 +3370,7 @@ namespace deren::engine {
         } else {
             record.flags &= ~512u;
         }
-        record.flags = (record.flags & ~(3u << 10u)) | ((environment_slot & 3u) << 10u);
+        record.flags = (record.flags & ~(15u << 10u)) | ((environment_slot & 15u) << 10u);
         std::uint32_t const material_index = this->material_count++;
         if (this->material_texture_edges.size() <= material_index) {
             this->material_texture_edges.resize(material_index + 1);
@@ -3412,7 +3413,7 @@ namespace deren::engine {
         } else {
             record.flags &= ~512u;
         }
-        record.flags = (record.flags & ~(3u << 10u)) | ((environment_slot & 3u) << 10u);
+        record.flags = (record.flags & ~(15u << 10u)) | ((environment_slot & 15u) << 10u);
         std::memcpy(static_cast<std::uint8_t*>(this->material_mapped) + static_cast<std::size_t>(target.value) * sizeof(material_record), &record, sizeof(record));
     }
 

@@ -27,13 +27,14 @@ namespace deren.editor {
         private static string? requested_start_scene;
         private static string? requested_thumbnail;
         private static string? requested_play;
-        private play_behaviours? behaviours;
+        private static string? requested_game_scene;
+        private static bool requested_editor;
+        private static IReadOnlyDictionary<string, int> runtime_actions = new Dictionary<string, int>();
+        private scene_runtime? runtime;
         private script_catalog? editable_scripts;
         private script_inspector? scripts_panel;
         private readonly output_log_panel output_log = new();
         private play_session? playing;
-        private string? play_stop_marker;
-        private long last_play_stop_check;
         private static bool requested_selftest;
         private static string runtime_selftest_asset = "damaged-helmet";
 
@@ -42,6 +43,16 @@ namespace deren.editor {
         private rml_document? ui;
         private outliner_panel? outliner;
         private details_panel? details;
+        private environment_panel? environment_ui;
+        // The scene-wide HDR path the project settings hold ("" = procedural sky) and the text of every
+        // lane the renderer was last told about, so a frame only touches a lane whose map moved.
+        private string global_environment_hdr = string.Empty;
+        private readonly string?[] applied_environments = new string?[global_environment.slot_count];
+        // The text whose hand-over last failed per lane, so a lane the renderer keeps refusing is retried
+        // but not logged once per frame.
+        private readonly string?[] failed_environments = new string?[global_environment.slot_count];
+        // The .hdr files the environment dropdowns offer, cached until the asset library is rescanned.
+        private List<environment_entry>? environment_entries;
         private status_bar? status_line;
         private undo_stack? undo_history;
         private selection? selection_state;
@@ -62,7 +73,7 @@ namespace deren.editor {
         private Vector2? viewport_press;
         private bool focus_selection_requested;
         private bool camera_input_installed;
-        // The dock tab whose body is visible; both bodies stay laid out, only visibility flips.
+        // The dock tab whose body is visible.
         private string active_dock_tab = "tab_content";
         private workspace_layout layout = new();
         private string layout_path = string.Empty;
@@ -126,9 +137,13 @@ namespace deren.editor {
             for (var i = 0; i < argc; ++i) {
                 args[i] = argv[i] == null ? string.Empty : Marshal.PtrToStringUTF8((IntPtr)argv[i]) ?? string.Empty;
             }
-            for (var i = 1; i < args.Length; ++i) {
+            var first_option = args.Length > 2 && args[1] == "run" ? 3 : 1;
+            for (var i = first_option; i < args.Length; ++i) {
                 split_argument(args[i], out var name, out var inline_value);
                 switch (name) {
+                    case "--editor":
+                        requested_editor = true;
+                        break;
                     case "--scene":
                         requested_scene = inline_value ?? take_value(args, ref i);
                         if (string.IsNullOrEmpty(requested_scene)) {
@@ -137,12 +152,21 @@ namespace deren.editor {
                         break;
                     case "--editor-play":
                         requested_play = inline_value ?? take_value(args, ref i);
-                        requested_scene = requested_play;
                         break;
                     case "--editor-thumbnail":
                         requested_thumbnail = inline_value ?? take_value(args, ref i);
                         options->capture_frames = 8;
                         options->capture_windowed = 0;
+                        break;
+                    case "--editor-selftest-project":
+                        requested_editor = true;
+                        requested_project_selftest = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-import":
+                        requested_editor = true;
+                        requested_import_selftest = inline_value ?? take_value(args, ref i);
+                        options->capture_frames = 8;
                         break;
                     case "--editor-selftest-asset":
                         requested_selftest = true;
@@ -175,6 +199,23 @@ namespace deren.editor {
                     if (manifest?.table("editor")?.text("scene") is { Length: > 0 } entry) {
                         requested_start_scene = Path.GetFullPath(entry, root);
                     }
+                    if (requested_play != null) {
+                        if (string.IsNullOrWhiteSpace(requested_play)) {
+                            host_logger.write("Editor Play: a scene snapshot path is required");
+                            return script_status.invalid_argument;
+                        }
+                        runtime_actions = scene_runtime.action_indices(manifest);
+                    } else if (!requested_editor && !requested_selftest && requested_thumbnail == null &&
+                               manifest?.table("game")?.text("scene") is { } startup_scene) {
+                        var path = requested_scene ?? startup_scene;
+                        if (!scene_runtime.try_resolve_scene(root, path, out requested_game_scene)) {
+                            host_logger.write($"Scene runtime: '{path}' must be a project-relative .scene.toml file");
+                            return script_status.invalid_argument;
+                        }
+                        runtime_actions = scene_runtime.action_indices(manifest);
+                    } else if (requested_editor && requested_scene != null) {
+                        requested_scene = Path.GetFullPath(requested_scene, root);
+                    }
                 }
             } catch (Exception error) {
                 host_logger.write($"Editor: could not read the project ({error.Message})");
@@ -206,6 +247,22 @@ namespace deren.editor {
                 return module_status;
             }
 
+            if ((requested_play ?? requested_game_scene) is { } runtime_path) {
+                var snapshot_directory = requested_play == null ? null : Path.GetDirectoryName(Path.GetFullPath(runtime_path));
+                var stop_marker = snapshot_directory == null ? null : Path.Combine(snapshot_directory, "stop.request");
+                if (!scene_runtime.try_start(managed_bootstrap.project_directory, runtime_path, runtime_actions,
+                                             stop_marker, out runtime, out var runtime_status)) {
+                    return runtime_status;
+                }
+                if (snapshot_directory != null) {
+                    apply_play_camera(Path.Combine(snapshot_directory, "camera.json"));
+                }
+                instance = this;
+                scripts->update = &update;
+                scripts->stop = &stop;
+                return script_status.success;
+            }
+
             if (requested_scene == null && !requested_selftest) {
                 requested_scene = requested_start_scene;
             }
@@ -230,34 +287,6 @@ namespace deren.editor {
                 return rebuild_status != script_status.success ? rebuild_status : script_status.script_failure;
             }
             tree = rebuilt_tree;
-            if (requested_play != null) {
-                play_stop_marker = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(requested_play))!, "stop.request");
-                var camera_path = Path.Combine(Path.GetDirectoryName(play_stop_marker)!, "camera.json");
-                if (File.Exists(camera_path)) {
-                    // A stale or hand-edited camera file must not keep the play session from starting:
-                    // an unreadable or empty pose falls back to the editor's default view instead.
-                    try {
-                        var pose = System.Text.Json.JsonSerializer.Deserialize<orbit_camera?>(
-                            File.ReadAllText(camera_path), play_session.camera_json);
-                        if (pose is { } camera) {
-                            // The ABI refuses a non-finite pose or a degenerate distance, so a bad
-                            // file must not be applied silently after it parsed: say why the view
-                            // stayed where it was.
-                            if (!camera.try_apply(out var camera_status)) {
-                                host_logger.write($"Editor: '{camera_path}' could not be applied ({camera_status}); keeping the default view");
-                            }
-                        } else {
-                            host_logger.write($"Editor: '{camera_path}' holds no camera pose, using the default view");
-                        }
-                    } catch (Exception error) {
-                        host_logger.write($"Editor: cannot read '{camera_path}': {error.GetBaseException().Message}");
-                    }
-                }
-                instance = this;
-                scripts->update = &update;
-                scripts->stop = &stop;
-                return script_status.success;
-            }
             if (requested_thumbnail != null) {
                 if (!orient_thumbnail(document.roots[0])) {
                     cleanup();
@@ -300,6 +329,13 @@ namespace deren.editor {
             thumbnails = new asset_thumbnail_cache(project_root, workspace);
             playing = new play_session(project_root, workspace);
             browser = new content_browser_panel(opened_document, thumbnails, shell_ui);
+            environment_ui = new environment_panel(opened_document);
+            // An unset lane is the procedural sky; recording that as already applied keeps startup from
+            // rendering three sky cubemaps the document never asked for.
+            for (var lane = 1; lane < global_environment.slot_count; ++lane) {
+                applied_environments[lane] = string.Empty;
+            }
+            global_environment_hdr = read_project_environment_hdr();
             // An empty library and a failed query look the same in the grid, so ask for the status and
             // report the failure instead of presenting it as "this project has no assets".
             assets = asset_manager.list(out var assets_status);
@@ -311,8 +347,28 @@ namespace deren.editor {
             refresh_browser();
             opened_document.set_text(project_label_id, project_title());
             refresh_panels(force_details: true);
+            sync_environment_lanes();
+            // The managed bootstrap already applied the project's [lighting] environment_hdr while the
+            // project started, so only the panel status has to reflect what is in effect.
+            environment_ui?.set_status(global_environment_hdr.Length == 0
+                ? "Scene map: procedural sky"
+                : string.Create(CultureInfo.InvariantCulture, $"Scene map: {Path.GetFileName(global_environment_hdr)}"));
             host_logger.write($"Editor: document ready ({count_nodes(document.roots)} node(s))");
 
+            if (requested_project_selftest) {
+                var project_status = run_project_selftest();
+                if (project_status != script_status.success) {
+                    cleanup();
+                    return project_status;
+                }
+            }
+            if (requested_import_selftest != null) {
+                var import_status = run_import_selftest(requested_import_selftest);
+                if (import_status != script_status.success) {
+                    cleanup();
+                    return import_status;
+                }
+            }
             if (requested_selftest) {
                 var selftest_status = run_selftest();
                 if (selftest_status != script_status.success) {
@@ -363,8 +419,8 @@ namespace deren.editor {
                 return script_status.invalid_argument;
             }
             try {
-                if (requested_play != null) {
-                    return current.update_play(frame);
+                if (current.runtime != null) {
+                    return current.runtime.update(frame);
                 }
                 if (current.playing?.poll(current.output_log.add, out var play_result, out var play_failed) == true) {
                     current.notice = play_result;
@@ -395,11 +451,12 @@ namespace deren.editor {
                     current.output_log.refresh(current.ui);
                 }
                 current.refresh_panels();
+                current.sync_environment_lanes();
                 current.update_viewport_aspect();
                 current.layout_gizmo();
                 if (current.focus_selection_requested) {
                     current.focus_selection_requested = false;
-                    if (!current.pending_new_scene && !current.pending_close && current.pending_open == null && !current.scene_path_open) {
+                    if (!current.pending_new_scene && !current.pending_close && current.pending_open == null && !current.scene_path_open && !current.asset_import_open && current.open_project_panel == project_panel.none) {
                         current.focus_selection();
                     }
                 }
@@ -436,6 +493,18 @@ namespace deren.editor {
                     viewport_navigation.cancel_drag();
                     finish_split_drag();
                 }
+                if (open_project_panel != project_panel.none) {
+                    if (open_project_panel == project_panel.scenes) {
+                        handle_project_scenes(input);
+                    } else {
+                        handle_project_settings(input);
+                    }
+                    continue;
+                }
+                if (asset_import_open) {
+                    handle_asset_import(input);
+                    continue;
+                }
                 if (scene_path_open) {
                     reset_outliner_drag();
                     if (input.type == rml_event_type.change && input.id == "scene_path") {
@@ -466,8 +535,12 @@ namespace deren.editor {
                         refresh_panels();
                     } else if (handle_script_edit(input)) {
                         continue;
+                    } else if (handle_node_environment_change(input.id, input.value)) {
+                        // the per-object environment dropdown applied its own change
                     } else if (details_panel.try_field(input.id, out var field)) {
                         apply_detail_change(field, input.value);
+                    } else if (environment_panel.try_change(input.id, input.value, out var lane, out var environment_selection)) {
+                        apply_environment_selection(lane, environment_selection);
                     }
                     continue;
                 }
@@ -557,6 +630,12 @@ namespace deren.editor {
                     case "win_close":
                         close_window();
                         break;
+                    case "browser_import":
+                        show_asset_import();
+                        break;
+                    case "browser_refresh":
+                        refresh_asset_library();
+                        break;
                     case "browser_thumbnail":
                         if (browser == null || browser.selected_asset.Length == 0) {
                             notice = "Select an asset to render a thumbnail";
@@ -614,7 +693,13 @@ namespace deren.editor {
                     new_scene();
                     break;
                 case "menu_file_open":
+                    show_project_scenes();
+                    break;
+                case "menu_file_open_path":
                     show_scene_path(saving: false);
+                    break;
+                case "menu_file_project_settings":
+                    show_project_settings();
                     break;
                 case "menu_file_save_as":
                     show_scene_path(saving: true);
@@ -1265,6 +1350,7 @@ namespace deren.editor {
             node.visible = snapshot.visible;
             node.flags = snapshot.flags;
             node.script = snapshot.script;
+            node.environment = snapshot.environment;
             if (!push_runtime(node)) {
                 // THE RUNTIME REFUSED THE SNAPSHOT: putting the document back keeps the two sides
                 // equal, and returning false keeps the history entry where it was.
@@ -1273,6 +1359,7 @@ namespace deren.editor {
                 node.visible = previous.visible;
                 node.flags = previous.flags;
                 node.script = previous.script;
+                node.environment = previous.environment;
                 return false;
             }
             if (mark_dirty) {
@@ -1289,6 +1376,7 @@ namespace deren.editor {
                 visible = node.visible;
                 flags = node.flags;
                 script = node.script;
+                environment = node.environment;
             }
 
             internal readonly string name;
@@ -1296,6 +1384,7 @@ namespace deren.editor {
             internal readonly bool visible;
             internal readonly uint flags;
             internal readonly string? script;
+            internal readonly int environment;
         }
 
         private void record_undo(string label, Func<bool> undo, Func<bool> redo) {
@@ -1586,7 +1675,10 @@ namespace deren.editor {
                 return;
             }
             outliner.refresh(document, selection_state, outliner_filter);
+            var selected = selection_state.primary == Guid.Empty ? null : document.find(selection_state.primary);
             details?.refresh(document, selection_state, force_details);
+            environment_ui?.refresh(document, global_environment_hdr, environment_catalog());
+            environment_ui?.refresh_node(document, selected, environment_catalog());
             scripts_panel?.refresh(document, selection_state.primary, assets);
             status_line.refresh(document, selection_state, notice);
             update_history_buttons();
@@ -1760,13 +1852,7 @@ namespace deren.editor {
                     return;
                 }
                 hide_scene_path();
-                if (document?.dirty == true) {
-                    pending_open = loaded;
-                    ui?.set_text("unsaved_message", "Save your changes before opening another scene?");
-                    ui?.try_set_element_style("unsaved_prompt", "display", "flex");
-                } else {
-                    replace_scene(loaded);
-                }
+                request_open_scene(loaded);
             } else if (File.Exists(path) && overwrite_path != path) {
                 overwrite_path = path;
                 ui?.set_text("scene_path_message", "A file already exists here. Choose Replace to overwrite it.");
@@ -1775,6 +1861,16 @@ namespace deren.editor {
                 hide_scene_path();
             } else {
                 ui?.set_text("scene_path_message", "Could not save the scene. Check the path and try again.");
+            }
+        }
+
+        private void request_open_scene(scene_document loaded) {
+            if (document?.dirty == true) {
+                pending_open = loaded;
+                ui?.set_text("unsaved_message", "Save your changes before opening another scene?");
+                ui?.try_set_element_style("unsaved_prompt", "display", "flex");
+            } else {
+                replace_scene(loaded);
             }
         }
 
@@ -2037,32 +2133,26 @@ namespace deren.editor {
             }
         }
 
-        private script_status update_play(frame_info* frame) {
-            try {
-                long now = Stopwatch.GetTimestamp();
-                if (Stopwatch.GetElapsedTime(last_play_stop_check, now).TotalMilliseconds >= 100) {
-                    last_play_stop_check = now;
-                    if (File.Exists(play_stop_marker)) {
-                        window_control.try_close();
-                        return script_status.success;
-                    }
-                }
-                if (behaviours == null && document != null) {
-                    behaviours = new play_behaviours(Path.Combine(managed_bootstrap.project_directory, "scripts"));
-                    if (behaviours.try_attach_nodes(document, frame->scene, out var attach_message)) {
-                        if (animation_player.try_get_info(out _)) {
-                            animation_player.try_play();
+        private static void apply_play_camera(string camera_path) {
+            if (File.Exists(camera_path)) {
+                // A stale or hand-edited camera file must not keep the play session from starting:
+                // an unreadable or empty pose falls back to the editor's default view instead.
+                try {
+                    var pose = System.Text.Json.JsonSerializer.Deserialize<orbit_camera?>(
+                        File.ReadAllText(camera_path), play_session.camera_json);
+                    if (pose is { } camera) {
+                        // The ABI refuses a non-finite pose or a degenerate distance, so a bad
+                        // file must not be applied silently after it parsed: say why the view
+                        // stayed where it was.
+                        if (!camera.try_apply(out var camera_status)) {
+                            host_logger.write($"Editor: '{camera_path}' could not be applied ({camera_status}); keeping the default view");
                         }
                     } else {
-                        host_logger.write(attach_message);
-                        return script_status.script_failure;
+                        host_logger.write($"Editor: '{camera_path}' holds no camera pose, using the default view");
                     }
+                } catch (Exception error) {
+                    host_logger.write($"Editor: cannot read '{camera_path}': {error.GetBaseException().Message}");
                 }
-                behaviours?.update(frame->delta_time);
-                return script_status.success;
-            } catch (Exception error) {
-                host_logger.write($"Editor play: {error.GetBaseException().Message}");
-                return script_status.script_failure;
             }
         }
 
@@ -2070,8 +2160,8 @@ namespace deren.editor {
             editable_scripts?.Dispose();
             editable_scripts = null;
             scripts_panel = null;
-            behaviours?.Dispose();
-            behaviours = null;
+            runtime?.Dispose();
+            runtime = null;
             playing?.Dispose();
             playing = null;
             if (camera_input_installed) {

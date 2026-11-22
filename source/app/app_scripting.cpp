@@ -16,6 +16,12 @@ import deren.toon_material_sidecar;
 
 namespace deren::app {
     namespace {
+        std::filesystem::path bundled_dotnet_root(std::filesystem::path const& runtime_directory) {
+            auto const candidate = runtime_directory / "dotnet";
+            std::error_code error;
+            return std::filesystem::is_directory(candidate, error) ? candidate : std::filesystem::path{};
+        }
+
         bool is_finite(scripting::vector_3 value) {
             return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
         }
@@ -263,9 +269,63 @@ namespace deren::app {
             state.root = root;
             state.library = asset_library::asset_library::scan(root);
             state.scanned = true;
-            if (!state.library.valid()) {
+            std::error_code error;
+            if (!state.library.valid() && !std::filesystem::is_directory(root, error)) {
                 utility::error("scripts: asset library '{}' is not usable: {}", root.string(), state.library.error());
             }
+        }
+
+        bool has_asset_directory(asset_state const& state) {
+            std::error_code error;
+            return state.scanned && std::filesystem::is_directory(state.root, error);
+        }
+
+        scripting::script_status borrow_asset_path(std::filesystem::path const& path, scripting::utf8_view* result) {
+            if (result == nullptr) {
+                return scripting::script_status::invalid_argument;
+            }
+            *result = {};
+            if (path.empty()) {
+                return scripting::script_status::asset_not_found;
+            }
+            thread_local std::u8string text;
+            text = path.u8string();
+            *result = {.data = reinterpret_cast<char const*>(text.data()), .length = static_cast<std::uint32_t>(text.size())};
+            return scripting::script_status::success;
+        }
+
+        scripting::script_status asset_catalog_root(scripting::utf8_view* result) {
+            return borrow_asset_path(assets().root, result);
+        }
+
+        scripting::script_status choose_asset_file(scripting::utf8_view* result) {
+            if (result == nullptr) {
+                return scripting::script_status::invalid_argument;
+            }
+            auto const picked = utility::ask_open_file("Import Model", "*.glb;*.gltf", {}, "Model files");
+            return borrow_asset_path(picked.value_or(std::filesystem::path{}), result);
+        }
+
+        // ABI 43: the environment-map picker. Same contract as choose_asset_file, but the catalogue only
+        // ever carries equirectangular HDR skies, so the dialog opens in the asset library and filters for
+        // `.hdr`: an `.ibl` is a baked product of a source image and is not something the user picks first.
+        scripting::script_status choose_environment_file(scripting::utf8_view* result) {
+            if (result == nullptr) {
+                return scripting::script_status::invalid_argument;
+            }
+            auto const picked = utility::ask_open_file("Choose Environment Map", "*.hdr", assets().root, "Environment maps");
+            return borrow_asset_path(picked.value_or(std::filesystem::path{}), result);
+        }
+
+        scripting::script_status refresh_asset_catalog() {
+            auto& state = assets();
+            if (!has_asset_directory(state)) {
+                return scripting::script_status::asset_invalid;
+            }
+            // Only publish the catalogue. Loaded asset handles and bound primitive trees have
+            // their own storage, and refreshing the directory must not disturb either one.
+            state.library = asset_library::asset_library::scan(state.root);
+            return scripting::script_status::success;
         }
 
         managed_asset* find_asset(std::uint64_t const id) {
@@ -334,10 +394,15 @@ namespace deren::app {
                                         .set_frame_boundary_timeout = set_frame_boundary_timeout,
                                         .panic = panic_report};
         scripting::startup_options options{};
+        auto const dotnet_root = bundled_dotnet_root(runtime_dir);
+        if (!dotnet_root.empty()) {
+            utility::log("scripts: using bundled .NET runtime at '{}'", dotnet_root.string());
+        }
         auto const result = scripting::configure_managed_host(
             {.assembly = runtime_dir / "Deren.Managed.dll",
              .runtime_config = runtime_dir / "Deren.Managed.runtimeconfig.json",
              .nethost = runtime_dir / nethost_library,
+             .dotnet_root = dotnet_root,
              .game_assembly = assembly,
              .argc = argc,
              .argv = argv},
@@ -406,6 +471,7 @@ namespace deren::app {
             {.assembly = runtime_dir / "Deren.Managed.dll",
              .runtime_config = runtime_dir / "Deren.Managed.runtimeconfig.json",
              .nethost = runtime_dir / nethost_library,
+             .dotnet_root = bundled_dotnet_root(runtime_dir),
              .game_assembly = assembly},
             api, scripts);
         starting_scene = nullptr;
@@ -1428,6 +1494,32 @@ namespace deren::app {
             *byte_size = sizeof(bounds);
             return scripting::script_status::success;
         }
+        if (module == static_cast<std::uint32_t>(scripting::native_module::asset_authoring)) {
+            struct asset_authoring_api {
+                decltype(&asset_catalog_root) root;
+                decltype(&choose_asset_file) choose;
+                decltype(&refresh_asset_catalog) refresh;
+            };
+            static asset_authoring_api const authoring{asset_catalog_root, choose_asset_file, refresh_asset_catalog};
+            *table = &authoring;
+            *byte_size = sizeof(authoring);
+            return scripting::script_status::success;
+        }
+        if (module == static_cast<std::uint32_t>(scripting::native_module::asset_authoring_extended)) {
+            // The original three entries come first, in the same order, so a reader that only knows the
+            // short table can read this one by prefix and a reader that wants the picker gets it by size.
+            struct asset_authoring_extended_api {
+                decltype(&asset_catalog_root) root;
+                decltype(&choose_asset_file) choose;
+                decltype(&refresh_asset_catalog) refresh;
+                decltype(&choose_environment_file) choose_environment;
+            };
+            static asset_authoring_extended_api const extended{asset_catalog_root, choose_asset_file, refresh_asset_catalog,
+                                                               choose_environment_file};
+            *table = &extended;
+            *byte_size = sizeof(extended);
+            return scripting::script_status::success;
+        }
         constexpr auto rml_ui = static_cast<std::uint32_t>(scripting::native_module::rml_ui);
         constexpr auto rml_ui_extended = static_cast<std::uint32_t>(scripting::native_module::rml_ui_extended);
         if (module == rml_ui || module == rml_ui_extended) {
@@ -1884,12 +1976,12 @@ namespace deren::app {
         if (value == nullptr) {
             return scripting::script_status::invalid_argument;
         }
-        auto* scene = find_managed_tree(tree);
-        if (scene == nullptr) {
+        auto const* entry = find_managed_tree_entry(tree);
+        if (entry == nullptr || entry->value == nullptr) {
             return scripting::script_status::scene_not_found;
         }
         auto const id = to_entity(node);
-        auto* scene_node = scene->find_node(id);
+        auto* scene_node = entry->value->find_node(id);
         if (scene_node == nullptr) {
             return scripting::script_status::invalid_node;
         }
@@ -1901,8 +1993,13 @@ namespace deren::app {
             return scripting::script_status::invalid_node;
         }
         placement_value->transform = *value;
-        placement_value->dirty = true;
-        scene_node->local = to_local_matrix(*value);
+        auto const local = to_local_matrix(*value);
+        if (scene_node->local != local) {
+            scene_node->local = local;
+            if (entry->active && entry->owner != nullptr && entry->owner->host.scene_transforms_changed != nullptr) {
+                entry->owner->host.scene_transforms_changed(entry->owner->host.context);
+            }
+        }
         return scripting::script_status::success;
     }
 
@@ -2180,7 +2277,6 @@ namespace deren::app {
             // full matrix the move produced.
             if (auto* const placement_value = engine::scene_tree::components().try_get<placement>(id)) {
                 placement_value->transform = pose_from_matrix(*local_override).value_or(scripting::transform_value{});
-                placement_value->dirty = true;
             }
         }
         return scripting::script_status::success;
@@ -2330,7 +2426,7 @@ namespace deren::app {
         }
         *id = {};
         auto const& state = assets();
-        if (!state.scanned || !state.library.valid()) {
+        if (!state.library.valid() && !has_asset_directory(state)) {
             return scripting::script_status::asset_invalid;
         }
         auto const entries = state.library.entries();
@@ -2707,17 +2803,15 @@ namespace deren::app {
         if (value == nullptr) {
             return scripting::script_status::invalid_argument;
         }
-        auto* placement = find(node);
-        if (placement == nullptr) {
-            return scripting::script_status::invalid_node;
+        // The core callback has only a node handle. Reuse the tree write so behaviour and
+        // inspector edits update both the component readback and the rendered node.
+        for (auto const& entry : managed_trees()) {
+            auto const status = set_node_transform(entry.id, node, value);
+            if (status != scripting::script_status::invalid_node && status != scripting::script_status::scene_not_found) {
+                return status;
+            }
         }
-        if (!is_finite(value->position) || !is_finite(value->rotation_degrees) || !is_finite(value->scale) ||
-            value->scale.x == 0.0f || value->scale.y == 0.0f || value->scale.z == 0.0f) {
-            return scripting::script_status::invalid_argument;
-        }
-        placement->transform = *value;
-        placement->dirty = true;
-        return scripting::script_status::success;
+        return scripting::script_status::invalid_node;
     }
 
     scripting::script_status script_scene::try_spawn(std::uint64_t const scene, scripting::utf8_view asset,

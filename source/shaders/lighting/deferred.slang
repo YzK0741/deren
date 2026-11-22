@@ -197,10 +197,11 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     // ambient (diffuse and specular) and never the direct sun.
     si.ao = material.b * ssao_occlusion(v_uv, depth, si.normal, sv_position.xy);
     si.emissive = float3(0.0);
-    // THE PER-OBJECT ENVIRONMENT: material flags bits 10..11 select one of the four IBL slots the application
-    // published. The slot index rides the material record for the same reason bit9 does - this stage is a
-    // fullscreen pass, so a material is the only per-pixel place an object's choice can live.
-    si.environment = (surface_material.flags >> 10u) & 3u;
+    // THE PER-OBJECT ENVIRONMENT: material flags bits 10..13 select one of the sixteen IBL slots the application
+    // published (slot 0 is the scene-wide map, 1..15 are per-object HDRs). The slot index rides the material record
+    // for the same reason bit9 does - this stage is a fullscreen pass, so a material is the only per-pixel place an
+    // object's choice can live.
+    si.environment = (surface_material.flags >> 10u) & 15u;
     // Ray-traced sun visibility, or NEGATIVE to keep the cascaded shadow maps: the flag is the light UBO's,
     // and it is only ever set when that pass ran and the device has ray queries - so a frame with rt_shadows
     // off samples nothing that does not exist and shades exactly as it did before.
@@ -214,10 +215,10 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0, float4 sv_position : SV
     // roughness term keeps a rough surface from gaining a mirror's energy. The gate is the pass's push
     // lane, which the runtime only raises when the trace actually ran this frame; it also carries the
     // configured strength (0.35 by default), so the term stays subtle instead of turning a glossy surface
-    // into a mirror. Bit12 of the material record is the ART-DIRECTED WHITELIST: a full-screen reflection
+    // into a mirror. Bit14 of the material record is the ART-DIRECTED WHITELIST: a full-screen reflection
     // over a cel-shaded character fights the flat shading, so only materials the import resolved as cloth
     // (or an explicitly configured name) opt in.
-    if (pc.rt_reflection > 0.0 && (surface_material.flags & 4096u) != 0u)
+    if (pc.rt_reflection > 0.0 && (surface_material.flags & 16384u) != 0u)
     {
         const uint reflection_slot = (pc.reflection_denoised > 0.5) ? heap_slots_rt_reflection_denoised : heap_slots_rt_reflection;
         const float3 reflection = heap_texel(heap_at<Texture2D<float4>>(reflection_slot + heap_frame_slot), heap_sampler_gbuffer, v_uv).rgb;

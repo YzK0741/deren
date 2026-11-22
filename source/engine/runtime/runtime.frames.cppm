@@ -3452,15 +3452,11 @@ namespace deren::engine {
         // decide it: the render chain is running BELOW the output size, and the pass built the pipeline it
         // records with (deren.engine.pass.upscale, created by create_passes()).
         //
-        // AT render_scale == 1.0 THE ANSWER IS FALSE BY CONSTRUCTION, and that is the whole reason this
-        // predicate is not just `pass_ready`: the render extent returns the swapchain's extent at 1.0, so
-        // the resolve would read an image at the output size and write an image at the output size - a
-        // same-size resample that costs a pass and changes no pixel. This is also what keeps every scale-1.0
-        // capture byte-identical: the record step never resolves or records the stage, the composite never writes
-        // the LDR image for it, and the frame is the frame it always was. The scale is the ENGINE's
-        // number now (abi 14, copied from the creation option the context was built with), not a field
-        // read out of the context.
-        return this->render_scale < 1.0f && this->pass_ready("upscale");
+        // A viewport also needs the intermediate color when running at full size without FXAA.
+        // The upscale pass uses a same-size copy in that case. A game without such a viewport
+        // still writes directly to the output when no resolve is needed.
+        bool const viewport_copy = this->scene_color_required && !(this->fxaa_on && this->pass_ready("fxaa"));
+        return (this->render_scale < 1.0f || viewport_copy) && this->pass_ready("upscale");
     }
 
     rhi::error runtime::finish_overlay_after(void* const parent, deren::promise::rhi::command_buffer& commands,

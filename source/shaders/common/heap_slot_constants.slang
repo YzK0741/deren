@@ -136,12 +136,13 @@ static const uint heap_slots_local_probe = heap_slot_base + 1364u;
 static const uint heap_slots_env_cube = heap_slot_base + 1044u;
 static const uint heap_slots_irradiance_cube = heap_slot_base + 1045u;
 static const uint heap_slots_brdf_lut = heap_slot_base + 1046u;
-// THE CUSTOM ENVIRONMENT SLOTS (1..3), appended after `local_probe` (1364) and the software raster's last family
-// (software_route_arguments occupies 1356..1363). Each is a prefiltered cube + irradiance pair; the BRDF LUT above is
-// shared. A per-object material record carries the slot in flags bits 10..11, so the material can pick its sky
-// without a per-leaf draw or a named pipeline.
-static const uint heap_slots_custom_env_cube = heap_slot_base + 1365u;
-static const uint heap_slots_custom_irradiance_cube = heap_slot_base + 1369u;
+// THE CUSTOM ENVIRONMENT SLOTS (1..15), appended at the END of the used region after `subtilis_page_arena`
+// (1597) because the family grew from three slots to fifteen when per-object maps landed, and growing it in place
+// (1365..1372) would have renumbered every reflection descriptor after it. Each is a prefiltered cube + irradiance
+// pair; the BRDF LUT above is shared. A per-object material record carries the slot in flags bits 10..13, so the
+// material can pick its sky without a per-leaf draw or a named pipeline.
+static const uint heap_slots_custom_env_cube = heap_slot_base + 1600u;
+static const uint heap_slots_custom_irradiance_cube = heap_slot_base + 1615u;
 // the ray-traced reflection target: RGB radiance + A hit distance, per frame slot; the tracing pass writes the
 // STORAGE twin below and deferred lighting samples this one
 static const uint heap_slots_rt_reflection = heap_slot_base + 1372u;
@@ -178,7 +179,7 @@ static const uint heap_slots_rt_reflection_depth_current_storage = heap_slot_bas
 // Both are scene-wide, so they are single descriptors rather than per-frame runs.
 static const uint heap_slots_subtilis_page_table = heap_slot_base + 1596u;
 static const uint heap_slots_subtilis_page_arena = heap_slot_base + 1597u;
-static const uint heap_environment_capacity = 4u;
+static const uint heap_environment_capacity = 16u;
 // per swapchain image: the shadow map, the ray-traced visibility, and every G-buffer/post image
 static const uint heap_slots_shadow_map = heap_slot_base + 1047u;
 static const uint heap_slots_rt_visibility = heap_slot_base + 1055u;

@@ -5,6 +5,8 @@ namespace deren.scripting {
         audio = 3,
         rml_ui = 4,
         node_bounds = 5,
-        rml_ui_extended = 6
+        rml_ui_extended = 6,
+        asset_authoring = 7,
+        asset_authoring_extended = 8
     }
 }

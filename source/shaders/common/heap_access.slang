@@ -172,7 +172,7 @@ float4 heap_sample_lod0(uint texture_index, float2 uv)
 
 // ---- THE IBL FETCHES (the GLSL definitions live in ibl_specular.slang) ----
 
-/// heap slot of a prefiltered environment: slot 0 is the scene-wide IBL, 1..3 the custom per-object slots
+/// heap slot of a prefiltered environment: slot 0 is the scene-wide IBL, 1..15 the custom per-object slots
 uint env_cube_slot(uint environment)
 {
     return environment == 0u ? heap_slots_env_cube : heap_slots_custom_env_cube + environment - 1u;

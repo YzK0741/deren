@@ -48,12 +48,7 @@ internal static class scene_sync
         // Bind the assets only after activation: the native side materialises the render instances of
         // a bound asset when the tree is already active, and a tree that is populated beforehand never
         // gets them.
-        if (!create_all(doc, created, doc.roots, null, out status)) {
-            created.detach();
-            created.destroy();
-            return false;
-        }
-        if (!push_all(doc, created, doc.roots, out status)) {
+        if (!try_add_document(doc, created, out status)) {
             created.detach();
             created.destroy();
             return false;
@@ -61,6 +56,28 @@ internal static class scene_sync
         tree = created;
         status = script_status.success;
         return true;
+    }
+
+    // The active tree stays registered with the engine. Runtime scene changes add the next
+    // document's roots first so a failed load can roll back without disturbing the current roots.
+    internal static bool try_add_document(scene_document doc, scene_tree tree, out script_status status)
+    {
+        if (create_all(doc, tree, doc.roots, null, out status) && push_all(doc, tree, doc.roots, out status)) {
+            return true;
+        }
+        remove_document(doc, tree);
+        return false;
+    }
+
+    internal static bool remove_document(scene_document doc, scene_tree tree)
+    {
+        var removed = true;
+        foreach (var root in doc.roots) {
+            if (root.runtime.is_valid) {
+                removed &= destroy_one(doc, tree, root, out _);
+            }
+        }
+        return removed;
     }
 
     /// <summary>
@@ -174,9 +191,53 @@ internal static class scene_sync
         if (node.pipeline != null && !tree.try_set_pipeline(node.runtime, node.pipeline, out status)) {
             return false;
         }
+        if (!apply_environment(tree, node, out status)) {
+            return false;
+        }
         _ = try_set_name(tree, node);
         status = script_status.success;
         return true;
+    }
+
+    /// <summary>
+    /// Points this node's materials, and those of every node under it, at the environment lane the
+    /// document stored.
+    /// </summary>
+    /// <remarks>
+    /// Lane 0 is what every material samples until told otherwise, so it needs no override and
+    /// disabling the override is exactly how a node returns to it — for itself and for its subtree.
+    /// Lanes 1..15 are expressed as a material override with the imported factors, and the host applies
+    /// it to the node's subtree. Because a parent's override covers its children, the push re-applies
+    /// every descendant's lane afterwards: otherwise pushing one node (a transform edit, an undo) would
+    /// repaint its children with the parent's map until the scene was reloaded. The result is that the
+    /// deepest lane wins over an ancestor's map, and a node on lane 0 opts its subtree out.
+    /// </remarks>
+    private static bool apply_environment(scene_tree tree, document_node node, out script_status status)
+    {
+        if (!apply_environment_one(tree, node, out status)) {
+            return false;
+        }
+        foreach (var child in node.children) {
+            if (!apply_environment(tree, child, out status)) {
+                return false;
+            }
+        }
+        status = script_status.success;
+        return true;
+    }
+
+    private static bool apply_environment_one(scene_tree tree, document_node node, out script_status status)
+    {
+        status = script_status.invalid_argument;
+        if (!node.runtime.is_valid) {
+            // A node without a runtime node is not part of the rendered tree, so it has nothing to
+            // point at a lane; its children can still have one.
+            status = script_status.success;
+            return true;
+        }
+        var value = material_override.imported;
+        value.environment_slot = (uint)node.environment;
+        return tree.try_set_material_override(node.runtime, in value, node.environment != 0, out status);
     }
 
     /// <summary>

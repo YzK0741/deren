@@ -9,6 +9,7 @@ module;
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/ElementText.h>
 #include <RmlUi/Core/Elements/ElementFormControl.h>
+#include <RmlUi/Core/Elements/ElementFormControlSelect.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Input.h>
@@ -123,6 +124,7 @@ namespace deren::ui {
             // frame's render-chain image. The dimensions are the intrinsic size placeholder RmlUi wants;
             // a document sizes the viewport element in CSS, so this only matters if it does not.
             if (source == scene_color_uri) {
+                this->document->scene_texture_loaded = true;
                 dimensions = {1920, 1080};
                 return scene_color_texture;
             }
@@ -288,6 +290,7 @@ namespace deren::ui {
         this->events.clear();
         this->pointer_events.clear();
         this->pressed_buttons = 0;
+        this->scene_texture_loaded = false;
     }
 
     void rml_document::set_density_independent_pixel_ratio(float ratio) noexcept {
@@ -338,7 +341,23 @@ namespace deren::ui {
         if (!element) {
             return false;
         }
+        // A SELECT KEEPS ITS OPTIONS IN ITS WIDGET, NOT IN THE ELEMENT TREE. RmlUi moves the option
+        // children of a `select` into the drop-down widget on the next update, so parsing new markup
+        // under the element only stages a second set of options: the widget keeps the first set and
+        // gains the new one, and the popup lists every entry twice. Clearing the widget's list first
+        // makes a markup write a replacement, which is what every caller means.
+        //
+        // THE WRITE IS SILENT: replacing a select's options drops its selection, which makes RmlUi
+        // dispatch a `change` event carrying an EMPTY value. A panel that repaints its controls from
+        // the document would read that as "the user cleared the field" and undo the edit the repaint
+        // was there to show (the per-object environment row reset itself to the scene map this way).
+        auto const previous_suppress = this->suppress_events;
+        this->suppress_events = true;
+        if (element->GetTagName() == "select") {
+            static_cast<Rml::ElementFormControlSelect*>(element)->RemoveAll();
+        }
         element->SetInnerRML(Rml::String(markup));
+        this->suppress_events = previous_suppress;
         return true;
     }
     bool rml_document::set_value(std::string_view id, std::string_view value) {
@@ -359,10 +378,13 @@ namespace deren::ui {
             return false;
         }
         auto* const control = static_cast<Rml::ElementFormControl*>(element);
-        // Programmatic updates must not feed the managed change-event handler back into itself.
+        // Programmatic updates must not feed the managed change-event handler back into itself. The flag is
+        // saved and restored rather than cleared, so a caller already suppressing events (set_markup, or a
+        // future nested update) keeps its own suppression alive.
+        bool const previous_suppress = this->suppress_events;
         this->suppress_events = true;
         control->SetValue(Rml::String(value));
-        this->suppress_events = false;
+        this->suppress_events = previous_suppress;
         return true;
     }
     bool rml_document::set_visible(std::string_view id, bool visible) {
@@ -409,6 +431,16 @@ namespace deren::ui {
             append(append, element);
         }
         return result;
+    }
+    std::uint32_t rml_document::option_count(std::string_view id) const {
+        auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;
+        auto* element = context ? context->GetDocument(0)->GetElementById(Rml::String(id)) : nullptr;
+        if (!element || element->GetTagName() != "select") {
+            return 0;
+        }
+        // The count is the widget's, not the element's: RmlUi moves a select's options into the drop-down
+        // widget, so the information the popup shows is the only honest answer.
+        return static_cast<std::uint32_t>(static_cast<Rml::ElementFormControlSelect*>(element)->GetNumOptions());
     }
     utility::vessel::string rml_document::value(std::string_view id) const {
         auto* context = render_interface.document == this ? Rml::GetContext(context_name) : nullptr;

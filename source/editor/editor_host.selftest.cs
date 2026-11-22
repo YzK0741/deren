@@ -43,12 +43,127 @@ namespace deren.editor {
                 host_logger.write("Editor selftest: uid/name/transform of every node match");
 
                 // THE WRITER'S HEADER IS THE VERSION CONTRACT the reader enforces: a file carrying keys
-                // this writer emits (the per-node `script`) must not still claim the old version, or an
-                // old build accepts it and drops the key on its next save.
+                // this writer emits (the per-node `script`, the scene `[environment]` lanes) must not
+                // still claim the old version, or an old build accepts it and drops the keys on its
+                // next save.
                 if (!document_io.try_serialize(document, out var header, out _) ||
-                    !header.Contains("version = 3", StringComparison.Ordinal)) {
-                    return selftest_failure("the writer did not publish the parameter-aware document version");
+                    !header.Contains("version = 4", StringComparison.Ordinal)) {
+                    return selftest_failure("the writer did not publish the environment-aware document version");
                 }
+
+                // THE SCENE ENVIRONMENT travels with the document: a lane and a node's lane index must
+                // come back through a save and a reload, and an absent lane has to stay absent rather
+                // than turning into an empty one the next save would write.
+                var environment_path = Path.Combine(directory, $"editor-selftest-environment-{Guid.NewGuid():N}.scene.toml");
+                var saved_slots = (string?[])document.environment_slots.Clone();
+                var saved_environment = document.roots.Count != 0 ? document.roots[0].environment : 0;
+                try {
+                    document.environment_slots[0] = "env/lane-1.hdr";
+                    // A lane the document carries has to hold a real map: a node pointing at an empty lane
+                    // samples a descriptor nobody sets, so the reader refuses that combination (checked
+                    // below), which is why the round trip uses a second map rather than an empty string.
+                    document.environment_slots[1] = "env/lane-2.hdr";
+                    if (document.roots.Count != 0) {
+                        document.roots[0].environment = 2;
+                    }
+                    if (!document_io.try_save(document, environment_path, out var environment_error)) {
+                        return selftest_failure($"the environment document did not save: {environment_error}");
+                    }
+                    if (!File.ReadAllText(environment_path).Contains("[environment]", StringComparison.Ordinal)) {
+                        return selftest_failure("the writer dropped the scene environment section");
+                    }
+                    if (!document_io.try_load(environment_path, out var environment_document, out var environment_load_error) ||
+                        environment_document == null) {
+                        return selftest_failure($"the environment document did not reload: {environment_load_error}");
+                    }
+                    if (!string.Equals(environment_document.environment_slots[0], "env/lane-1.hdr", StringComparison.Ordinal) ||
+                        !string.Equals(environment_document.environment_slots[1], "env/lane-2.hdr", StringComparison.Ordinal) ||
+                        environment_document.environment_slots[2] != null) {
+                        return selftest_failure("the scene environment lanes did not survive a save and reload");
+                    }
+                    var environment_root = environment_document.roots.Count != 0 ? environment_document.roots[0] : null;
+                    if (environment_root == null || environment_root.environment != 2) {
+                        return selftest_failure("the per-node environment lane did not survive a save and reload");
+                    }
+                    host_logger.write("Editor selftest: the scene environment and a node lane survive a save");
+                } finally {
+                    for (var lane = 0; lane < document.environment_slots.Length; ++lane) {
+                        document.environment_slots[lane] = saved_slots[lane];
+                    }
+                    if (document.roots.Count != 0) {
+                        document.roots[0].environment = saved_environment;
+                    }
+                    if (File.Exists(environment_path)) {
+                        File.Delete(environment_path);
+                    }
+                }
+
+                // THE PANEL PATH: a lane edit has to reach the document, mark it dirty and be undoable,
+                // through the same entry point the change handler uses. The map is an absolute path to a
+                // real HDR so the host accepts it.
+                var environment_probe = Path.GetFullPath(Path.Combine(
+                    managed_bootstrap.project_directory, "..", "..", "..", "asset", "environments", "neutral.hdr"));
+                var lane_before = document.environment_slots[0];
+                var revision_before = document.revision;
+                apply_environment_text(1, environment_probe);
+                if (!string.Equals(document.environment_slots[0], environment_probe, StringComparison.Ordinal)) {
+                    return selftest_failure("an environment lane edit did not reach the document");
+                }
+                if (document.revision <= revision_before) {
+                    return selftest_failure("an environment lane edit did not mark the document dirty");
+                }
+                if (undo_history == null || !undo_history.try_undo() ||
+                    !string.Equals(document.environment_slots[0], lane_before, StringComparison.Ordinal)) {
+                    return selftest_failure("undoing an environment lane edit did not restore the document");
+                }
+                // THE PER-OBJECT DROPDOWN: choosing a map for a node allocates the lane that carries it,
+                // or the first free one, and a second object asking for the same map shares the lane
+                // instead of burning another slot. Clearing the lane sends both objects back to the
+                // scene-wide map, because a node left on an empty lane samples an unset descriptor.
+                var probe_node = document.roots.Count != 0 ? document.roots[0] : null;
+                if (probe_node == null) {
+                    return selftest_failure("the selftest scene has no node to configure");
+                }
+                var node_lane_before = probe_node.environment;
+                var lane_text_before = document.environment_slots[0];
+                try {
+                    assign_node_environment(probe_node, environment_probe);
+                    if (probe_node.environment != 1 ||
+                        !string.Equals(document.environment_slots[0], environment_probe, StringComparison.Ordinal)) {
+                        return selftest_failure("the per-object dropdown did not allocate the first free lane");
+                    }
+                    // ONE PICK IS ONE UNDO STEP. The lane text and the node's lane move together, so a single
+                    // undo has to take both back; two steps would leave the document in the half-applied state
+                    // where the lane is filled but no object samples it.
+                    if (undo_history == null || !undo_history.try_undo() ||
+                        !string.Equals(document.environment_slots[0], lane_text_before, StringComparison.Ordinal) ||
+                        probe_node.environment != node_lane_before) {
+                        return selftest_failure("undoing a per-object environment pick did not restore the lane and the node");
+                    }
+                    assign_node_environment(probe_node, environment_probe);
+                    if (probe_node.environment != 1 || document.environment_slots[0] == null) {
+                        return selftest_failure("the per-object dropdown did not re-apply after an undo");
+                    }
+                    assign_node_environment(probe_node, environment_probe);
+                    if (probe_node.environment != 1) {
+                        return selftest_failure("the per-object dropdown moved a node that already had the map");
+                    }
+                    clear_environment_lane(1);
+                    if (document.environment_slots[0] != null || probe_node.environment != 0) {
+                        return selftest_failure("clearing an environment lane left an object sampling it");
+                    }
+                    if (undo_history == null || !undo_history.try_undo() ||
+                        !string.Equals(document.environment_slots[0], environment_probe, StringComparison.Ordinal) ||
+                        probe_node.environment != 1) {
+                        return selftest_failure("undoing a lane clear did not restore the map and the node");
+                    }
+                } finally {
+                    document.environment_slots[0] = lane_text_before;
+                    probe_node.environment = node_lane_before;
+                    push_runtime(probe_node);
+                }
+                host_logger.write("Editor selftest: an environment lane edit is dirty and undoable");
+                host_logger.write("Editor selftest: a per-object lane is allocated, shared and cleared");
 
                 // THE VERSION RULE: version 1 documents predate the per-node `script` key and must keep
                 // loading, so upgrading the editor does not refuse an old project; a version this writer
@@ -72,12 +187,90 @@ namespace deren.editor {
                 if (legacy.roots.Count != 1 || legacy.roots[0].script != null) {
                     return selftest_failure("a version 1 document did not load as written");
                 }
-                File.WriteAllText(legacy_path, "[document]\n    version = 4\n    name = \"future\"\n");
+                // Version 3 knows the per-node `script` but no environment: it must keep loading, with
+                // the lanes left absent so the project map stays in charge.
+                File.WriteAllText(legacy_path,
+                    "[document]\n" +
+                    "    version = 3\n" +
+                    "    name = \"v3\"\n" +
+                    "\n[[node]]\n" +
+                    "    uid = \"" + Guid.NewGuid().ToString("D") + "\"\n" +
+                    "    name = \"v3-root\"\n" +
+                    "    environment = 0\n" +
+                    "    visible = true\n" +
+                    "    flags = 0\n" +
+                    "    position = [0, 0, 0]\n" +
+                    "    rotation = [0, 0, 0]\n" +
+                    "    scale = [1, 1, 1]\n");
+                if (!document_io.try_load(legacy_path, out var older, out var older_error) || older == null) {
+                    return selftest_failure($"a version 3 document no longer loads: {older_error}");
+                }
+                if (older.roots.Count != 1 || older.roots[0].environment != 0 ||
+                    Array.Exists(older.environment_slots, slot => slot != null)) {
+                    return selftest_failure("a version 3 document did not load as written");
+                }
+                File.WriteAllText(legacy_path, "[document]\n    version = 5\n    name = \"future\"\n");
                 if (document_io.try_load(legacy_path, out _, out _)) {
                     return selftest_failure("a document from a future version was accepted");
                 }
                 File.Delete(legacy_path);
-                host_logger.write("Editor selftest: a version 1 document still loads and a future version is refused");
+                // A NODE MAY NOT SAMPLE A LANE THE DOCUMENT DOES NOT FILL. A hand-edited or older-tool file
+                // could carry `environment = 2` with no `slot_2`; loading it would leave the object sampling a
+                // descriptor nobody sets, which renders unlit with no error to explain it, so the reader
+                // refuses the combination instead of silently downgrading it to the scene map.
+                var broken_path = Path.Combine(directory, $"editor-selftest-broken-{Guid.NewGuid():N}.scene.toml");
+                File.WriteAllText(broken_path,
+                    "[document]\n" +
+                    "    version = 4\n" +
+                    "    name = \"broken\"\n" +
+                    "\n[[node]]\n" +
+                    "    uid = \"" + Guid.NewGuid().ToString("D") + "\"\n" +
+                    "    name = \"empty-lane\"\n" +
+                    "    environment = 2\n" +
+                    "    visible = true\n" +
+                    "    flags = 0\n" +
+                    "    position = [0, 0, 0]\n" +
+                    "    rotation = [0, 0, 0]\n" +
+                    "    scale = [1, 1, 1]\n");
+                if (document_io.try_load(broken_path, out _, out _)) {
+                    return selftest_failure("a document with a node on an unfilled environment lane was accepted");
+                }
+                // The lane itself is fine as long as some lane the node names is filled: the same node on a
+                // lane the section does fill has to load, so the refusal above is the lane check and not
+                // the environment section as a whole.
+                File.WriteAllText(broken_path,
+                    "[document]\n" +
+                    "    version = 4\n" +
+                    "    name = \"filled\"\n" +
+                    "\n[environment]\n" +
+                    "    slot_2 = \"env/lane-2.hdr\"\n" +
+                    "\n[[node]]\n" +
+                    "    uid = \"" + Guid.NewGuid().ToString("D") + "\"\n" +
+                    "    name = \"lane-two\"\n" +
+                    "    environment = 2\n" +
+                    "    visible = true\n" +
+                    "    flags = 0\n" +
+                    "    position = [0, 0, 0]\n" +
+                    "    rotation = [0, 0, 0]\n" +
+                    "    scale = [1, 1, 1]\n");
+                if (!document_io.try_load(broken_path, out var filled, out var filled_error) || filled == null ||
+                    filled.roots.Count != 1 || filled.roots[0].environment != 2) {
+                    return selftest_failure($"a document with a filled environment lane did not load: {filled_error}");
+                }
+                // A VERSION BEFORE 4 HAS NO ENVIRONMENT SECTION, so carrying one is a contradiction (a v3
+                // writer could not have produced it) and the reader says so rather than upgrading the file.
+                File.WriteAllText(broken_path,
+                    "[document]\n" +
+                    "    version = 3\n" +
+                    "    name = \"v3-with-lanes\"\n" +
+                    "\n[environment]\n" +
+                    "    slot_1 = \"env/lane-1.hdr\"\n");
+                if (document_io.try_load(broken_path, out _, out _)) {
+                    return selftest_failure("a version 3 document carrying an environment section was accepted");
+                }
+                File.Delete(broken_path);
+                host_logger.write("Editor selftest: versions 1 and 3 still load and a future version is refused");
+                host_logger.write("Editor selftest: a node sampling an unfilled lane is refused");
 
                 var root = document.roots.Count != 0 ? document.roots[0] : null;
                 if (root == null || selection_state == null) {
@@ -355,6 +548,21 @@ namespace deren.editor {
                         asset_manager.release(laevatain);
                     }
                 }
+                // Behaviours write through the core callback. A component readback alone
+                // would pass even when the renderer's local matrix was left untouched.
+                if (!tree.try_get_bounds(added.runtime, out var bounds_before, out _)) {
+                    return selftest_failure("could not read the asset bounds before a script transform");
+                }
+                var original_pose = added.local;
+                var shifted_pose = original_pose;
+                shifted_pose.position.x += 0.5f;
+                if (scene_api.assign_transform(added.runtime.handle, &shifted_pose) != script_status.success ||
+                    !tree.try_get_bounds(added.runtime, out var bounds_after, out _) ||
+                    MathF.Abs(bounds_after.x - bounds_before.x - 0.5f) > 0.001f ||
+                    scene_api.assign_transform(added.runtime.handle, &original_pose) != script_status.success) {
+                    return selftest_failure("a script transform did not move the rendered scene bounds");
+                }
+                host_logger.write("Editor selftest: script transform updates scene bounds");
                 selftest_asset_uid = added.uid;
                 host_logger.write($"Editor selftest: runtime double click loaded and selected {runtime_selftest_asset}");
             } else if (asset_selftest_phase == 2) {
@@ -761,6 +969,146 @@ namespace deren.editor {
                     ++panel_selftest_phase;
                     return script_status.success;
             }
+        }
+
+        private script_status run_import_selftest(string source) {
+            if (document == null || tree == null || undo_history == null ||
+                !asset_authoring.try_open(out var authoring) || authoring.library_root() is not { } library) {
+                return selftest_failure("asset import test has no configured catalogue");
+            }
+            const string id = "import-test";
+            const string missing_id = "import-test-missing";
+            if (!check_import_rejections(library, missing_id, out var rejection)) {
+                return selftest_failure(rejection);
+            }
+
+            var before = count_nodes(document.roots);
+            var previous = document.roots.Count > 0 ? document.roots[0].runtime : default;
+            show_asset_import();
+            if (!asset_import_open) { return selftest_failure("the asset import dialog did not open"); }
+            handle_asset_import(new(rml_event_type.change, "asset_import_source", source));
+            handle_asset_import(new(rml_event_type.change, "asset_import_id", id));
+            handle_asset_import(new(rml_event_type.click, "asset_import_accept", string.Empty));
+            if (asset_import_open || Array.IndexOf(assets, id) < 0 || count_nodes(document.roots) != before ||
+                (previous.is_valid && !tree.try_get_transform(previous, out _))) {
+                return selftest_failure("import did not refresh the browser and preserve the existing scene");
+            }
+            if (try_import_model(source, id, out var duplicate) || !duplicate.Contains("already in use", StringComparison.Ordinal)) {
+                return selftest_failure("duplicate asset ID was accepted");
+            }
+            var time = Stopwatch.GetTimestamp();
+            if (!handle_asset_click("asset_0", time) ||
+                !handle_asset_click("asset_0_name", time + Stopwatch.Frequency / 10) ||
+                count_nodes(document.roots) != before + 1 || document.find(selection_state?.primary ?? Guid.Empty)?.asset != id ||
+                !undo_history.try_undo() || count_nodes(document.roots) != before ||
+                !undo_history.try_redo() || count_nodes(document.roots) != before + 1) {
+                return selftest_failure("the imported tile could not place, undo or redo the model");
+            }
+
+            var path = Path.Combine(managed_bootstrap.project_directory, "scenes", "imported.scene.toml");
+            if (!document_io.try_save(document, path, out var error) ||
+                !document_io.try_load(path, out var loaded, out error) || loaded == null ||
+                !same_document(document, loaded, out error) || !replace_scene(loaded)) {
+                return selftest_failure($"the imported scene did not reload: {error}");
+            }
+            if (Directory.GetDirectories(library, ".import-*").Length != 0) {
+                return selftest_failure("asset import left a staging directory behind");
+            }
+            host_logger.write("Editor selftest: import dialog, rollback, placement and reload passed");
+            return script_status.success;
+        }
+
+        private bool check_import_rejections(string library, string missing_id, out string error) {
+            var scratch = Path.Combine(managed_bootstrap.project_directory, ".deren", $"import-fixture-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(scratch);
+            try {
+                var broken = Path.Combine(scratch, "missing-texture.gltf");
+                File.WriteAllText(broken, """{"asset":{"version":"2.0"},"images":[{"uri":"textures/missing.png"}]}""");
+                if (try_import_model(broken, missing_id, out var missing) ||
+                    !missing.Contains("Missing model dependency", StringComparison.Ordinal) ||
+                    Directory.Exists(Path.Combine(library, missing_id))) {
+                    error = $"missing texture was not rejected cleanly: {missing}";
+                    return false;
+                }
+                var bad_model = Path.Combine(scratch, "unsupported.gltf");
+                File.WriteAllText(bad_model,
+                    """{"asset":{"version":"2.0"},"extensionsUsed":["DEREN_TestUnsupported"],"extensionsRequired":["DEREN_TestUnsupported"]}""");
+                const string invalid_id = "import-test-invalid";
+                if (try_import_model(bad_model, invalid_id, out var invalid) ||
+                    !invalid.Contains("could not load the imported model", StringComparison.Ordinal) ||
+                    Directory.Exists(Path.Combine(library, invalid_id))) {
+                    error = $"a model rejected by the engine was not rolled back: {invalid}";
+                    return false;
+                }
+            } finally {
+                Directory.Delete(scratch, recursive: true);
+            }
+            error = string.Empty;
+            return true;
+        }
+
+        private script_status run_project_selftest() {
+            show_project_scenes();
+            int index = Array.IndexOf(project_scenes, "scenes/second.scene.toml");
+            if (open_project_panel != project_panel.scenes || index < 0) {
+                return selftest_failure("the project scene list did not include second.scene.toml");
+            }
+            handle_project_scenes(new(rml_event_type.click, $"project_scene_{index}", string.Empty));
+            handle_project_scenes(new(rml_event_type.click, "project_scene_startup", string.Empty));
+            var manifest = toml_table.parse(File.ReadAllText(project_manifest_path), out _);
+            if (manifest?.table("game")?.text("scene") != "scenes/second.scene.toml") {
+                return selftest_failure("the startup scene was not saved in the manifest");
+            }
+            handle_project_scenes(new(rml_event_type.click, "project_scene_open", string.Empty));
+            if (open_project_panel != project_panel.none || document?.path == null ||
+                Path.GetFileName(document.path) != "second.scene.toml") {
+                return selftest_failure("opening from the scene list failed");
+            }
+
+            show_project_settings();
+            if (open_project_panel != project_panel.settings || look_path == null) {
+                return selftest_failure("the project settings panel did not open");
+            }
+            var settings_path = look_path;
+            var original = File.ReadAllText(settings_path);
+            handle_project_settings(new(rml_event_type.change, "look_exposure", "1.42"));
+            handle_project_settings(new(rml_event_type.click, "project_settings_preview", string.Empty));
+            if (!look_previewed || File.ReadAllText(settings_path) != original) {
+                return selftest_failure("preview changed the renderer settings file");
+            }
+            handle_project_settings(new(rml_event_type.click, "project_settings_cancel", string.Empty));
+            if (open_project_panel != project_panel.none || File.ReadAllText(settings_path) != original) {
+                return selftest_failure("cancel did not close the preview without writing");
+            }
+
+            show_project_settings();
+            handle_project_settings(new(rml_event_type.change, "look_exposure", "invalid"));
+            handle_project_settings(new(rml_event_type.click, "project_settings_save", string.Empty));
+            if (open_project_panel != project_panel.settings || File.ReadAllText(settings_path) != original) {
+                return selftest_failure("an invalid preview value changed the renderer settings file");
+            }
+            set_look_field("look_exposure", "1.42");
+            set_look_field("look_background", "1");
+            set_look_field("look_color", "0.14, 0.27, 0.42");
+            set_look_field("look_fxaa", "off");
+            set_look_field("look_taa", "on");
+            handle_project_settings(new(rml_event_type.click, "project_settings_save", string.Empty));
+            var saved = File.ReadAllText(settings_path);
+            var config = toml_table.parse(saved, out _);
+            if (open_project_panel != project_panel.none ||
+                config?.table("render")?.number("exposure") != 1.42f ||
+                config.table("render")?.flag("fxaa") != false || config.table("render")?.flag("taa") != true ||
+                config.table("lighting")?.integer("environment_background") != 1 ||
+                !saved.Contains("# Preserve this project note", StringComparison.Ordinal)) {
+                return selftest_failure("the saved runtime settings or unrelated notes did not round-trip");
+            }
+            show_project_settings();
+            if (open_project_panel != project_panel.settings || look_fields["look_taa"] != "on" ||
+                look_fields["look_exposure"] != "1.42") {
+                return selftest_failure("reopening the settings did not read the saved render values");
+            }
+            host_logger.write("Editor selftest: project scenes, preview, cancel and settings save passed");
+            return script_status.success;
         }
 
         private static script_status selftest_failure(string message) {

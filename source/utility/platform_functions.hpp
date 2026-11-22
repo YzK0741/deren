@@ -33,5 +33,7 @@ extern "C" void utility_platform_sleep_ns(std::int64_t nanoseconds);
 extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t capacity);
 
 // File dialog; the chosen path is written into the caller's buffer. 1 = picked, 0 = cancelled,
-// -1 = no backend could ask. Implemented in platform_dialog.cpp.
-extern "C" int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char* out, std::size_t capacity);
+// -1 = no backend could ask. filter_label and initial_directory may be empty, which keeps the platform's
+// own wording and starting folder. Implemented in platform_dialog.cpp.
+extern "C" int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char const* filter_label,
+                                                  char const* initial_directory, char* out, std::size_t capacity);

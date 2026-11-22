@@ -98,10 +98,20 @@ namespace deren.editor {
         /// <summary>Rewrites every slot from the asset library and the search filter.</summary>
         internal void refresh(IReadOnlyList<string> assets, string filter) {
             visible.Clear();
+            string? exact = null;
+            if (filter.Length != 0) {
+                for (var index = 0; index < assets.Count; ++index) {
+                    if (assets[index].Equals(filter, StringComparison.OrdinalIgnoreCase)) {
+                        exact = assets[index];
+                        visible.Add(exact);
+                        break;
+                    }
+                }
+            }
             for (var index = 0; index < assets.Count && visible.Count < tile_capacity; index++) {
                 // An empty id cannot be rendered or selected, and keeping it in the list would put an
                 // empty key behind a tile that looks like a real asset.
-                if (assets[index].Length == 0) {
+                if (assets[index].Length == 0 || assets[index] == exact) {
                     continue;
                 }
                 if (filter.Length == 0 || assets[index].Contains(filter, StringComparison.OrdinalIgnoreCase)) {

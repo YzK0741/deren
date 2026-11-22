@@ -124,7 +124,10 @@ std::filesystem::path deren::utility::executable_directory() {
     return std::filesystem::path(deren::utility::vessel::string(buffer.data(), static_cast<std::size_t>(written)));
 }
 
-std::optional<std::filesystem::path> deren::utility::ask_open_file(std::string_view const title, std::string_view const filter_patterns) {
+std::optional<std::filesystem::path> deren::utility::ask_open_file(std::string_view const title,
+                                                                   std::string_view const filter_patterns,
+                                                                   std::filesystem::path const& initial_directory,
+                                                                   std::string_view const filter_label) {
     // The platform half fills a plain buffer and reports 1/0/-1 for picked/cancelled/unavailable (see
     // platform_dialog.cpp, which keeps <windows.h> out of the module's global module fragment). Both
     // failures are "no path" here, but they are not the same news: one is the user saying no and the other
@@ -132,9 +135,14 @@ std::optional<std::filesystem::path> deren::utility::ask_open_file(std::string_v
     deren::utility::vessel::array<char, 32768> buffer = {};
     deren::utility::vessel::string const title_z(title);
     deren::utility::vessel::string const patterns_z(filter_patterns);
-    std::int32_t const result = utility_platform_ask_open_file(title_z.c_str(), patterns_z.c_str(), buffer.data(), buffer.size());
+    deren::utility::vessel::string const label_z(filter_label);
+    std::u8string const directory_text = initial_directory.generic_u8string();
+    deren::utility::vessel::string const directory_z(reinterpret_cast<char const*>(directory_text.data()), directory_text.size());
+    std::int32_t const result = utility_platform_ask_open_file(title_z.c_str(), patterns_z.c_str(), label_z.c_str(),
+                                                               directory_z.c_str(), buffer.data(), buffer.size());
     if (result > 0) {
-        return std::filesystem::path(deren::utility::vessel::string(buffer.data()));
+        auto const text = std::u8string_view(reinterpret_cast<char8_t const*>(buffer.data()));
+        return std::filesystem::path(text);
     }
     if (result == 0) {
         deren::utility::log("file dialog: cancelled by the user");
