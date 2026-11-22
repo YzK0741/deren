@@ -17,6 +17,8 @@ namespace deren.scripting {
     internal sealed class toml_table {
         private readonly Dictionary<string, object> values = new(StringComparer.Ordinal);
 
+        internal IEnumerable<string> keys => values.Keys;
+
         internal toml_table? table(string key) {
             return values.TryGetValue(key, out var value) ? value as toml_table : null;
         }
@@ -207,7 +209,7 @@ namespace deren.scripting {
         }
 
         /// <summary>True while an array or inline table opened but not closed (outside strings).</summary>
-        private static bool needs_more(string text) {
+        internal static bool needs_more(string text) {
             var depth = 0;
             var quote = '\0';
             for (var i = 0; i < text.Length; ++i) {
@@ -399,7 +401,7 @@ namespace deren.scripting {
             return parts;
         }
 
-        private static string[]? split_key(string text) {
+        internal static string[]? split_key(string text) {
             if (text.Length == 0) {
                 return null;
             }
@@ -427,16 +429,29 @@ namespace deren.scripting {
                 }
             }
             parts.Add(text[start..]);
-            var trimmed = parts.ConvertAll(part => part.Trim());
-            if (trimmed.Any(part => part.Length == 0 ||
-                                    part.Contains('"', StringComparison.Ordinal) ||
-                                    part.Contains('\'', StringComparison.Ordinal))) {
-                return null;
+            var keys = new string[parts.Count];
+            for (var i = 0; i < parts.Count; ++i) {
+                var part = parts[i].Trim();
+                if (part.Length == 0) {
+                    return null;
+                }
+                string? parse_error = null;
+                string? key = part[0] switch {
+                    '"' when part.Length > 1 && part[^1] == '"' => basic_string(part, ref parse_error),
+                    '\'' when part.Length > 1 && part[^1] == '\'' => literal_string(part, ref parse_error),
+                    _ when !part.Contains('"', StringComparison.Ordinal) &&
+                           !part.Contains('\'', StringComparison.Ordinal) => part,
+                    _ => null,
+                };
+                if (key == null || parse_error != null) {
+                    return null;
+                }
+                keys[i] = key;
             }
-            return [.. trimmed];
+            return keys;
         }
 
-        private static int find_unquoted(string text, char needle) {
+        internal static int find_unquoted(string text, char needle) {
             var quote = '\0';
             for (var i = 0; i < text.Length; ++i) {
                 var c = text[i];
@@ -457,7 +472,7 @@ namespace deren.scripting {
             return -1;
         }
 
-        private static string strip_comment(string line) {
+        internal static string strip_comment(string line) {
             var quote = '\0';
             for (var i = 0; i < line.Length; ++i) {
                 var c = line[i];

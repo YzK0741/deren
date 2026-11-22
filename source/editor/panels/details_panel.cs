@@ -84,6 +84,8 @@ namespace deren.editor {
             ui.set_text(visible_id, node.visible ? "Visible: yes" : "Visible: no");
             ui.set_text(asset_id, node.asset ?? "-");
             ui.set_text(pipeline_id, node.pipeline ?? "-");
+            // The environment row is a select whose entries are the scene's lanes, so it is painted by
+            // environment_panel.refresh_node rather than by this text write.
         }
 
         /// <summary>

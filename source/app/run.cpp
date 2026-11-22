@@ -169,10 +169,25 @@ namespace deren::app {
             }
         }
 
-        // A project launch owns every startup option: `deren run <project>` is the ONLY entry. The
-        // engine hands the untouched argv to the project's preinit; the native preview mode and its
-        // capture CLI are gone, so a launch without a managed project is a usage error rather than a
-        // second startup path.
+        // An exported executable launches the project beside it on double-click. Normalize that
+        // invocation to the same managed entry used by the explicit run command.
+        char run_command[] = "run";
+        char bundled_project[] = "project";
+        char* bundled_arguments[]{argv[0], run_command, bundled_project, nullptr};
+        if (argc == 1) {
+            auto const executable_dir = deren::utility::executable_directory();
+            std::error_code error;
+            if (std::filesystem::is_regular_file(executable_dir / bundled_project / "deren.toml", error)) {
+                std::filesystem::current_path(executable_dir, error);
+                if (error) {
+                    deren::utility::println(stderr, "cannot open the bundled game directory: {}", error.message());
+                    return 2;
+                }
+                argc = 3;
+                argv = bundled_arguments;
+            }
+        }
+
         auto const fail_project = [](std::string_view message) {
             deren::utility::println(stderr, "{}", message);
             deren::utility::error(message);
@@ -1391,7 +1406,8 @@ namespace deren::app {
             auto const finite = [](float const number) { return std::isfinite(number); };
             if (!finite(value.tint[0]) || !finite(value.tint[1]) || !finite(value.tint[2]) ||
                 !finite(value.metallic_scale) || !finite(value.roughness_scale) ||
-                !finite(value.emissive_scale) || value.environment_slot > 3u || value.unlit > 1 ||
+                !finite(value.emissive_scale) ||
+                value.environment_slot >= deren::engine::render_layout::heap_environment_capacity || value.unlit > 1 ||
                 value.enabled > 1) {
                 return false;
             }
@@ -1752,7 +1768,11 @@ namespace deren::app {
                                            .window_toggle_maximize = set_managed_window_toggle_maximize,
                                            .window_is_maximized = get_managed_window_is_maximized,
                                            .window_close = set_managed_window_close,
-                                           .window_begin_drag = set_managed_window_begin_drag},
+                                           .window_begin_drag = set_managed_window_begin_drag,
+                                           .scene_transforms_changed = +[](void* opaque) {
+                                               auto& context = *static_cast<managed_bind_context*>(opaque);
+                                               context.render_runtime->scene_changed();
+                                           }},
             settings.paths.asset_library,
             deren::app::managed_asset_binder{
                 .context = &managed_binding, .bind = bind_managed_asset, .before_remove = +[](void* opaque, deren::scripting::node_handle node) {
@@ -2106,6 +2126,7 @@ namespace deren::app {
             if (capture.sweep_yaw_deg_per_frame != 0.0f) {
                 runtime.camera.yaw = sweep_base_yaw + glm::radians(capture.sweep_yaw_deg_per_frame) * static_cast<float>(captured_frames);
             }
+            runtime.require_scene_color(game_ui && game_ui->content().uses_scene_texture());
             // Phase 2: pace + acquire the next frame slot.
             deren::engine::frame_status const paced = runtime.pace_and_acquire();
             if (ends_session(paced)) {

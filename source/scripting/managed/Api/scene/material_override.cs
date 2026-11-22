@@ -10,7 +10,7 @@ namespace deren {
     /// the host clones that row once per leaf and rebuilds the clone from these factors every time
     /// they change -- the values are replacements, not accumulations.
     ///
-    /// <see cref="environment_slot"/> selects one of the four environment lanes the material was
+    /// <see cref="environment_slot"/> selects one of the sixteen environment lanes the material was
     /// built against (0 is the material's own). <see cref="unlit"/> forces the material down the
     /// unlit path regardless of its pipeline, which is how a UI or emissive panel is expressed.
     /// </summary>

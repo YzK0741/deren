@@ -62,9 +62,8 @@ namespace deren {
 
         /// <summary>
         /// Reads one scene file's `[lighting]` table and the calibration profile it names. The strict
-        /// layout keeps the numerics out of `[lighting]`: `sun_direction` and `environment_hdr` live
-        /// in the table, everything else lives in the profile (top-level keys), matching the native
-        /// parser's split. `config_directory` resolves a relative profile path the way the native
+        /// layout keeps the calibration in the profile. The scene may override the background
+        /// mode and color. `config_directory` resolves a relative profile path the way the native
         /// resolver does - against the config file's own directory.
         /// </summary>
         internal static lighting_settings from_document(toml_table document, string config_directory) {
@@ -74,6 +73,17 @@ namespace deren {
                 result.environment_hdr = lighting.text("environment_hdr") ?? result.environment_hdr;
                 if (lighting.text("profile") is { Length: > 0 } profile) {
                     result.read_profile(profile, config_directory);
+                }
+                if (lighting.integer("environment_background") is >= 0 and <= 3 and { } mode) {
+                    result.environment_background = mode;
+                }
+                if (read_vector(lighting, "environment_color") is { } color &&
+                    float.IsFinite(color.x) && float.IsFinite(color.y) && float.IsFinite(color.z)) {
+                    result.environment_color = new vector_3 {
+                        x = Math.Clamp(color.x, 0.0f, 1.0f),
+                        y = Math.Clamp(color.y, 0.0f, 1.0f),
+                        z = Math.Clamp(color.z, 0.0f, 1.0f)
+                    };
                 }
             }
             if (document.table("render") is { } render) {

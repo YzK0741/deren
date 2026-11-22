@@ -1038,7 +1038,7 @@ namespace {
         if (!std::isfinite(record.tint[0]) || !std::isfinite(record.tint[1]) ||
             !std::isfinite(record.tint[2]) || !std::isfinite(record.metallic_scale) ||
             !std::isfinite(record.roughness_scale) || !std::isfinite(record.emissive_scale) ||
-            record.environment_slot > 3u || record.unlit > 1 || record.enabled > 1) {
+            record.environment_slot >= 16u || record.unlit > 1 || record.enabled > 1) {
             ++material_override_rejections;
             return script_status::invalid_argument;
         }

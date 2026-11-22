@@ -95,32 +95,43 @@ namespace {
  * @brief ask the user for an existing file with the platform's open dialog
  * @param title window/prompt title (UTF-8; the backend trims or refuses a shell-hostile one)
  * @param filter_patterns `;`-separated glob patterns, e.g. "*.glb;*.gltf"; empty or hostile = all files
+ * @param filter_label name the filter entry shows; empty keeps the generic "Files" wording
+ * @param initial_directory folder the dialog opens in; empty keeps the platform's own choice
  * @param out caller buffer that receives the chosen path as UTF-8
  * @param capacity its size in bytes; a NUL terminator is included in the count
  * @return 1 = picked (out holds the path), 0 = the user cancelled, -1 = no backend could ask
  * @note no allocation on purpose, like platform_path.cpp: the module side declares this as a plain C
  *       entry point, so this TU needs nothing from the module's world
  */
-extern "C" std::int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char* out, std::size_t const capacity) {
+extern "C" std::int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char const* filter_label,
+                                                       char const* initial_directory, char* out, std::size_t const capacity) {
     if (out == nullptr || capacity == 0) {
         return -1;
     }
     out[0] = '\0';
-    if (has_shell_metacharacter(title) || has_shell_metacharacter(filter_patterns)) {
+    if (has_shell_metacharacter(title) || has_shell_metacharacter(filter_patterns) || has_shell_metacharacter(filter_label) ||
+        has_shell_metacharacter(initial_directory)) {
         return -1; // refuse rather than build a command line out of a string a shell would reinterpret
     }
 #ifdef _WIN32
     wchar_t wide_title[256] = {};
     wchar_t wide_patterns[512] = {};
+    wchar_t wide_label[128] = {};
+    wchar_t wide_directory[1024] = {};
     utf8_to_wide(title, wide_title, std::size(wide_title));
     utf8_to_wide(filter_patterns, wide_patterns, std::size(wide_patterns));
+    utf8_to_wide(filter_label, wide_label, std::size(wide_label));
+    utf8_to_wide(initial_directory, wide_directory, std::size(wide_directory));
     // the filter is a double-NUL-terminated list of "label\0patterns\0" pairs, so a ';'-separated list
     // becomes one labelled entry plus an "all files" escape hatch
     wchar_t filter[1200] = {};
     wchar_t* p = filter;
     if (wide_patterns[0] != L'\0') {
-        static constexpr wchar_t prefix[] = L"Model files (";
-        for (wchar_t const* s = prefix; *s != L'\0'; ++s) {
+        wchar_t const* const label = wide_label[0] != L'\0' ? wide_label : L"Files";
+        for (wchar_t const* s = label; *s != L'\0'; ++s) {
+            *p++ = *s;
+        }
+        for (wchar_t const* s = L" ("; *s != L'\0'; ++s) {
             *p++ = *s;
         }
         for (wchar_t const* s = wide_patterns; *s != L'\0'; ++s) {
@@ -148,11 +159,14 @@ extern "C" std::int32_t utility_platform_ask_open_file(char const* title, char c
     wchar_t file[32768] = {}; // long enough for a \\?\ path; the API reports truncation itself
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = nullptr; // no window exists yet: the dialog is the process's first UI
+    ofn.hwndOwner = GetActiveWindow(); // null for the startup picker
     ofn.lpstrFilter = filter;
     ofn.lpstrFile = file;
     ofn.nMaxFile = static_cast<DWORD>(std::size(file));
     ofn.lpstrTitle = wide_title[0] != L'\0' ? wide_title : nullptr;
+    // A starting folder is a suggestion, not a requirement: a project that moved leaves a stale directory
+    // behind, and the common dialog falls back to its own default instead of refusing to open.
+    ofn.lpstrInitialDir = wide_directory[0] != L'\0' ? wide_directory : nullptr;
     // OFN_NOCHANGEDIR matters: the process's working directory is what locates source/shaders/ and the default
     // model, and the common dialog changes it unless told not to.
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
@@ -175,6 +189,10 @@ extern "C" std::int32_t utility_platform_ask_open_file(char const* title, char c
     char const* const safe_title = title != nullptr && title[0] != '\0' ? title : "choose a file";
     char const* const all_files = "*";
     char const* const patterns = filter_patterns != nullptr && filter_patterns[0] != '\0' ? filter_patterns : all_files;
+    char const* const safe_label = filter_label != nullptr && filter_label[0] != '\0' ? filter_label : "Files";
+    // zenity and kdialog both take the starting folder as a positional argument; an empty one means "the
+    // backend's own default", which is spelled '.' for kdialog's working-directory argument.
+    char const* const directory = initial_directory != nullptr && initial_directory[0] != '\0' ? initial_directory : ".";
     char spaced[512] = {}; // zenity's --file-filter wants the patterns space separated
     {
         std::size_t n = 0;
@@ -192,9 +210,10 @@ extern "C" std::int32_t utility_platform_ask_open_file(char const* title, char c
     char zenity[1024] = {};
     char kdialog[1024] = {};
     std::snprintf(zenity, sizeof(zenity),
-                  "zenity --file-selection --title='%s' --file-filter='Models | %s' 2>/dev/null", safe_title, spaced);
+                  "zenity --file-selection --title='%s' --filename='%s/' --file-filter='%s | %s' 2>/dev/null", safe_title, directory,
+                  safe_label, spaced);
     std::snprintf(kdialog, sizeof(kdialog),
-                  "kdialog --getopenfilename . '%s' --title '%s' 2>/dev/null", spaced, safe_title);
+                  "kdialog --getopenfilename '%s' '%s' --title '%s' 2>/dev/null", directory, spaced, safe_title);
     char const* const backends[] = {zenity, kdialog};
 #endif
     for (char const* const backend : backends) {

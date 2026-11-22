@@ -6,6 +6,7 @@ namespace deren {
     public abstract class script_base {
         private node_handle node;
         private int scene_thread;
+        private Func<string, bool>? request_scene;
 
         protected scene_access scene => new(this);
 
@@ -25,6 +26,14 @@ namespace deren {
         public virtual void on_destroy() {
         }
 
+        /// <summary>During <see cref="on_update"/>, queues a project-relative scene for the next frame.
+        /// Returns false when switching is unavailable, the path is invalid, or a request is already queued.
+        /// The current scene remains active if loading the requested scene fails.</summary>
+        protected bool try_change_scene(string path) {
+            ensure_bound();
+            return request_scene?.Invoke(path) == true;
+        }
+
         protected transform_value transform {
             get {
                 if (!self.try_get_transform(out var value)) {
@@ -39,7 +48,10 @@ namespace deren {
             }
         }
 
-        internal void attach(ulong id, node_handle handle) {
+        internal void attach(ulong id, node_handle handle) => attach(id, handle, null);
+
+        internal void attach(ulong id, node_handle handle, Func<string, bool>? change_scene) {
+            request_scene = change_scene;
             scene_id = id;
             node = handle;
             scene_thread = Environment.CurrentManagedThreadId;
@@ -48,6 +60,7 @@ namespace deren {
         internal void detach() {
             node = default;
             scene_id = 0;
+            request_scene = null;
         }
 
         internal void ensure_bound() {

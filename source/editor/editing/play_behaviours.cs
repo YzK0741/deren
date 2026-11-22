@@ -8,15 +8,14 @@ namespace deren.editor {
         private readonly script_catalog catalog;
         private readonly List<(document_node node, script_base behaviour)> attached = [];
 
-        internal play_behaviours(string directory) {
-            catalog = new script_catalog(directory);
+        internal play_behaviours(script_catalog catalog) {
+            this.catalog = catalog;
         }
 
-        internal bool try_attach_nodes(scene_document document, ulong scene, out string message) {
+        internal bool try_attach_nodes(scene_document document, ulong scene, Func<string, bool> change_scene,
+                                       out string message) {
             try {
-                catalog.reload();
-                foreach (var error in catalog.errors) { host_logger.write($"Editor play: {error}"); }
-                attach_all(document, document.roots, scene);
+                attach_all(document, document.roots, scene, change_scene);
                 message = string.Empty;
                 return true;
             } catch (Exception error) {
@@ -26,7 +25,8 @@ namespace deren.editor {
             }
         }
 
-        private void attach_all(scene_document document, IReadOnlyList<document_node> nodes, ulong scene) {
+        private void attach_all(scene_document document, IReadOnlyList<document_node> nodes, ulong scene,
+                                Func<string, bool> change_scene) {
             foreach (var node in nodes) {
                 if (node.script is { } binding) {
                     script_base? behaviour = null;
@@ -35,7 +35,7 @@ namespace deren.editor {
                             throw new InvalidOperationException($"Script '{binding}' is unavailable.");
                         }
                         behaviour = (script_base)Activator.CreateInstance(script.type)!;
-                        behaviour.attach(scene, node.runtime.handle);
+                        behaviour.attach(scene, node.runtime.handle, change_scene);
                         foreach (var (key, input) in node.script_parameters) {
                             var parameter = script.parameters.FirstOrDefault(field => field.name == key);
                             if (parameter == null || !parameter.try_value(input, document, behaviour, out var value)) {
@@ -52,7 +52,7 @@ namespace deren.editor {
                         throw;
                     }
                 }
-                attach_all(document, node.children, scene);
+                attach_all(document, node.children, scene, change_scene);
             }
         }
 
@@ -88,7 +88,6 @@ namespace deren.editor {
 
         public void Dispose() {
             detach_all();
-            catalog.Dispose();
         }
     }
 }

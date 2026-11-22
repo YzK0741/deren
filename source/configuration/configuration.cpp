@@ -101,7 +101,7 @@ namespace deren::app_config {
                 // `environment_hdr` is accepted but NOT parsed here: its value belongs to the managed host
                 // (`source/scripting/managed/Api/project_config.cs` reads it and calls
                 // `global_environment.try_set_hdr`), so this module only keeps the key legal in the schema.
-                append_unknown_keys(*lighting, "lighting", {"sun_direction", "environment_hdr", "profile"}, unknown);
+                append_unknown_keys(*lighting, "lighting", {"sun_direction", "environment_hdr", "profile", "environment_background", "environment_color"}, unknown);
             }
             if (auto const* debug = table.get_as<toml::table>("debug")) {
                 append_unknown_keys(*debug, "debug",
@@ -138,7 +138,10 @@ namespace deren::app_config {
         }
 
         void collect_unknown_project_keys(toml::table const& manifest, std::vector<std::string>& unknown) {
-            append_unknown_keys(manifest, "", {"project", "paths", "scripts", "input", "editor"}, unknown);
+            append_unknown_keys(manifest, "", {"project", "paths", "scripts", "input", "editor", "game"}, unknown);
+            if (auto const* game = manifest.get_as<toml::table>("game")) {
+                append_unknown_keys(*game, "game", {"scene"}, unknown);
+            }
             if (auto const* editor = manifest.get_as<toml::table>("editor")) {
                 append_unknown_keys(*editor, "editor", {"scene"}, unknown);
             }
@@ -803,10 +806,9 @@ namespace deren::app_config {
         }
         // THE ENVIRONMENT AND AREA-LIGHT PROFILE ([lighting] profile): the numeric IBL knobs and the reference
         // package's area light are calibrated together, so they live in a TOML file named by one key. `[lighting]`
-        // itself keeps only what IDENTIFIES the environment - sun_direction and the key `environment_hdr`, whose
-        // VALUE belongs to the managed host (see `collect_unknown_scene_keys`) - while every numeric knob below
-        // comes from the profile and NOT from the table: the strict schema accepts exactly those keys plus
-        // `profile`, so the parser and the schema now agree on one layout.
+        // also permits project-local background overrides. The key `environment_hdr`, whose
+        // value belongs to the managed host (see collect_unknown_scene_keys). Other calibration
+        // values continue to come from the profile.
         toml::table const* const lighting_section = table.get_as<toml::table>("lighting");
         if (lighting_section != nullptr) {
             // Three numbers or nothing (see `read_finite_vec3`): a partly-specified direction would silently mix
@@ -883,6 +885,16 @@ namespace deren::app_config {
                         *target = *value;
                     }
                 }
+            }
+        }
+
+        if (lighting_section != nullptr) {
+            if (auto const mode = (*lighting_section)["environment_background"].value<std::int64_t>(); mode && *mode >= 0 && *mode <= 3) {
+                settings.lighting.environment_background = static_cast<std::int32_t>(*mode);
+            }
+            read_finite_vec3(*lighting_section, "environment_color", settings.lighting.environment_color);
+            for (auto& component : settings.lighting.environment_color) {
+                component = std::clamp(component, 0.0f, 1.0f);
             }
         }
 
@@ -1362,6 +1374,12 @@ namespace deren::app_config {
             collect_unknown_project_keys(manifest.table(), unknown);
             if (!unknown.empty()) {
                 return std::unexpected(std::format("project manifest '{}' has unknown key(s): {}", manifest_path, join_keys(unknown)));
+            }
+        }
+        if (auto const game = manifest.table()["game"]; game) {
+            auto const startup_scene = game["scene"].value<std::string_view>();
+            if (!startup_scene || startup_scene->empty()) {
+                return std::unexpected(std::format("project manifest '{}' needs a non-empty [game] scene string", manifest_path));
             }
         }
         auto const project = manifest.table()["project"];

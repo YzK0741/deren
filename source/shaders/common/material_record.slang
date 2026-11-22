@@ -56,11 +56,13 @@ struct Material {
                 // bit9: unlit shading for this material. The deferred stage decodes the G-buffer's material id
                 //       and tests this bit, so a per-object "unlit" choice can survive the deferred path - it
                 //       cannot be a per-leaf pipeline there, because the deferred stage has no per-leaf draw.
-                // bits10..11: the ENVIRONMENT SLOT this material samples for its IBL (0..3; see
-                //       `heap_environment_capacity`). Slot 0 is the scene-wide environment and 1..3 are custom
-                //       per-object HDRs; the deferred stage reads the two bits out of this record exactly as it
-                //       reads bit9, which is what lets one object choose its sky.
-                // bit12: traced-reflection eligibility; bit13: BC5 normal map with reconstructed positive Z.
+                // bits10..13: the ENVIRONMENT SLOT this material samples for its IBL (0..15; see
+                //       `heap_environment_capacity`). Slot 0 is the scene-wide environment and 1..15 are the custom
+                //       per-object HDRs; the deferred stage reads those four bits out of this record exactly as it
+                //       reads bit9, which is what lets one object choose its sky. The four bits sat at 10..11 until
+                //       the capacity grew to 16 - widening them moved the two bits below rather than changing this
+                //       record's size.
+                // bit14: traced-reflection eligibility; bit15: BC5 normal map with reconstructed positive Z.
     // ---- THE TOON SLOTS: what glTF's five cannot reach (see material_record in primitive.cppm) ----
     // x = diffuse ramp, y = shadow LUT, z = specular ramp, w = matcap. THE WHITE FALLBACK (element 0) IS THE
     // "DO NOT READ" VALUE and that is the contract rather than a convention: a lane holds a real index only

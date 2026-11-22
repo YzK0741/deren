@@ -427,6 +427,9 @@ namespace deren::engine {
             rhi::image_format format = rhi::image_format::unknown;
         };
         [[nodiscard]] scene_color_target current_scene_color() const noexcept;
+        void require_scene_color(bool enabled) noexcept {
+            this->scene_color_required = enabled;
+        }
         /// THE DEVICE ROOT behind `rhi_face()`, for A separate caller that prepares device state OUTSIDE the frame
         /// graph (the Gaussian probe): the returned handle keeps this runtime's device valid underneath it.
         [[nodiscard]] rhi::shared_object<rhi::api_core> device_root() const noexcept {
@@ -567,7 +570,7 @@ namespace deren::engine {
         deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> ibl_views = {};
         deren::utility::vessel::vector<rhi::shared_object<rhi::image>> ibl_images = {};
         /**
-         * THE CUSTOM ENVIRONMENT SLOTS' IMAGES (1..3): one env + irradiance pair each, stored here for the
+         * THE CUSTOM ENVIRONMENT SLOTS' IMAGES (1..15): one env + irradiance pair each, stored here for the
          * same reason slot 0's are - the heap stores a DESCRIPTOR, and an image the host lets go of leaves that
          * descriptor pointing at freed memory. `set_ibl(slot, ...)` replaces one slot's pair atomically.
          */
@@ -575,7 +578,7 @@ namespace deren::engine {
             deren::utility::vessel::vector<rhi::shared_object<rhi::image>> images = {};
             deren::utility::vessel::vector<rhi::shared_object<rhi::image_view>> views = {};
         };
-        deren::utility::vessel::array<custom_ibl_slot, 3> custom_ibl_slots = {};
+        deren::utility::vessel::array<custom_ibl_slot, deren::engine::render_layout::heap_environment_capacity - 1u> custom_ibl_slots = {};
         // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) IS its IMAGE, stored here for the same
         // reason the IBL's three are: the heap stores a DESCRIPTOR, and an image the host lets go of leaves that
         // descriptor pointing at nothing. Uploaded once by `set_post_lut`, which the application calls with a baked
@@ -2847,8 +2850,8 @@ namespace deren::engine {
          * @param roughness_scale
          * @param emissive_scale
          * @param unlit sets flags bit9, the deferred stage's per-material unlit switch.
-         * @param environment_slot stores the per-object IBL slot in flags bits10..11 (0 = scene-wide, 1..3 =
-         *        custom); values outside 0..3 are clamped.
+         * @param environment_slot stores the per-object IBL slot in flags bits10..13 (0 = scene-wide, 1..15 =
+         *        custom); values outside 0..15 are clamped.
          *
          * @return the new material id, or @p source when the table is not mapped/full or @p source is
          *         out of range - a refused override must leave the object drawable rather than crash.
@@ -3601,6 +3604,7 @@ namespace deren::engine {
         rhi::mergeable_command_buffer_ref output_overlay_segment = {};
         void* output_overlay_context = nullptr;
         output_overlay_recorder output_overlay_record = nullptr;
+        bool scene_color_required = false;
         rhi::error finish_overlay_if_enabled(rhi::command_buffer& commands,
                                              rhi::rendering_info const& rendering);
 

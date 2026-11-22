@@ -284,8 +284,8 @@ export namespace deren::scripting {
         //
         // SLOT 0 IS THE SCENE-WIDE ENVIRONMENT - the one every material samples unless its record names
         // another slot - and it is also the only slot with a BRDF LUT (the LUT is shared, so a custom
-        // slot reuses slot 0's). Slots 1..3 are the per-material lanes: a material record carries the
-        // slot number in its flags (bits 10..11, `material_override.environment_slot` on the managed
+        // slot reuses slot 0's). Slots 1..15 are the per-material lanes: a material record carries the
+        // slot number in its flags (bits 10..13, `material_override.environment_slot` on the managed
         // side), and the shaders pick the slot's cubemap pair out of the descriptor heap
         // (`heap_access.slang`, `custom_env_cube + slot - 1`). `layout::heap_environment_capacity` is the
         // upper bound; a larger slot is rejected with `invalid_argument`.
@@ -568,7 +568,11 @@ export namespace deren::scripting {
         audio = 3,
         rml_ui = 4,
         node_bounds = 5,
-        rml_ui_extended = 6
+        rml_ui_extended = 6,
+        asset_authoring = 7,
+        // ABI 43: module 7 plus the environment-map picker. Appended under its own id rather than grown
+        // in place so a Game.dll built against module 7 keeps working: it never asks for this table.
+        asset_authoring_extended = 8
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.

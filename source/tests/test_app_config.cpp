@@ -61,6 +61,8 @@ namespace {
         std::ofstream(scene) << valid_scene;
         std::ofstream(manifest) << valid_manifest;
         std::ofstream(root / "Game.dll").put('x');
+        std::ofstream(manifest, std::ios::app) << "\n[game]\nscene = \"scenes/game.scene.toml\"\n";
+        std::ofstream(root / "scenes/game.scene.toml") << "[document]\nversion = 3\n";
         auto const result = deren::app_config::load_project_settings(root);
         CHECK(result.has_value());
         if (result) {
@@ -76,6 +78,10 @@ namespace {
             CHECK(settings.scene.objects.empty());
             CHECK(result->input_actions.size() == 1);
         }
+        std::ofstream(manifest) << valid_manifest << "\n[game]\nscene = 1\n";
+        auto const invalid_game = deren::app_config::load_project_settings(root);
+        CHECK(!invalid_game && invalid_game.error().find("[game] scene") != std::string::npos);
+        std::ofstream(manifest) << valid_manifest;
         std::ofstream(scene) << "[gui]\nrml_document = \"ui/main.rml\"\n";
         CHECK(!deren::app_config::load_project_settings(root));
         std::ofstream(scene) << "[gui]\nrml_fallback_font = \"fonts/fallback.ttf\"\n";
@@ -179,7 +185,7 @@ namespace {
     }
 
     // THE RIG AND THE IBL KNOBS LIVE IN PROFILE FILES ([toon] profile / [lighting] profile): the parser reads
-    // their lanes only there and never from the section itself, so every case below writes the numbers into a
+    // their calibration lanes there, so the profile cases below write the numbers into a
     // profile beside the config and points one key at it. A relative profile path resolves against the config
     // file's directory, which for these temporary files is the test's working directory.
     std::filesystem::path write_profile(char const* config_name, char const* section, char const* suffix, std::string_view keys) {
@@ -195,6 +201,15 @@ namespace {
         std::ofstream("environment-viewing.toml", std::ios::app) << "[render]\ntone_mapping=1\nexposure=1.5\n";
         auto s = deren::app_config::load_settings("environment-viewing.toml");
         check_environment_controls(s);
+        std::ofstream("environment-viewing.toml") << "[lighting]\nprofile = \"" << profile.filename().string()
+                                                  << "\"\nenvironment_background = 3\nenvironment_color = [0.25, 0.5, 2.0]\n";
+        CHECK(deren::app_config::validate_settings_file("environment-viewing.toml").has_value());
+        auto const overridden = deren::app_config::load_settings("environment-viewing.toml");
+        CHECK(overridden.lighting.environment_background == 3);
+        CHECK(overridden.lighting.environment_color[0] == 0.25f);
+        CHECK(overridden.lighting.environment_color[1] == 0.5f);
+        CHECK(overridden.lighting.environment_color[2] == 1.0f);
+        CHECK(overridden.lighting.environment_strength == 2.0f);
         std::filesystem::remove("environment-viewing.toml");
         std::filesystem::remove(profile);
     }

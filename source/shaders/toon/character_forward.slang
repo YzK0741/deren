@@ -3699,7 +3699,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
 //
 // The whole-frame reflection is a deferred term, and the character-forward stages REPLACE deferred shading on
 // their pixels. A whitelisted cloth material would therefore lose the term unless both this stage and the
-// game-shader stage composite it too. It is deliberately narrow: only bit12 of the material record (resolved at
+// game-shader stage composite it too. It is deliberately narrow: only bit14 of the material record (resolved at
 // import from the cloth family / the configured name list), and only while the pass pushes a non-zero strength
 // in the spare lane. `rt_reflections = false` pushes 0, so the condition is false and every byte of the output is
 // what it was before this term existed.
@@ -3713,7 +3713,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
 // supposed to receive a low, broad specular response, not a constant lift.
 // `pixel_xy` is SV_Position.xy; the light UBO's cluster_depth.zw is the render target size the runtime writes.
 static float3 toon_rt_reflection_composite(const surface_sample s, float3 world_pos, float3 lit, const float2 pixel_xy) {
-    if ((s.flags & 4096u) == 0u || push.spare_lane == 0u) {
+    if ((s.flags & 16384u) == 0u || push.spare_lane == 0u) {
         return lit;
     }
     const float2 screen = max(light_at(heap_light_slot).cluster_depth.zw, float2(1.0, 1.0));
