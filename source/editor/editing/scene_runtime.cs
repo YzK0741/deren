@@ -16,7 +16,10 @@ namespace deren.editor {
         private long last_stop_check;
         private scene_document document;
         private play_behaviours? behaviours;
+        private scene_triggers triggers;
         private string? pending_scene;
+        private bool has_authored_lights;
+        private readonly string?[] applied_environments = new string?[global_environment.slot_count - 1];
         private bool accept_scene_requests;
 
         private scene_runtime(string project_root, scene_tree tree, scene_document document,
@@ -24,6 +27,7 @@ namespace deren.editor {
             this.project_root = project_root;
             this.tree = tree;
             this.document = document;
+            triggers = new scene_triggers(document);
             this.actions = actions;
             this.stop_marker = stop_marker;
             catalog = new script_catalog(Path.Combine(project_root, "scripts"));
@@ -33,7 +37,7 @@ namespace deren.editor {
                                        string? stop_marker, out scene_runtime? runtime, out script_status status) {
             runtime = null;
             status = script_status.script_failure;
-            if (!document_io.try_load(path, out var loaded, out var error) || loaded == null) {
+            if (!scene_instances.try_load(project_root, path, out var loaded, out var error) || loaded == null) {
                 host_logger.write($"Scene runtime: cannot load '{path}': {error}");
                 return false;
             }
@@ -43,6 +47,16 @@ namespace deren.editor {
             }
             runtime = new scene_runtime(project_root, tree, loaded, actions, stop_marker);
             return true;
+        }
+
+        internal bool apply_main_camera() {
+            if (scene_cameras.main(document.roots) is not { } camera) { return false; }
+            if (scene_cameras.try_pose(document, camera, out var pose) && pose.try_apply()) {
+                host_logger.write($"Scene runtime: using main camera '{camera.name}' ({project_look.number(camera.camera_fov)} degrees vertical FOV)");
+                return true;
+            }
+            host_logger.write($"Scene runtime: could not apply main camera '{camera.name}'");
+            return false;
         }
 
         internal static Dictionary<string, int> action_indices(toml_table? manifest) {
@@ -69,9 +83,11 @@ namespace deren.editor {
             }
 
             if (behaviours == null) {
+                if (!apply_scene_lights()) { return script_status.script_failure; }
+                apply_scene_environments();
                 catalog.reload();
                 foreach (var error in catalog.errors) { host_logger.write($"Editor play: {error}"); }
-                var initial = new play_behaviours(catalog);
+                var initial = new play_behaviours(catalog, document, tree);
                 if (!initial.try_attach_nodes(document, frame->scene, queue_scene, out var message)) {
                     initial.Dispose();
                     host_logger.write(message);
@@ -92,6 +108,7 @@ namespace deren.editor {
             accept_scene_requests = true;
             try {
                 behaviours.update(frame->delta_time);
+                triggers.update(tree, behaviours.notify_trigger);
             } finally {
                 accept_scene_requests = false;
                 input_state.end_frame();
@@ -129,7 +146,7 @@ namespace deren.editor {
         }
 
         private bool switch_scene(string next, ulong scene) {
-            if (!document_io.try_load(next, out var loaded, out var error) || loaded == null) {
+            if (!scene_instances.try_load(project_root, next, out var loaded, out var error) || loaded == null) {
                 host_logger.write($"Scene runtime: cannot load '{next}': {error}");
                 return true;
             }
@@ -137,7 +154,7 @@ namespace deren.editor {
                 host_logger.write($"Scene runtime: cannot build '{next}' ({status})");
                 return !has_runtime_roots(loaded);
             }
-            var replacement = new play_behaviours(catalog);
+            var replacement = new play_behaviours(catalog, loaded, tree);
             if (!replacement.try_attach_nodes(loaded, scene, queue_scene, out var message)) {
                 replacement.Dispose();
                 host_logger.write(message);
@@ -147,11 +164,15 @@ namespace deren.editor {
             behaviours?.Dispose();
             var removed = scene_sync.remove_document(document, tree);
             document = loaded;
+            triggers = new scene_triggers(document);
             behaviours = replacement;
             if (!removed) {
                 host_logger.write("Scene runtime: cannot remove previous scene nodes");
                 return false;
             }
+            if (!apply_scene_lights()) { return false; }
+            apply_scene_environments();
+            apply_main_camera();
             entered_scene();
             return true;
         }
@@ -161,6 +182,32 @@ namespace deren.editor {
                 if (root.runtime.is_valid) { return true; }
             }
             return false;
+        }
+
+        private bool apply_scene_lights() {
+            var lights = scene_lights.collect(document);
+            if (lights.Length == 0 && !has_authored_lights) { return true; }
+            if (!scene_lights.publish(lights)) { return false; }
+            has_authored_lights = lights.Length != 0;
+            host_logger.write($"Scene runtime: applied {lights.Length} authored point light(s)");
+            return true;
+        }
+
+        private void apply_scene_environments() {
+            for (int index = 0; index < applied_environments.Length; ++index) {
+                string path = document.environment_slots[index] ?? string.Empty;
+                string previous = applied_environments[index] ?? string.Empty;
+                if (string.Equals(path, previous, StringComparison.Ordinal)) { continue; }
+                int lane = index + 1;
+                if (global_environment.try_set_slot_hdr(lane, scene_environment.resolve_path(path, project_root), out var status)) {
+                    applied_environments[index] = path;
+                    continue;
+                }
+                host_logger.write($"Scene runtime: cannot set environment lane {lane} '{path}' ({status})");
+                if (previous.Length != 0 && global_environment.try_set_slot_hdr(lane, string.Empty)) {
+                    applied_environments[index] = string.Empty;
+                }
+            }
         }
 
         private void entered_scene() {

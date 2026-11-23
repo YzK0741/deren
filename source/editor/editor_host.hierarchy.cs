@@ -116,7 +116,7 @@ namespace deren.editor {
             return nodes;
         }
 
-        private static void collect_selection_roots(IReadOnlyList<document_node> nodes, selection picked,
+        private static void collect_selection_roots(IReadOnlyList<document_node> nodes, node_selection picked,
                                                     List<document_node> roots) {
             foreach (var node in nodes) {
                 if (picked.contains(node.uid)) {
@@ -129,6 +129,10 @@ namespace deren.editor {
 
         private bool reparent_selection(document_node? parent) {
             if (document == null || tree == null) {
+                return false;
+            }
+            if (parent?.subscene != null) {
+                notice = "Open the source scene to edit its nodes";
                 return false;
             }
             var selected = selection_roots();
@@ -257,7 +261,19 @@ namespace deren.editor {
                 }
                 var clone = clone_subtree(node);
                 clone.name += " Copy";
+                if (!scene_instances.try_populate(managed_bootstrap.project_directory, [clone], document.path, out var error)) {
+                    notice = error ?? "Could not duplicate the scene instance";
+                    return false;
+                }
                 copies.Add((clone, parent));
+            }
+            var added_lights = 0;
+            foreach (var (copy, _) in copies) {
+                added_lights += scene_lights.count([copy]);
+            }
+            if (scene_lights.count(document.roots) + added_lights > scene_lighting.max_point_lights) {
+                notice = $"A scene supports at most {scene_lighting.max_point_lights} point lights";
+                return false;
             }
             if (copies.Count == 0 || !insert_copies(copies)) {
                 return false;
@@ -308,13 +324,23 @@ namespace deren.editor {
             var copy = new document_node {
                 name = source.name,
                 asset = source.asset,
+                subscene = source.subscene,
                 pipeline = source.pipeline,
                 script = source.script,
                 script_parameters = new(source.script_parameters, StringComparer.Ordinal),
                 local = source.local,
                 visible = source.visible,
                 flags = source.flags,
+                light = source.light,
+                audio_source = source.audio_source,
+                collision_box = source.collision_box,
+                box_trigger = source.box_trigger,
+                trigger_target = source.trigger_target,
+                camera = source.camera,
+                camera_fov = source.camera_fov,
+                material = source.material,
             };
+            if (source.subscene != null) { return copy; }
             foreach (var child in source.children) {
                 copy.children.Add(clone_subtree(child));
             }

@@ -29,6 +29,10 @@ internal sealed class document_node
     /// The asset library id this node imports, or null when the node is an empty transform node.
     /// </summary>
     internal string? asset;
+    internal string? subscene;
+    internal document_node? instance_parent;
+    internal document_node? instance_root;
+    internal IReadOnlyDictionary<Guid, Guid>? instance_node_ids;
 
     /// <summary>
     /// The renderer pipeline applied to this node, or null when the asset default applies.
@@ -62,6 +66,16 @@ internal sealed class document_node
     /// the look it was authored with.
     /// </summary>
     internal int environment;
+
+    internal point_light_component? light;
+    internal audio_source_component? audio_source;
+    internal bool collision_box;
+    internal bool box_trigger;
+    internal bool trigger_target;
+    internal bool camera;
+    internal bool main_camera;
+    internal float camera_fov = scene_cameras.default_fov;
+    internal instance_material? material;
 
     /// <summary>
     /// The child nodes; the list order is the outliner order and the runtime creation order.

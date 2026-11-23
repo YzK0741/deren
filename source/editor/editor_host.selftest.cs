@@ -47,8 +47,8 @@ namespace deren.editor {
                 // still claim the old version, or an old build accepts it and drops the keys on its
                 // next save.
                 if (!document_io.try_serialize(document, out var header, out _) ||
-                    !header.Contains("version = 4", StringComparison.Ordinal)) {
-                    return selftest_failure("the writer did not publish the environment-aware document version");
+                    !header.Contains("version = 10", StringComparison.Ordinal)) {
+                    return selftest_failure("the writer did not publish the light-aware document version");
                 }
 
                 // THE SCENE ENVIRONMENT travels with the document: a lane and a node's lane index must
@@ -209,7 +209,7 @@ namespace deren.editor {
                     Array.Exists(older.environment_slots, slot => slot != null)) {
                     return selftest_failure("a version 3 document did not load as written");
                 }
-                File.WriteAllText(legacy_path, "[document]\n    version = 5\n    name = \"future\"\n");
+                File.WriteAllText(legacy_path, "[document]\n    version = 11\n    name = \"future\"\n");
                 if (document_io.try_load(legacy_path, out _, out _)) {
                     return selftest_failure("a document from a future version was accepted");
                 }
@@ -390,13 +390,17 @@ namespace deren.editor {
 
                 var expected_asset = assets.Length != 0 ? assets[0] : null;
                 if (expected_asset != null) {
-                    if (!select_asset("asset_0") || browser?.selected_asset != expected_asset) {
+                    browser_filter = expected_asset;
+                    refresh_browser();
+                    if (!handle_asset_click("asset_0", 0) || browser?.selected_asset != expected_asset) {
                         return selftest_failure("the content browser did not select the first asset");
                     }
-                    if (!select_asset("asset_0_name") || browser?.selected_asset != expected_asset) {
+                    if (!handle_asset_click("asset_0_name", Stopwatch.Frequency) || browser?.selected_asset != expected_asset) {
                         return selftest_failure("the content browser did not select the asset from its label");
                     }
                     browser?.clear_selection();
+                    browser_filter = string.Empty;
+                    reset_browser_interaction();
                     refresh_browser();
                     host_logger.write($"Editor selftest: content browser selected '{expected_asset}'");
                 } else {
@@ -971,6 +975,188 @@ namespace deren.editor {
             }
         }
 
+        private static bool requested_instances_selftest;
+
+        private script_status run_instances_selftest() {
+            if (document == null || selection_state == null || undo_history == null) {
+                return selftest_failure("scene instance fixture is unavailable");
+            }
+            string project = managed_bootstrap.project_directory;
+            var source_path = Path.Combine(project, "scenes", "prop-kit.scene.toml");
+            var target_path = Path.Combine(project, "scenes", "instances.scene.toml");
+            const string reference = "scenes/prop-kit.scene.toml";
+            var source = new scene_document { name = "Prop Kit" };
+            var prop = new document_node { name = "Linked Helmet", asset = "damaged-helmet" };
+            prop.local.position.y = 1.55f;
+            var light = new document_node { name = "Linked Light", light = point_light_component.default_light };
+            light.local.position = new vector_3 { y = 0.4f, z = 1.2f };
+            source.add_root(prop);
+            source.add_root(light);
+            if (!document_io.try_save(source, source_path, out var error)) {
+                return selftest_failure($"could not save the source scene: {error}");
+            }
+            show_project_scenes(for_instance: true);
+            int row = Array.IndexOf(project_scenes, reference);
+            if (row < 0) { return selftest_failure("the source scene is missing from the picker"); }
+            handle_project_scenes(new(rml_event_type.click, $"project_scene_{row}", string.Empty));
+            handle_project_scenes(new(rml_event_type.click, "project_scene_open", string.Empty));
+            if (document.find(selection_state.primary) is not { children.Count: 2 } first ||
+                !apply_detail_change(detail_field.position_x, "-0.66") ||
+                !duplicate_selection() ||
+                document.find(selection_state.primary) is not { children.Count: 2 } second ||
+                !apply_detail_change(detail_field.position_x, "0.66") ||
+                first.children[0].uid == second.children[0].uid ||
+                first.children[0].instance_root != first || second.children[0].instance_root != second ||
+                !undo_history.try_undo() || second.local.position.x != first.local.position.x ||
+                !undo_history.try_redo() || second.local.position.x != 0.66f ||
+                scene_lights.collect(document).Length != 2) {
+                return selftest_failure("scene instances did not place, duplicate, transform or undo independently");
+            }
+            second.children[0].environment = 2;
+            second.environment = 1;
+            bool override_applied = scene_sync.environment_lane(first.children[0]) == 0 &&
+                                    scene_sync.environment_lane(second.children[0]) == 1;
+            second.environment = 0;
+            bool source_restored = scene_sync.environment_lane(second.children[0]) == 2;
+            second.children[0].environment = 0;
+            if (!override_applied || !source_restored) {
+                return selftest_failure("scene instance environment override did not preserve its sibling or restore its source");
+            }
+            var saved_source = File.ReadAllText(source_path);
+            if (save_document(source_path) || File.ReadAllText(source_path) != saved_source) {
+                return selftest_failure("saving an instance host overwrote its source scene");
+            }
+            if (!document_io.try_save(document, target_path, out error) ||
+                File.ReadAllText(target_path).Contains(prop.name, StringComparison.Ordinal)) {
+                return selftest_failure($"the host scene did not save only the references: {error}");
+            }
+            var stable_id = first.children[0].uid;
+            prop.name = "Updated Helmet";
+            if (!document_io.try_save(source, source_path, out error) ||
+                !scene_instances.try_load(project, target_path, out var loaded, out error) || loaded == null ||
+                loaded.find(first.uid)?.children[0].name != prop.name ||
+                loaded.find(second.uid)?.children[0].name != prop.name ||
+                loaded.find(first.uid)?.children[0].uid != stable_id ||
+                !replace_scene(loaded)) {
+                return selftest_failure($"reopening did not pick up the shared source update: {error}");
+            }
+            var cyclic = new scene_document { name = "Cycle" };
+            string cycle_name = $"cyclic-{Guid.NewGuid():N}.scene.toml";
+            cyclic.add_root(new document_node { name = "Self", subscene = $"scenes/{cycle_name}" });
+            var cycle_path = Path.Combine(project, "scenes", cycle_name);
+            try {
+                if (!document_io.try_save(cyclic, cycle_path, out error) ||
+                    scene_instances.try_load(project, cycle_path, out _, out error) ||
+                    error?.Contains("Circular", StringComparison.Ordinal) != true) {
+                    return selftest_failure("a cyclic subscene was not diagnosed");
+                }
+            } finally {
+                File.Delete(cycle_path);
+            }
+            host_logger.write("Editor selftest: scene instance picker, independent transforms, source updates and cycle checks passed");
+            return script_status.success;
+        }
+
+        private static bool requested_relocation_selftest;
+
+        private script_status run_relocation_selftest() {
+            const string asset_id = "move-sample";
+            const string renamed = "Studio Helmet";
+            const string destination = "Props/Street/Helmet";
+            if (document?.path is not { } scene_path || browser == null ||
+                !asset_authoring.try_open(out var authoring) || authoring.library_root() is not { } root ||
+                authoring.asset_directory(asset_id) is not { } source ||
+                authoring.motion_path(asset_id) is not { } motion) {
+                return selftest_failure("asset relocation fixture was not loaded");
+            }
+
+            var saved = File.ReadAllText(scene_path);
+            var source_manifest = Path.Combine(source, "asset.toml");
+            var original = File.ReadAllText(source_manifest);
+            foreach (string blocked in new[] { "../outside", "Taken", "Too/Deep/To/Index" }) {
+                if (asset_relocation.try_apply(authoring, asset_id, blocked, renamed, out _) ||
+                    authoring.asset_directory(asset_id) != source || File.ReadAllText(source_manifest) != original) {
+                    return selftest_failure($"refused path '{blocked}' changed the package");
+                }
+            }
+
+            browser_filter = asset_id;
+            refresh_browser();
+            if (!handle_asset_click("asset_0", 0)) {
+                return selftest_failure("asset editing did not select the package");
+            }
+            show_asset_edit();
+            if (asset_edit_id != asset_id) { return selftest_failure("the asset edit dialog did not open"); }
+            handle_asset_edit(new(rml_event_type.change, "asset_edit_name", renamed));
+            handle_asset_edit(new(rml_event_type.change, "asset_edit_path", destination));
+            handle_asset_edit(new(rml_event_type.click, "asset_edit_save", string.Empty));
+
+            string target = Path.Combine(root, destination);
+            if (asset_edit_id != null || Directory.Exists(source) ||
+                authoring.asset_directory(asset_id) is not { } indexed || Path.GetRelativePath(target, indexed) != "." ||
+                authoring.display_name(asset_id) != renamed || authoring.motion_path(asset_id) != motion ||
+                !File.ReadAllText(Path.Combine(target, "asset.toml")).Contains("# Keep model comment", StringComparison.Ordinal) ||
+                !File.ReadAllText(Path.Combine(target, "asset.toml")).Contains("id = \"move-sample\"", StringComparison.Ordinal) ||
+                File.ReadAllText(scene_path) != saved) {
+                return selftest_failure("moving the package changed its identity, references, or unrelated text");
+            }
+            if (!document_io.try_load(scene_path, out var loaded, out var error) || loaded == null ||
+                missing_asset_message(loaded) != null || !replace_scene(loaded)) {
+                return selftest_failure($"the saved scene could not reopen after relocating its asset: {error}");
+            }
+            browser_filter = renamed;
+            refresh_browser();
+            if (!browser.try_tile_asset(0, out var match) || match != asset_id) {
+                return selftest_failure("search did not find the new display name");
+            }
+            host_logger.write("Editor selftest: asset rename, relocation, rollback, motion and stable scene references passed");
+            return script_status.success;
+        }
+
+        private static bool requested_browser_selftest;
+
+        private script_status run_browser_selftest() {
+            if (browser == null || document == null || undo_history == null ||
+                !handle_asset_click("asset_0_name", 0) || browser.current_folder != "Fixtures" ||
+                !browser.try_tile_asset(content_browser_panel.page_size - 1, out var last) || last != "fixture-047") {
+                return selftest_failure("the content browser did not open the fixture folder or rendered the wrong first page");
+            }
+            change_browser_location("browser_next");
+            if (!browser.try_tile_asset(0, out var next) || next != "fixture-048") {
+                return selftest_failure("the content browser did not reach assets after the first page");
+            }
+            var before = count_nodes(document.roots);
+            if (!handle_asset_click("asset_5", 0) ||
+                !handle_asset_click("asset_5_name", Stopwatch.Frequency / 10) ||
+                document.find(selection_state?.primary ?? Guid.Empty)?.asset != "fixture-053" ||
+                count_nodes(document.roots) != before + 1 || !undo_history.try_undo()) {
+                return selftest_failure("placement did not use the selected page's asset");
+            }
+            change_browser_location("browser_up");
+            browser_filter = "fixture-053";
+            refresh_browser();
+            if (browser.current_folder.Length != 0 || !browser.try_tile_asset(0, out var search) ||
+                search != "fixture-053" || browser.try_tile_asset(1, out _)) {
+                return selftest_failure("search did not find a nested asset from the root");
+            }
+            var broken = new scene_document { name = "Missing reference fixture" };
+            var parent = new document_node { name = "Props" };
+            parent.children.Add(new document_node { name = "Lamp", asset = "removed-lamp" });
+            broken.add_root(parent);
+            if (missing_asset_message(broken) is not { } message ||
+                !message.Contains("Props / Lamp", StringComparison.Ordinal) ||
+                !message.Contains("removed-lamp", StringComparison.Ordinal)) {
+                return selftest_failure("asset reference diagnostics omitted the id or node path");
+            }
+            browser_filter = string.Empty;
+            refresh_browser();
+            if (!handle_asset_click("asset_0_name", 0) || browser.current_folder != "Fixtures") {
+                return selftest_failure("could not re-open the import target folder");
+            }
+            host_logger.write("Editor selftest: folder navigation, paging, nested search, placement and missing references passed");
+            return script_status.success;
+        }
+
         private script_status run_import_selftest(string source) {
             if (document == null || tree == null || undo_history == null ||
                 !asset_authoring.try_open(out var authoring) || authoring.library_root() is not { } library) {
@@ -1047,6 +1233,189 @@ namespace deren.editor {
             return true;
         }
 
+        private static bool requested_collision_selftest;
+
+        private script_status run_collision_selftest() {
+            if (document == null || selection_state == null || undo_history == null ||
+                !handle_menu_click("menu_add_collision_box") ||
+                document.find(selection_state.primary) is not { collision_box: true } node) {
+                return selftest_failure("could not add an authored collision box");
+            }
+            toggle_volume(solid: true);
+            if (node.collision_box || !undo_history.try_undo() || !node.collision_box ||
+                !undo_history.try_redo() || node.collision_box || !undo_history.try_undo()) {
+                return selftest_failure("solid box edits did not participate in Undo and Redo");
+            }
+
+            static scene_collision.static_box box(Vector3 size, float yaw, Vector3 center) {
+                Matrix4x4.Invert(Matrix4x4.CreateScale(size) * Matrix4x4.CreateRotationY(yaw) *
+                                 Matrix4x4.CreateTranslation(center), out var inverse);
+                return new scene_collision.static_box(inverse);
+            }
+            var wall = box(new Vector3(6, 3, 0.04f), MathF.PI / 2, new Vector3(2, 0, 0));
+            var cross = box(new Vector3(6, 3, 0.04f), 0, new Vector3(0, 0, 1));
+            var straight = scene_collision.slide(Vector3.Zero, new Vector3(12, 0, 0), 0.12f, [wall], out bool hit);
+            var diagonal = scene_collision.slide(Vector3.Zero, new Vector3(6, 0, 2), 0.12f, [wall], out bool slid);
+            var corner = scene_collision.slide(Vector3.Zero, new Vector3(6, 0, 2), 0.12f, [wall, cross], out bool stopped);
+            var escape = scene_collision.slide(new Vector3(2, 0, 0), Vector3.UnitX, 0.12f, [wall], out bool trapped);
+            if (!hit || !slid || !stopped || trapped || MathF.Abs(straight.X - 1.8595f) > 0.001f ||
+                MathF.Abs(diagonal.X - straight.X) > 0.001f || MathF.Abs(diagonal.Z - 2) > 0.001f ||
+                MathF.Abs(corner.X - 1.8595f) > 0.001f || MathF.Abs(corner.Z - 0.8595f) > 0.001f ||
+                escape != Vector3.UnitX) {
+                return selftest_failure($"unexpected box sweep result: straight {straight}, slide {diagonal}, corner {corner}, escape {escape}");
+            }
+            var path = Path.Combine(managed_bootstrap.project_directory, "scenes", $"collision-check-{Guid.NewGuid():N}.scene.toml");
+            try {
+                if (!document_io.try_save(document, path, out var error) ||
+                    !document_io.try_load(path, out var loaded, out error) ||
+                    loaded?.find(node.uid)?.collision_box != true) {
+                    return selftest_failure($"collision box data did not round trip: {error}");
+                }
+            } finally {
+                File.Delete(path);
+            }
+            set_active_tool("vp_scale");
+            host_logger.write("Editor selftest: solid box authoring, thin-wall sweep, rotated wall, slide and corner passed");
+            return script_status.success;
+        }
+
+        private static bool requested_audio_source_selftest;
+
+        private script_status run_audio_source_selftest() {
+            if (document == null || selection_state == null || undo_history == null ||
+                !handle_menu_click("menu_add_audio_source") ||
+                document.find(selection_state.primary) is not { audio_source: not null } source) {
+                return selftest_failure("could not add an audio source through the editor");
+            }
+            audio_fields["audio_file"] = "audio/tone.wav";
+            audio_fields["audio_volume"] = "0.4";
+            audio_fields["audio_loop"] = "on";
+            handle_audio_source("audio_apply");
+            var expected = new audio_source_component("audio/tone.wav", 0.4f, true);
+            if (source.audio_source != expected ||
+                !undo_history.try_undo() || source.audio_source != audio_source_component.unassigned ||
+                !undo_history.try_redo() || source.audio_source != expected) {
+                return selftest_failure("audio source settings did not participate in Undo and Redo");
+            }
+            handle_audio_source("audio_preview");
+            if (audio_preview == null ||
+                !audio_preview.try_get_duration(out var duration) || duration <= 0 ||
+                !audio_preview.try_get_volume(out var volume) || MathF.Abs(volume - 0.4f) > 0.0001f ||
+                !audio_preview.try_get_looping(out var loop) || !loop) {
+                return selftest_failure("audio preview did not apply the clip, volume, and loop settings");
+            }
+            handle_audio_source("audio_stop");
+            if (audio_preview != null) { return selftest_failure("stopping the preview retained its player"); }
+            var project = managed_bootstrap.project_directory;
+            var path = Path.Combine(project, "scenes", "audio-source-selftest.scene.toml");
+            try {
+                if (!document_io.try_save(document, path, out var error) ||
+                    !document_io.try_load(path, out var loaded, out error) ||
+                    loaded?.find(source.uid)?.audio_source != expected) {
+                    return selftest_failure($"audio source settings did not round trip: {error}");
+                }
+            } finally {
+                File.Delete(path);
+            }
+            host_logger.write("Editor selftest: audio source authoring, preview, undo and storage passed");
+            return script_status.success;
+        }
+
+        private static bool requested_trigger_selftest;
+
+        private script_status run_trigger_selftest() {
+            if (document == null || selection_state == null || undo_history == null || tree == null ||
+                document.roots.Count == 0) {
+                return selftest_failure("the trigger test needs a document and scene tree");
+            }
+            var moving = document.roots[0];
+            if (!moving.trigger_target) {
+                selection_state.select(moving.uid);
+                toggle_trigger_target();
+                if (!moving.trigger_target || !undo_history.try_undo() || moving.trigger_target || !undo_history.try_redo()) {
+                    return selftest_failure("trigger target state did not participate in undo and redo");
+                }
+            }
+            if (!handle_menu_click("menu_add_box_trigger") ||
+                document.find(selection_state.primary) is not { box_trigger: true } volume ||
+                !apply_detail_change(detail_field.position_x, "2") ||
+                !apply_detail_change(detail_field.scale_x, "0.5") ||
+                !apply_detail_change(detail_field.scale_z, "2") ||
+                !apply_detail_change(detail_field.rotation_y, "90")) {
+                return selftest_failure("the editor could not place and size a rotated trigger");
+            }
+            var tracker = new scene_triggers(document);
+            var events = new List<bool>();
+            void notify(document_node trigger, document_node actor, bool entered) {
+                if (trigger == volume && actor == moving) { events.Add(entered); }
+            }
+            tracker.update(tree, notify);
+            var pose = moving.local;
+            pose.position = volume.local.position;
+            pose.position.x += 0.85f;
+            if (!tree.try_set_transform(moving.runtime, pose)) {
+                return selftest_failure("the trigger test could not move its target");
+            }
+            tracker.update(tree, notify);
+            tracker.update(tree, notify);
+            pose.position.z += 0.6f;
+            if (!tree.try_set_transform(moving.runtime, pose)) {
+                return selftest_failure("the trigger test could not move its target outside the box");
+            }
+            tracker.update(tree, notify);
+            tracker.update(tree, notify);
+            if (events.Count != 2 || !events[0] || events[1] || !tree.try_set_transform(moving.runtime, moving.local)) {
+                return selftest_failure("the runtime did not emit exactly one entry and exit across the rotated box");
+            }
+            if (!document_io.try_serialize(document, out var data, out var error) ||
+                !data.Contains("box_trigger = true", StringComparison.Ordinal) ||
+                !data.Contains("trigger_target = true", StringComparison.Ordinal)) {
+                return selftest_failure($"the authoring state did not serialize: {error}");
+            }
+            set_active_tool("vp_scale");
+            host_logger.write("Editor selftest: trigger authoring, rotated box, transition edges and serialization passed");
+            return script_status.success;
+        }
+
+        private static bool requested_input_action_selftest;
+
+        private script_status run_input_action_selftest() {
+            var source = File.ReadAllText(project_manifest_path);
+            show_project_settings();
+            handle_project_settings(new(rml_event_type.click, "project_settings_input", ""));
+            if (open_project_panel != project_panel.input_actions) {
+                return selftest_failure("the input actions panel did not open from project settings");
+            }
+            int row = Array.IndexOf(action_rows, "next_scene");
+            if (row < 0) { return selftest_failure("the input action fixture needs next_scene"); }
+            handle_input_actions(new(rml_event_type.click, $"input_row_{row}", ""));
+            handle_input_actions(new(rml_event_type.click, "input_action_record", ""));
+            if (!capture_input_binding(new(input_type.key, 0, true, 'J', 0, 0, 0, 0, 0, 0))) {
+                return selftest_failure("the input action panel did not capture the key");
+            }
+            finish_input_capture();
+            handle_input_actions(new(rml_event_type.click, "input_key_0", ""));
+            handle_input_actions(new(rml_event_type.change, "input_action_name", "test_unbound"));
+            handle_input_actions(new(rml_event_type.click, "input_action_add", ""));
+            handle_input_actions(new(rml_event_type.click, "input_actions_save", ""));
+            if (open_project_panel != project_panel.input_actions || File.ReadAllText(project_manifest_path) != source) {
+                return selftest_failure("an unbound action was written to the manifest");
+            }
+            handle_input_actions(new(rml_event_type.click, "input_action_remove", ""));
+            handle_input_actions(new(rml_event_type.click, "input_actions_save", ""));
+            var saved = File.ReadAllText(project_manifest_path);
+            if (open_project_panel != project_panel.settings ||
+                !input_actions_file.try_read(saved, out var actions, out _) ||
+                actions["next_scene"] is not ["j"] ||
+                !actions.ContainsKey("move_left") || !saved.Contains("# input actions fixture", StringComparison.Ordinal) ||
+                !saved.Contains("# unchanged project marker", StringComparison.Ordinal)) {
+                return selftest_failure("recording or saving input actions lost manifest data");
+            }
+            host_logger.write("Editor selftest: input recording, invalid binding refusal and manifest save passed");
+            show_input_actions();
+            return script_status.success;
+        }
+
         private script_status run_project_selftest() {
             show_project_scenes();
             int index = Array.IndexOf(project_scenes, "scenes/second.scene.toml");
@@ -1111,6 +1480,115 @@ namespace deren.editor {
             return script_status.success;
         }
 
+        private static bool requested_authoring_selftest;
+        private static bool requested_lights_selftest;
+
+        private script_status run_authoring_selftest() {
+            if (document == null || selection_state == null || undo_history == null ||
+                !orbit_camera.try_get(out var view)) {
+                return selftest_failure("authoring fixture is unavailable");
+            }
+            view.target = new vector_3 { x = 0.3f, y = 0.15f, z = -0.3f };
+            view.yaw_degrees = 17;
+            view.pitch_degrees = -9;
+            view.distance = 4;
+            if (!view.try_apply() || !handle_menu_click("menu_add_camera") ||
+                document.find(selection_state.primary) is not { camera: true } camera) {
+                return selftest_failure("could not create an authored camera");
+            }
+            camera_command("camera_main");
+            camera_fov_draft = "58";
+            camera_command("camera_apply_fov");
+            if (!scene_cameras.try_pose(document, camera, out var authored) ||
+                MathF.Abs(authored.yaw_degrees - view.yaw_degrees) > 0.001f ||
+                MathF.Abs(authored.pitch_degrees - view.pitch_degrees) > 0.001f ||
+                authored.vertical_fov_degrees != 58 ||
+                !duplicate_selection() ||
+                document.find(selection_state.primary) is not { camera: true, main_camera: false, camera_fov: 58 } ||
+                scene_cameras.main(document.roots) != camera || !undo_history.try_undo()) {
+                return selftest_failure("camera pose, FOV, or main camera duplication failed");
+            }
+            camera_command("camera_view");
+            if (!orbit_camera.try_get(out var preview) || preview.vertical_fov_degrees != 58 ||
+                MathF.Abs(preview.yaw_degrees - authored.yaw_degrees) > 0.001f) {
+                return selftest_failure("camera preview did not reach the runtime");
+            }
+            if (!add_node("damaged-helmet", new vector_3 { x = -0.6f, y = 1.55f }) ||
+                document.find(selection_state.primary) is not { asset: "damaged-helmet" } first ||
+                !add_node("damaged-helmet", new vector_3 { x = 0.6f, y = 1.55f }) ||
+                document.find(selection_state.primary) is not { asset: "damaged-helmet" } second) {
+                return selftest_failure("could not place two material instances");
+            }
+            refresh_camera_material_details(second);
+            material_fields["material_tint"] = "0.07, 0.3, 1";
+            material_fields["material_roughness"] = "0.35";
+            apply_material_override(reset: false);
+            if (second.material is not { } override_value || override_value.tint.x != 0.07f ||
+                override_value.roughness != 0.35f || first.material.HasValue ||
+                !undo_history.try_undo() || second.material.HasValue ||
+                !undo_history.try_redo() || second.material != override_value) {
+                return selftest_failure("the material override was not confined to the selected instance");
+            }
+            apply_material_override(reset: true);
+            if (second.material.HasValue || !undo_history.try_undo() || second.material != override_value) {
+                return selftest_failure("material reset or undo failed");
+            }
+
+            var path = Path.Combine(managed_bootstrap.project_directory, "scenes", "authoring.scene.toml");
+            if (!document_io.try_save(document, path, out var error) ||
+                !document_io.try_load(path, out var loaded, out error) || loaded == null ||
+                !same_document(document, loaded, out error) ||
+                scene_cameras.main(loaded.roots)?.uid != camera.uid) {
+                return selftest_failure($"camera and material round trip failed: {error}");
+            }
+            host_logger.write("Editor selftest: camera pose, FOV, main camera and instance material round trip passed");
+            return script_status.success;
+        }
+
+        private script_status run_lights_selftest() {
+            if (document == null || undo_history == null || scene_lights.count(document.roots) != 0 ||
+                !handle_menu_click("menu_add_point_light") ||
+                document.find(selection_state?.primary ?? Guid.Empty) is not { light: not null } first) {
+                return selftest_failure("failed to add a point light to the fixture");
+            }
+
+            bool configure(document_node node, string colour, string intensity, string range) {
+                refresh_point_light_details(node);
+                light_fields["light_colour"] = colour;
+                light_fields["light_intensity"] = intensity;
+                light_fields["light_range"] = range;
+                apply_point_light();
+                return node.light is { } light && light != point_light_component.default_light;
+            }
+
+            if (!configure(first, "1, 0.25, 0.05", "30", "6") ||
+                !handle_menu_click("menu_add_point_light") ||
+                document.find(selection_state?.primary ?? Guid.Empty) is not { light: not null } second ||
+                !configure(second, "0.05, 0.4, 1", "30", "6")) {
+                return selftest_failure("failed to configure two distinct point lights");
+            }
+            var original_x = second.local.position.x;
+            if (!apply_detail_change(detail_field.position_x, "2.5") ||
+                scene_lights.collect(document)[1].position.x != 2.5F ||
+                !undo_history.try_undo() || scene_lights.collect(document)[1].position.x != original_x ||
+                !undo_history.try_redo() || scene_lights.collect(document)[1].position.x != 2.5F ||
+                !duplicate_selection() || scene_lights.count(document.roots) != 3 ||
+                !undo_history.try_undo() || scene_lights.count(document.roots) != 2 ||
+                !delete_selected() || scene_lights.count(document.roots) != 1 ||
+                !undo_history.try_undo() || scene_lights.count(document.roots) != 2) {
+                return selftest_failure("point light movement, duplication, deletion or undo failed");
+            }
+
+            var path = Path.Combine(managed_bootstrap.project_directory, "scenes", "lights.scene.toml");
+            if (!document_io.try_save(document, path, out var error) ||
+                !document_io.try_load(path, out var loaded, out error) || loaded == null ||
+                !same_document(document, loaded, out error) || scene_lights.collect(loaded).Length != 2) {
+                return selftest_failure($"point lights did not reload: {error}");
+            }
+            host_logger.write("Editor selftest: point light creation, editing, movement, undo, duplication, deletion and round trip passed");
+            return script_status.success;
+        }
+
         private static script_status selftest_failure(string message) {
             host_logger.write($"Editor selftest: FAILED - {message}");
             return script_status.script_failure;
@@ -1144,6 +1622,16 @@ namespace deren.editor {
                 }
                 if (before.children.Count != after.children.Count) {
                     mismatch = $"node '{before.name}' hierarchy changed on reload";
+                    return false;
+                }
+                if (before.camera != after.camera || before.main_camera != after.main_camera ||
+                    before.camera_fov != after.camera_fov ||
+                    before.material != after.material) {
+                    mismatch = $"node '{before.name}' camera or material changed on reload";
+                    return false;
+                }
+                if (before.light != after.light) {
+                    mismatch = $"node '{before.name}' point light changed on reload";
                     return false;
                 }
                 if (!same_transform(before.local, after.local)) {

@@ -338,7 +338,8 @@ namespace deren::engine {
         float const distance,
         glm::vec3 const& target,
         float const scene_radius,
-        float const aspect) {
+        float const aspect,
+        float const vertical_fov_degrees) {
         // Orbit camera: the eye orbits the target point spherically
         float const cp = std::cos(pitch);
         glm::vec3 const eye(target + glm::vec3(distance * cp * std::sin(yaw),
@@ -352,7 +353,7 @@ namespace deren::engine {
         // far (e.g. 8 * distance) clips the scene's far side exactly when the camera gets close,
         // making objects vanish. Zooming out keeps the historic generous far (max with 8*distance).
         float const far_plane = std::max(100.0f, std::max(distance + 2.0f * scene_radius, 8.0f * distance));
-        glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(45.0f), aspect, 0.1f, far_plane);
+        glm::mat4 proj = glm::perspectiveRH_ZO(glm::radians(vertical_fov_degrees), aspect, 0.1f, far_plane);
         // glm's projection follows the OpenGL convention (NDC y up), but Vulkan framebuffers are y-down:
         // flip the projection's Y, otherwise glTF's CCW front-face winding becomes CW in the framebuffer
         // and is culled by the pipeline's CULL_BACK, leaving only the object's interior visible.

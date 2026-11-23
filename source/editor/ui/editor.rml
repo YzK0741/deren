@@ -37,6 +37,9 @@ input[type="text"]:placeholder-shown { color: #9a9fa5; }
 #viewport_mode { flex-grow: 1; font-size: 12dp; line-height: 30dp; text-align: right; color: #9b9b9b; }
 #viewport { position: relative; display: flex; flex-direction: row; align-items: center; justify-content: center; flex-grow: 1; flex-shrink: 1; flex-basis: 0; overflow: hidden; background-color: #111111; }
 #viewport_image { width: 100%; height: 100%; }
+#box_outline { position: absolute; display: none; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.box_edge { position: absolute; height: 2dp; transform-origin: 0 50%; background-color: #ffbc64; pointer-events: none; }
+#box_outline .solid_edge { background-color: #74d7ef; }
 .gizmo_axis { display: none; position: absolute; width: 58dp; height: 2dp; transform-origin: 0 50%; pointer-events: none; z-index: 2; }
 .gizmo_tip { position: absolute; right: 0; top: -3dp; width: 8dp; height: 8dp; border-radius: 2dp; pointer-events: none; }
 #gizmo_x, #gizmo_x .gizmo_tip { background-color: #ff6b69; }
@@ -61,12 +64,22 @@ input[type="text"]:placeholder-shown { color: #9a9fa5; }
 .output_link { cursor: pointer; }
 .output_link:hover { background-color: #3e3533; color: #fff; }
 #browser_body { display: flex; flex-direction: column; height: 100%; }
-#browser_bar { display: flex; flex-direction: row; align-items: center; height: 28dp; flex-shrink: 0; margin-bottom: 12dp; }
+#browser_bar { display: flex; flex-direction: row; align-items: center; height: 28dp; flex-shrink: 0; margin-bottom: 5dp; }
 #browser_search { box-sizing: border-box; width: 280dp; height: 27dp; padding: 5dp 9dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; font-size: 12dp; }
-#browser_import, #browser_refresh, #browser_thumbnail { box-sizing: border-box; height: 27dp; margin-left: 8dp; padding: 0 10dp; line-height: 25dp; background-color: #303030; border: 1dp #414141; border-radius: 3dp; color: #d0d0d0; font-size: 12dp; }
-#browser_import:hover, #browser_refresh:hover, #browser_thumbnail:hover { background-color: #414141; color: #fff; }
+#browser_import, #browser_refresh, #browser_thumbnail, #browser_edit_asset { box-sizing: border-box; height: 27dp; margin-left: 8dp; padding: 0 10dp; line-height: 25dp; background-color: #303030; border: 1dp #414141; border-radius: 3dp; color: #d0d0d0; font-size: 12dp; }
+#browser_import:hover, #browser_refresh:hover, #browser_thumbnail:hover, #browser_edit_asset:hover { background-color: #414141; color: #fff; }
 .asset_thumbnail { display: none; position: absolute; top: 4dp; left: 3dp; width: 112dp; height: 70dp; pointer-events: none; }
 #browser_count { flex-grow: 1; font-size: 12dp; line-height: 27dp; text-align: right; color: #929292; }
+#browser_navigation { display: flex; align-items: center; height: 25dp; flex-shrink: 0; margin-bottom: 5dp; }
+.browser_nav_button { box-sizing: border-box; height: 23dp; margin-right: 5dp; padding: 0 8dp; line-height: 21dp; background-color: #303030; border: 1dp #414141; border-radius: 3dp; font-size: 11dp; }
+.browser_nav_button:hover { background-color: #414141; color: #fff; }
+#browser_location { flex-grow: 1; color: #a9bed1; padding: 0 4dp; font-size: 12dp; white-space: nowrap; overflow: hidden; }
+#browser_paging { display: none; flex-shrink: 0; align-items: center; }
+#browser_page { color: #bcbcbc; font-size: 11dp; margin: 0 8dp 0 3dp; }
+.asset_folder { display: block; position: absolute; left: 39dp; top: 27dp; width: 38dp; height: 26dp; background-color: #85653f; border: 1dp #c5a36f; border-radius: 3dp; pointer-events: none; }
+.asset_folder .asset_cube_inner { left: 3dp; top: -6dp; width: 17dp; height: 5dp; background-color: #a17b45; border: 1dp #c5a36f; }
+.asset_kind { white-space: nowrap; overflow: hidden; }
+#asset_grid_host { display: flex; flex-grow: 1; flex-shrink: 1; min-height: 0; flex-basis: 0; }
 #asset_grid { display: flex; flex-direction: row; flex-wrap: wrap; align-content: flex-start; flex-grow: 1; flex-shrink: 1; min-height: 0; flex-basis: 0; overflow: auto; }
 .browser_tile { box-sizing: border-box; width: 120dp; height: 124dp; margin: 0 10dp 10dp 0; background-color: #2d2d2d; border: 1dp #3c3c3c; border-bottom: 3dp #0070e0; border-radius: 3dp; cursor: pointer; }
 .browser_tile:hover { background-color: #383838; border-color: #686868; border-bottom-color: #0e86ff; }
@@ -119,14 +132,14 @@ select.env_select option:hover { background-color: #32658e; color: #ffffff; }
 .axis_x { background-color: #804444; }
 .axis_y { background-color: #4d7346; }
 .axis_z { background-color: #3e6288; }
-#detail_visible { box-sizing: border-box; height: 23dp; padding: 0 9dp; background-color: #343434; border: 1dp #494949; border-radius: 3dp; color: #c0c0c0; font-size: 12dp; }
-#detail_visible:hover { background-color: #464646; }
+#detail_visible, #detail_trigger_target, #detail_collision_box, #detail_trigger_volume { box-sizing: border-box; height: 23dp; padding: 0 9dp; background-color: #343434; border: 1dp #494949; border-radius: 3dp; color: #c0c0c0; font-size: 12dp; }
+#detail_visible:hover, #detail_trigger_target:hover, #detail_collision_box:hover, #detail_trigger_volume:hover { background-color: #464646; }
 input:focus { border-color: #0070e0; }
 #status { box-sizing: border-box; height: 25dp; flex-shrink: 0; padding: 0 13dp; background-color: #1a1a1a; border-top: 1dp #383838; font-size: 11dp; line-height: 25dp; color: #929292; white-space: nowrap; }
 scrollbarvertical { width: 9dp; background-color: #191919; }
 scrollbarvertical sliderbar { background-color: #4b4b4b; border: 2dp #191919; border-radius: 4dp; }
 scrollbarvertical sliderbar:hover { background-color: #686868; }
-#unsaved_prompt, #scene_path_prompt, #asset_import_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; background-color: #000000b0; align-items: center; justify-content: center; }
+#unsaved_prompt, #scene_path_prompt, #asset_import_prompt, #asset_edit_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; background-color: #000000b0; align-items: center; justify-content: center; }
 #unsaved_dialog, #scene_path_dialog { box-sizing: border-box; width: 440dp; max-width: 94%; background-color: #242424; border: 1dp #4b4b4b; border-radius: 8dp; overflow: hidden; }
 #unsaved_body, #scene_path_body { display: block; padding: 22dp 24dp 22dp; }
 #unsaved_dialog h2, #scene_path_dialog h2 { display: block; margin: 0 0 8dp; color: #f0f0f0; font-size: 20dp; line-height: 26dp; }
@@ -153,19 +166,19 @@ scrollbarvertical sliderbar:hover { background-color: #686868; }
 .win_glyph_min { width: 11dp; height: 1dp; background-color: #d0d0d0; }
 .win_glyph_max { box-sizing: border-box; width: 9dp; height: 9dp; border: 1dp #d0d0d0; }
 .win_glyph_close { width: 100%; height: 30dp; font-size: 15dp; line-height: 30dp; text-align: center; color: #d0d0d0; }
-#asset_import_dialog { width: 560dp; background-color: #242424; border: 1dp #424242; border-radius: 5dp; }
-#asset_import_body { padding: 19dp 22dp; }
-#asset_import_body h2 { margin: 0 0 12dp; font-size: 19dp; color: #efefef; }
-#asset_import_message { color: #c2c2c2; margin-bottom: 14dp; font-size: 13dp; }
+#asset_import_dialog, #asset_edit_dialog { width: 560dp; background-color: #242424; border: 1dp #424242; border-radius: 5dp; }
+#asset_import_body, #asset_edit_body { padding: 19dp 22dp; }
+#asset_import_body h2, #asset_edit_body h2 { margin: 0 0 12dp; font-size: 19dp; color: #efefef; }
+#asset_import_message, #asset_edit_message { color: #c2c2c2; margin-bottom: 14dp; font-size: 13dp; }
 .asset_import_row { display: flex; align-items: center; margin-bottom: 8dp; }
 .asset_import_label { width: 72dp; color: #c2c2c2; }
 .asset_import_field { flex-grow: 1; min-width: 0; padding: 5dp 8dp; height: 20dp; color: #eeeeee; background-color: #111111; border: 1dp #454545; }
 .asset_import_button { padding: 5dp 11dp; margin-left: 8dp; background-color: #303030; border: 1dp #444444; border-radius: 3dp; }
 .asset_import_button:hover { background-color: #414141; }
-#asset_import_actions { display: flex; justify-content: flex-end; padding: 12dp 20dp; background-color: #1c1c1c; border-top: 1dp #3a3a3a; }
-#asset_import_accept { background-color: #0070e0; border-color: #137dee; min-width: 65dp; text-align: center; }
-#asset_import_accept:hover { background-color: #1685f4; }
-#project_scenes_prompt, #project_settings_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; align-items: center; justify-content: center; background-color: #00000088; }
+#asset_import_actions, #asset_edit_actions { display: flex; justify-content: flex-end; padding: 12dp 20dp; background-color: #1c1c1c; border-top: 1dp #3a3a3a; }
+#asset_import_accept, #asset_edit_save { background-color: #0070e0; border-color: #137dee; min-width: 65dp; text-align: center; }
+#asset_import_accept:hover, #asset_edit_save:hover { background-color: #1685f4; }
+#project_scenes_prompt, #project_settings_prompt, #input_actions_prompt { display: none; position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 100; align-items: center; justify-content: center; background-color: #00000088; }
 #project_settings_prompt { justify-content: flex-end; background-color: #00000016; }
 .project_dialog { width: 490dp; max-width: 94%; max-height: 93%; display: flex; flex-direction: column; overflow: hidden; background-color: #242424; border: 1dp #4b4b4b; border-radius: 6dp; }
 #project_settings_dialog { margin-right: 18dp; width: 410dp; }
@@ -187,11 +200,26 @@ select.project_look_field selectbox { box-sizing: border-box; width: 100%; margi
 select.project_look_field option { display: block; box-sizing: border-box; height: 26dp; line-height: 26dp; padding: 0 8dp; white-space: nowrap; color: #e5e5e5; }
 select.project_look_field option:checked { background-color: #234d74; }
 select.project_look_field option:hover { background-color: #32658e; color: #ffffff; }
+#input_actions_list { max-height: 190dp; overflow-y: auto; margin: 8dp 0; }
+#input_actions_list .project_scene_row { display: flex; justify-content: space-between; }
+#input_actions_list .project_scene_row span { pointer-events: none; }
+.input_key_summary { color: #a0b5c8; margin-left: 14dp; }
+#input_action_edit { border-top: 1dp #404040; padding-top: 9dp; }
+#input_action_keys { min-height: 26dp; margin: 5dp 0; }
+.input_key_chip, .input_action_button { padding: 4dp 8dp; margin: 3dp 5dp 3dp 0; background-color: #303030; border: 1dp #484848; border-radius: 3dp; }
+.input_key_chip:hover, .input_action_button:hover { background-color: #444444; }
 .project_dialog_actions { display: flex; justify-content: flex-end; padding: 12dp 16dp; background-color: #1c1c1c; border-top: 1dp #383838; }
 .project_dialog_actions button { padding: 6dp 10dp; margin-left: 7dp; color: #dddddd; background-color: #303030; border: 1dp #484848; border-radius: 4dp; }
 .project_dialog_actions button:hover { background-color: #424242; }
 .project_dialog_actions .project_primary { background-color: #0070e0; border-color: #2088ed; color: #ffffff; }
 .project_dialog_actions .project_primary:hover { background-color: #1081f4; }
+#camera_details, #material_details, #audio_source_details { display: none; }
+.authoring_buttons button { margin: 2dp 6dp 3dp 0; padding: 4dp 8dp; background-color: #2c2c2c; border: 1dp #464646; border-radius: 3dp; }
+.authoring_buttons button:hover { background-color: #3d3d3d; }
+#point_light_details { display: none; }
+.light_value { flex-grow: 1; min-width: 0; background-color: #111111; border: 1dp #444444; padding: 3dp 7dp; }
+#light_apply { padding: 4dp 10dp; color: #ffffff; background-color: #0070e0; border-radius: 3dp; }
+#light_apply:hover { background-color: #1587fa; }
 </style></head>
 <body>
 <div id="menubar">
@@ -206,6 +234,15 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
 <button id="win_maximize" class="win_button"><div class="win_glyph win_glyph_max"></div></button>
 <button id="win_close" class="win_button"><div class="win_glyph win_glyph_close">×</div></button>
 </div>
+</div>
+<div id="menu_add_items" class="menu_dropdown" style="visibility: hidden; left: 14dp; top: 76dp;">
+    <div id="menu_add_node" class="menu_item">Empty Node</div>
+    <div id="menu_add_scene_instance" class="menu_item">Scene Instance...</div>
+    <div id="menu_add_audio_source" class="menu_item">Audio Source</div>
+    <div id="menu_add_collision_box" class="menu_item">Collision Box</div>
+    <div id="menu_add_box_trigger" class="menu_item">Box Trigger</div>
+    <div id="menu_add_camera" class="menu_item">Camera</div>
+    <div id="menu_add_point_light" class="menu_item">Point Light</div>
 </div>
 <div id="menu_file_items" class="menu_dropdown" style="visibility: hidden; left: 88dp;">
     <div id="menu_file_new" class="menu_item">New Scene</div>
@@ -235,7 +272,7 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
     <div id="menu_help_about" class="menu_item">About deren editor</div>
 </div>
 <div id="toolbar">
-<button id="btn_new">New Node</button>
+<button id="btn_new">Add</button>
 <button id="btn_delete">Delete</button>
 <div class="toolbar_separator"></div>
 <button id="btn_save">Save</button>
@@ -261,6 +298,7 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
 </div>
 <div id="viewport">
     <img id="viewport_image" src="deren://scene"/>
+    <div id="box_outline"></div>
     <div id="gizmo_x" class="gizmo_axis"><div class="gizmo_tip"></div></div>
     <div id="gizmo_y" class="gizmo_axis"><div class="gizmo_tip"></div></div>
     <div id="gizmo_z" class="gizmo_axis"><div class="gizmo_tip"></div></div>
@@ -278,35 +316,21 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
         <input id="browser_search" type="text" placeholder="Search assets"/>
         <button id="browser_import">Import</button>
         <button id="browser_refresh">Refresh</button>
+        <button id="browser_edit_asset">Edit Asset</button>
         <button id="browser_thumbnail">Build Thumbnail</button>
         <div id="browser_count"></div>
     </div>
-    <div id="asset_grid">
-        <div id="asset_0" class="browser_tile" style="visibility: hidden;"><div id="asset_0_preview" class="asset_preview"><img id="asset_0_image" class="asset_thumbnail"/><div id="asset_0_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_0_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_1" class="browser_tile" style="visibility: hidden;"><div id="asset_1_preview" class="asset_preview"><img id="asset_1_image" class="asset_thumbnail"/><div id="asset_1_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_1_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_2" class="browser_tile" style="visibility: hidden;"><div id="asset_2_preview" class="asset_preview"><img id="asset_2_image" class="asset_thumbnail"/><div id="asset_2_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_2_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_3" class="browser_tile" style="visibility: hidden;"><div id="asset_3_preview" class="asset_preview"><img id="asset_3_image" class="asset_thumbnail"/><div id="asset_3_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_3_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_4" class="browser_tile" style="visibility: hidden;"><div id="asset_4_preview" class="asset_preview"><img id="asset_4_image" class="asset_thumbnail"/><div id="asset_4_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_4_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_5" class="browser_tile" style="visibility: hidden;"><div id="asset_5_preview" class="asset_preview"><img id="asset_5_image" class="asset_thumbnail"/><div id="asset_5_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_5_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_6" class="browser_tile" style="visibility: hidden;"><div id="asset_6_preview" class="asset_preview"><img id="asset_6_image" class="asset_thumbnail"/><div id="asset_6_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_6_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_7" class="browser_tile" style="visibility: hidden;"><div id="asset_7_preview" class="asset_preview"><img id="asset_7_image" class="asset_thumbnail"/><div id="asset_7_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_7_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_8" class="browser_tile" style="visibility: hidden;"><div id="asset_8_preview" class="asset_preview"><img id="asset_8_image" class="asset_thumbnail"/><div id="asset_8_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_8_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_9" class="browser_tile" style="visibility: hidden;"><div id="asset_9_preview" class="asset_preview"><img id="asset_9_image" class="asset_thumbnail"/><div id="asset_9_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_9_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_10" class="browser_tile" style="visibility: hidden;"><div id="asset_10_preview" class="asset_preview"><img id="asset_10_image" class="asset_thumbnail"/><div id="asset_10_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_10_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_11" class="browser_tile" style="visibility: hidden;"><div id="asset_11_preview" class="asset_preview"><img id="asset_11_image" class="asset_thumbnail"/><div id="asset_11_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_11_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_12" class="browser_tile" style="visibility: hidden;"><div id="asset_12_preview" class="asset_preview"><img id="asset_12_image" class="asset_thumbnail"/><div id="asset_12_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_12_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_13" class="browser_tile" style="visibility: hidden;"><div id="asset_13_preview" class="asset_preview"><img id="asset_13_image" class="asset_thumbnail"/><div id="asset_13_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_13_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_14" class="browser_tile" style="visibility: hidden;"><div id="asset_14_preview" class="asset_preview"><img id="asset_14_image" class="asset_thumbnail"/><div id="asset_14_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_14_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_15" class="browser_tile" style="visibility: hidden;"><div id="asset_15_preview" class="asset_preview"><img id="asset_15_image" class="asset_thumbnail"/><div id="asset_15_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_15_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_16" class="browser_tile" style="visibility: hidden;"><div id="asset_16_preview" class="asset_preview"><img id="asset_16_image" class="asset_thumbnail"/><div id="asset_16_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_16_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_17" class="browser_tile" style="visibility: hidden;"><div id="asset_17_preview" class="asset_preview"><img id="asset_17_image" class="asset_thumbnail"/><div id="asset_17_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_17_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_18" class="browser_tile" style="visibility: hidden;"><div id="asset_18_preview" class="asset_preview"><img id="asset_18_image" class="asset_thumbnail"/><div id="asset_18_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_18_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_19" class="browser_tile" style="visibility: hidden;"><div id="asset_19_preview" class="asset_preview"><img id="asset_19_image" class="asset_thumbnail"/><div id="asset_19_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_19_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_20" class="browser_tile" style="visibility: hidden;"><div id="asset_20_preview" class="asset_preview"><img id="asset_20_image" class="asset_thumbnail"/><div id="asset_20_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_20_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_21" class="browser_tile" style="visibility: hidden;"><div id="asset_21_preview" class="asset_preview"><img id="asset_21_image" class="asset_thumbnail"/><div id="asset_21_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_21_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_22" class="browser_tile" style="visibility: hidden;"><div id="asset_22_preview" class="asset_preview"><img id="asset_22_image" class="asset_thumbnail"/><div id="asset_22_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_22_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
-        <div id="asset_23" class="browser_tile" style="visibility: hidden;"><div id="asset_23_preview" class="asset_preview"><img id="asset_23_image" class="asset_thumbnail"/><div id="asset_23_placeholder" class="asset_cube"><div class="asset_cube_inner"></div></div></div><div id="asset_23_name" class="browser_tile_name"></div><div class="asset_kind">LIBRARY ASSET</div></div>
+    <div id="browser_navigation">
+        <button id="browser_root" class="browser_nav_button">Root</button>
+        <button id="browser_up" class="browser_nav_button">Up</button>
+        <div id="browser_location">Assets</div>
+        <div id="browser_paging">
+            <button id="browser_prev" class="browser_nav_button">Previous</button>
+            <div id="browser_page"></div>
+            <button id="browser_next" class="browser_nav_button">Next</button>
+        </div>
     </div>
+    <div id="asset_grid_host"><div id="asset_grid"></div></div>
     <div id="browser_empty" class="dock_note">No assets in the library.</div>
 </div>
 <div id="log_body">
@@ -332,17 +356,55 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
     <div id="details_empty">Select a node to edit its properties.</div>
     <div id="details_form">
         <div class="detail_row"><div class="detail_label">Name</div><input id="detail_name" type="text"/></div>
+        <div id="audio_source_details">
+            <div class="detail_header">Audio Source</div>
+            <div class="detail_row"><div class="detail_label">Clip</div><select id="audio_file" class="env_select"></select></div>
+            <div class="detail_row"><div class="detail_label">Volume</div><input class="detail_input" id="audio_volume" type="text"/></div>
+            <div class="detail_row"><div class="detail_label">Loop</div><select id="audio_loop" class="env_select"><option value="off">Off</option><option value="on">On</option></select></div>
+            <div class="authoring_buttons">
+                <button id="audio_apply">Apply</button><button id="audio_preview">Preview</button>
+                <button id="audio_stop">Stop</button><button id="audio_refresh">Refresh Files</button>
+            </div>
+        </div>
         <div class="detail_header">Transform</div>
         <div class="detail_row"><div class="detail_label">Location</div><div class="axis axis_x">X</div><input id="detail_position_x" class="axis_input" type="text"/><div class="axis axis_y">Y</div><input id="detail_position_y" class="axis_input" type="text"/><div class="axis axis_z">Z</div><input id="detail_position_z" class="axis_input" type="text"/></div>
         <div class="detail_row"><div class="detail_label">Rotation</div><div class="axis axis_x">X</div><input id="detail_rotation_x" class="axis_input" type="text"/><div class="axis axis_y">Y</div><input id="detail_rotation_y" class="axis_input" type="text"/><div class="axis axis_z">Z</div><input id="detail_rotation_z" class="axis_input" type="text"/></div>
         <div class="detail_row"><div class="detail_label">Scale</div><div class="axis axis_x">X</div><input id="detail_scale_x" class="axis_input" type="text"/><div class="axis axis_y">Y</div><input id="detail_scale_y" class="axis_input" type="text"/><div class="axis axis_z">Z</div><input id="detail_scale_z" class="axis_input" type="text"/></div>
         <div class="detail_header">Actor</div>
         <div class="detail_row"><div class="detail_label">Visible</div><button id="detail_visible">Visible: yes</button></div>
+        <div class="detail_row"><div class="detail_label">Solid Box</div><button id="detail_collision_box">Disabled</button></div>
+        <div class="detail_row"><div class="detail_label">Trigger Volume</div><button id="detail_trigger_volume">Disabled</button></div>
+        <div class="detail_row"><div class="detail_label">Trigger Target</div><button id="detail_trigger_target">Disabled</button></div>
         <div class="detail_row"><div class="detail_label">Flags</div><input id="detail_flags" type="text"/></div>
 
-        <div class="detail_row"><div class="detail_label">Asset</div><div id="detail_asset" class="detail_text">-</div></div>
+        <div class="detail_row"><div id="detail_asset_label" class="detail_label">Asset</div><div id="detail_asset" class="detail_text">-</div></div>
         <div class="detail_row"><div class="detail_label">Pipeline</div><button id="detail_pipeline" class="detail_text">-</button></div>
         <div class="detail_row"><div class="detail_label">Environment</div><select id="detail_environment" class="env_select"></select></div>
+        <div id="camera_details">
+            <div class="detail_header">Camera</div>
+            <div class="detail_row"><div class="detail_label">Vertical FOV</div><input class="detail_input" id="camera_fov" type="text"/></div>
+            <div class="authoring_buttons"><button id="camera_apply_fov">Apply FOV</button></div>
+            <div class="authoring_buttons">
+                <button id="camera_view">View Camera</button><button id="camera_align">Align to View</button>
+                <button id="camera_main">Set as Main Camera</button>
+            </div>
+        </div>
+        <div id="material_details">
+            <div class="detail_header">Material Override</div>
+            <div class="detail_row"><div class="detail_label">Mode</div><div id="material_mode">Imported material</div></div>
+            <div class="detail_row"><div class="detail_label">Tint RGB</div><input class="detail_input" id="material_tint" type="text"/></div>
+            <div class="detail_row"><div class="detail_label">Metallic ×</div><input class="detail_input" id="material_metallic" type="text"/></div>
+            <div class="detail_row"><div class="detail_label">Roughness ×</div><input class="detail_input" id="material_roughness" type="text"/></div>
+            <div class="detail_row"><div class="detail_label">Emissive ×</div><input class="detail_input" id="material_emissive" type="text"/></div>
+            <div class="authoring_buttons"><button id="material_apply">Apply</button><button id="material_reset">Reset</button></div>
+        </div>
+        <div id="point_light_details">
+            <div class="detail_header">Point Light</div>
+            <div class="detail_row"><label class="detail_label" for="light_colour">Color RGB</label><input id="light_colour" class="light_value" type="text"/></div>
+            <div class="detail_row"><label class="detail_label" for="light_intensity">Intensity</label><input id="light_intensity" class="light_value" type="text"/></div>
+            <div class="detail_row"><label class="detail_label" for="light_range">Range</label><input id="light_range" class="light_value" type="text"/></div>
+            <div class="detail_row"><div class="detail_label"></div><button id="light_apply">Apply</button></div>
+        </div>
         <div id="script_controls"></div>
     </div>
     <div id="environment_group">
@@ -376,6 +438,24 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
         <button id="scene_path_accept">Open</button>
     </div>
 </div></div>
+<div id="asset_edit_prompt"><div id="asset_edit_dialog">
+    <div id="asset_edit_body">
+        <h2>Edit Asset</h2>
+        <div id="asset_edit_message"></div>
+        <div class="asset_import_row">
+            <label class="asset_import_label" for="asset_edit_name">Name</label>
+            <input class="asset_import_field" id="asset_edit_name" type="text"/>
+        </div>
+        <div class="asset_import_row">
+            <label class="asset_import_label" for="asset_edit_path">Folder</label>
+            <input class="asset_import_field" id="asset_edit_path" type="text" placeholder="Path inside the library"/>
+        </div>
+    </div>
+    <div id="asset_edit_actions">
+        <button class="asset_import_button" id="asset_edit_cancel">Cancel</button>
+        <button class="asset_import_button" id="asset_edit_save">Save</button>
+    </div>
+</div></div>
 <div id="asset_import_prompt"><div id="asset_import_dialog">
     <div id="asset_import_body">
         <h2>Import Model</h2>
@@ -397,7 +477,7 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
 </div></div>
 <div id="project_scenes_prompt"><div class="project_dialog">
     <div class="project_dialog_body">
-        <h2>Project Scenes</h2>
+        <h2 id="project_scenes_title">Project Scenes</h2>
         <div id="project_scenes_list"></div>
         <div class="project_dialog_message" id="project_scene_message"></div>
     </div>
@@ -421,9 +501,31 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
         <div class="project_dialog_message" id="project_settings_message"></div>
     </div>
     <div class="project_dialog_actions">
+        <button id="project_settings_input">Input Actions...</button>
         <button id="project_settings_cancel">Cancel</button>
         <button id="project_settings_preview">Preview</button>
         <button class="project_primary" id="project_settings_save">Save</button>
+    </div>
+</div></div>
+<div id="input_actions_prompt"><div class="project_dialog">
+    <div class="project_dialog_body">
+        <h2>Input Actions</h2>
+        <div class="project_look_row">
+            <input class="project_look_field" id="input_action_name" type="text" placeholder="Action name"/>
+            <button class="input_action_button" id="input_action_add">Add</button>
+        </div>
+        <div id="input_actions_list"></div>
+        <div id="input_action_edit">
+            <div id="input_selected_action"></div>
+            <div id="input_action_keys"></div>
+            <button class="input_action_button" id="input_action_record">Record Key</button>
+            <button class="input_action_button" id="input_action_remove">Delete Action</button>
+        </div>
+        <div class="project_dialog_message" id="input_actions_message"></div>
+    </div>
+    <div class="project_dialog_actions">
+        <button id="input_actions_cancel">Cancel</button>
+        <button id="input_actions_save" class="project_primary">Save</button>
     </div>
 </div></div>
 </body>

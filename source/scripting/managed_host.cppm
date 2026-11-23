@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 43;
+    inline constexpr std::uint32_t managed_abi_version = 44;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -28,9 +28,10 @@ export namespace deren::scripting {
         float pitch_degrees = 0.0F;
         float distance = 2.2F;
         vector_3 target{};
+        float vertical_fov_degrees = 0.0F; // zero keeps the current lens
     };
 
-    static_assert(sizeof(camera_state) == 24);
+    static_assert(sizeof(camera_state) == 28);
 
     /**
      * @brief one punctual light as managed code hands it to the host

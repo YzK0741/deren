@@ -18,7 +18,12 @@ namespace deren.editor {
                 }
             }
             var replacement = string.Join(original.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n", lines);
-            if (replacement == original) { return true; }
+            return try_replace_text(path, original, replacement, out error);
+    }
+
+    internal static bool try_replace_text(string path, string original, string replacement, out string error) {
+        error = string.Empty;
+        if (replacement == original) { return true; }
             var temporary = path + $".{Guid.NewGuid():N}.tmp";
             try {
                 if (!string.Equals(File.ReadAllText(path), original, StringComparison.Ordinal)) {

@@ -49,15 +49,35 @@ def write_demo(root: Path, managed_api: Path) -> None:
 
 
 def write_scene(path: Path, name: str, asset: str | None = None, second_scene: bool = False) -> None:
-    content = f'[document]\nversion = 3\nname = {quote(name)}\n\n[[node]]\nuid = "{uuid4()}"\n'
+    version = 10 if asset else 3
+    content = f'[document]\nversion = {version}\nname = {quote(name)}\n\n[[node]]\nuid = "{uuid4()}"\n'
     if asset is None:
         content += 'name = "root"\n'
     else:
+        sound_uid = uuid4()
         content += (
             f'name = "Helmet"\nasset = {quote(asset)}\n'
             'script = "HelmetDemo.dll:editor_demo.helmet_behaviour"\n'
             f'script_parameter."second_scene" = "{second_scene}"\n'
+            f'script_parameter."sound" = "{sound_uid}"\n'
+            'trigger_target = true\nposition = [0, 0, 0.55]\n'
+            f'\n[[node]]\nuid = "{uuid4()}"\nname = "Door Trigger"\n'
+            'position = [0.53, -0.65, 0]\nscale = [0.24, 2.4, 0.34]\n'
+            'script = "HelmetDemo.dll:editor_demo.door_trigger_behaviour"\nbox_trigger = true\n'
+            f'script_parameter."second_scene" = "{second_scene}"\n'
+            f'script_parameter."sound" = "{sound_uid}"\n'
+            f'\n[[node]]\nuid = "{sound_uid}"\nname = "Door Audio"\n'
+            'audio_file = "audio/tone.wav"\naudio_volume = 0.7\naudio_loop = false\n'
         )
+        for wall, position, scale in (
+            ("Door Wall North", [0.32, -0.55, 0.785], [0.06, 2.4, 1.13]),
+            ("Door Wall South", [0.32, -0.55, -0.785], [0.06, 2.4, 1.13]),
+            ("Workshop Obstacle", [-0.42, -0.55, 0.30], [0.14, 2.4, 0.32]),
+        ):
+            content += (
+                f'\n[[node]]\nuid = "{uuid4()}"\nname = {quote(wall)}\n'
+                f'position = {json.dumps(position)}\nscale = {json.dumps(scale)}\ncollision_box = true\n'
+            )
     path.write_text(content, encoding="utf-8")
 
 
@@ -93,7 +113,7 @@ def create_project(root: Path, assembly: Path, assets: Path | None, name: str, d
         write_scene(scene, name)
     actions = (
         '\n[input.actions]\nplay_tone = ["space"]\nnext_scene = ["enter"]\n'
-        'move_right = ["d"]\nmove_left = ["a"]\n'
+        'move_right = ["d"]\nmove_left = ["a"]\nmove_forward = ["w"]\nmove_back = ["s"]\n'
         if demo else ''
     )
     asset_path = quote(assets.as_posix()) if assets is not None else '"asset"'

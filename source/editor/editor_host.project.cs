@@ -11,9 +11,10 @@ using deren.scripting;
 
 namespace deren.editor {
     internal sealed unsafe partial class editor_host {
-        private enum project_panel { none, scenes, settings }
+        private enum project_panel { none, scenes, settings, input_actions }
         private static bool requested_project_selftest;
         private project_panel open_project_panel;
+        private bool pick_scene_instance;
         private string[] project_scenes = [];
         private string? selected_project_scene;
         private string? startup_project_scene;
@@ -27,7 +28,7 @@ namespace deren.editor {
 
         private string project_manifest_path => Path.Combine(managed_bootstrap.project_directory, "deren.toml");
 
-        private void show_project_scenes() {
+        private void show_project_scenes(bool for_instance = false) {
             var root = managed_bootstrap.project_directory;
             try {
                 var scenes = Path.Combine(root, "scenes");
@@ -38,9 +39,14 @@ namespace deren.editor {
                       .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
                       .Order(StringComparer.OrdinalIgnoreCase).ToArray()
                     : [];
+                pick_scene_instance = for_instance;
+                ui?.set_text("project_scenes_title", for_instance ? "Add Scene Instance" : "Project Scenes");
+                ui?.set_text("project_scene_open", for_instance ? "Add Instance" : "Open");
+                ui?.try_set_element_style("project_scene_startup", "display", for_instance ? "none" : "block");
                 var manifest = toml_table.parse(File.ReadAllText(project_manifest_path), out _);
                 startup_project_scene = manifest?.table("game")?.text("scene")?.Replace('\\', '/');
                 var current = document?.path is { } path ? Path.GetRelativePath(root, path).Replace('\\', '/') : null;
+                if (for_instance) { project_scenes = project_scenes.Where(item => item != current).ToArray(); }
                 selected_project_scene = Array.Find(project_scenes, item => item == current) ??
                     Array.Find(project_scenes, item => item == startup_project_scene) ?? project_scenes.FirstOrDefault();
                 render_project_scenes();
@@ -75,13 +81,27 @@ namespace deren.editor {
             }
             if (input.id == "project_scene_close") { close_project_panel(); return; }
             if (selected_project_scene is not { } path) { return; }
+            if (pick_scene_instance) {
+                if (input.id != "project_scene_open") { return; }
+                if (add_node(subscene: path)) {
+                    close_project_panel();
+                    notice = $"Added scene instance: {path}";
+                } else {
+                    ui?.set_text("project_scene_message", string.IsNullOrEmpty(notice) ? "Could not add the scene instance." : notice);
+                }
+                return;
+            }
             var full_path = Path.Combine(managed_bootstrap.project_directory, path);
             if (input.id is not "project_scene_open" and not "project_scene_startup") { return; }
-            if (!document_io.try_load(full_path, out var loaded, out var error) || loaded == null) {
+            if (!scene_instances.try_load(managed_bootstrap.project_directory, full_path, out var loaded, out var error) || loaded == null) {
                 ui?.set_text("project_scene_message", error ?? "Could not read the scene.");
                 return;
             }
             if (input.id == "project_scene_open") {
+                if (missing_asset_message(loaded) is { } missing) {
+                    ui?.set_text("project_scene_message", missing);
+                    return;
+                }
                 close_project_panel();
                 request_open_scene(loaded);
             } else if (set_startup_scene(path, out var message)) {
@@ -177,6 +197,10 @@ namespace deren.editor {
                 return;
             }
             if (input.type != rml_event_type.click) { return; }
+            if (input.id == "project_settings_input") {
+                show_input_actions();
+                return;
+            }
             if (input.id == "project_settings_cancel") {
                 if (look_previewed && preview_render != null && preview_lighting != null) {
                     saved_look.apply(preview_render, preview_lighting);
@@ -211,6 +235,7 @@ namespace deren.editor {
         private void close_project_panel() {
             ui?.try_set_element_style("project_scenes_prompt", "display", "none");
             ui?.try_set_element_style("project_settings_prompt", "display", "none");
+            ui?.try_set_element_style("input_actions_prompt", "display", "none");
             open_project_panel = project_panel.none;
         }
     }

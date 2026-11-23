@@ -53,7 +53,7 @@ namespace deren.editor {
         /// the document changed under it, or <paramref name="force"/> is set, so a frame cannot
         /// overwrite an in-progress edit while an undo or a drag still reaches the rows.
         /// </summary>
-        internal void refresh(scene_document document, selection selection, bool force = false) {
+        internal void refresh(scene_document document, node_selection selection, bool force = false) {
             if (!force && shown == selection.primary && shown_revision == document.revision) {
                 return;
             }
@@ -82,7 +82,11 @@ namespace deren.editor {
             ui.set_value("detail_scale_z", format(node.local.scale.z));
             ui.set_value(flags_id, node.flags.ToString(CultureInfo.InvariantCulture));
             ui.set_text(visible_id, node.visible ? "Visible: yes" : "Visible: no");
-            ui.set_text(asset_id, node.asset ?? "-");
+            ui.set_text("detail_collision_box", node.collision_box ? "Enabled" : "Disabled");
+            ui.set_text("detail_trigger_volume", node.box_trigger ? "Enabled" : "Disabled");
+            ui.set_text("detail_trigger_target", node.trigger_target ? "Enabled" : "Disabled");
+            ui.set_text("detail_asset_label", node.subscene != null ? "Source Scene" : "Asset");
+            ui.set_text(asset_id, node.subscene ?? node.asset ?? "-");
             ui.set_text(pipeline_id, node.pipeline ?? "-");
             // The environment row is a select whose entries are the scene's lanes, so it is painted by
             // environment_panel.refresh_node rather than by this text write.

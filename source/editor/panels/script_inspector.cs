@@ -101,7 +101,7 @@ namespace deren.editor {
         private static void node_options(StringBuilder markup, IReadOnlyList<document_node> nodes, string prefix) {
             foreach (var node in nodes) {
                 option(markup, node.uid.ToString("D", CultureInfo.InvariantCulture), prefix + node.name);
-                node_options(markup, node.children, prefix + node.name + " / ");
+                if (node.subscene == null) { node_options(markup, node.children, prefix + node.name + " / "); }
             }
         }
     }

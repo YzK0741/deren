@@ -813,6 +813,7 @@ namespace deren::engine {
      *        projection far plane always covers target + scene_radius so zooming in never clips
      *        the far side of the scene
      * @param aspect swapchain width / height
+     * @param vertical_fov_degrees vertical lens angle in degrees
      * @return camera UBO with view/proj/camera_pos filled in
      * @note proj uses perspectiveRH_ZO with a Y flip to match Vulkan's y-down framebuffer
      */
@@ -822,7 +823,8 @@ namespace deren::engine {
         float distance,
         glm::vec3 const& target,
         float scene_radius,
-        float aspect);
+        float aspect,
+        float vertical_fov_degrees = 45.0f);
 
     /// Six RH 90-degree views (+X,-X,+Y,-Y,+Z,-Z), keeping the Vulkan Y flip and normal winding.
     /// Readback X must be mirrored for canonical cubemap pixels. Requires face<6, 0<near<far.

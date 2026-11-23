@@ -83,27 +83,6 @@ namespace deren.editor {
         }
 
         /// <summary>
-        /// Resolves an authored environment path: a relative one is looked up in the project first and
-        /// handed over untouched when the project does not have it, which leaves the host resolving it
-        /// against the executable directory the way a game run does.
-        /// </summary>
-        private static string resolve_environment_path(string text) {
-            if (text.Length == 0 || Path.IsPathRooted(text)) {
-                return text;
-            }
-            var project_root = managed_bootstrap.project_directory;
-            if (string.IsNullOrEmpty(project_root)) {
-                return text;
-            }
-            try {
-                var candidate = Path.GetFullPath(text, project_root);
-                return File.Exists(candidate) ? candidate : text;
-            } catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException) {
-                return text;
-            }
-        }
-
-        /// <summary>
         /// Applies one change event of the environment panel: lane 0 edits the project settings, lanes
         /// 1..15 edit the document and are undoable. The selected value is either a `@sky`/`@choose`
         /// sentinel or the map text the dropdown entry stands for.
@@ -362,7 +341,7 @@ namespace deren.editor {
                 if (string.Equals(applied_environments[lane], text, StringComparison.Ordinal)) {
                     continue;
                 }
-                var applied = global_environment.try_set_slot_hdr(lane, resolve_environment_path(text), out var status);
+                var applied = global_environment.try_set_slot_hdr(lane, scene_environment.resolve_path(text, managed_bootstrap.project_directory), out var status);
                 if (!applied) {
                     applied_environments[lane] = null;
                     if (!string.Equals(failed_environments[lane], text, StringComparison.Ordinal)) {
@@ -386,7 +365,7 @@ namespace deren.editor {
         /// </summary>
         private void apply_global_environment(string text, bool persist) {
             global_environment_hdr = text;
-            var applied = global_environment.try_set_hdr(resolve_environment_path(text), out var status);
+            var applied = global_environment.try_set_hdr(scene_environment.resolve_path(text, managed_bootstrap.project_directory), out var status);
             if (!applied) {
                 host_logger.write($"Editor: cannot set the scene environment '{text}' ({status})");
                 environment_ui?.set_status($"Scene map: {status}");

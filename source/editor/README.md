@@ -32,8 +32,9 @@ overrides the startup scene for that launch; with `--editor` it opens the file f
 Scene paths in the game are relative to the project directory.
 
 Edit, Play and standalone share the asset library, renderer settings and input action
-bindings. Play runs an unsaved copy of the scene and uses the editor camera; standalone
-reads the saved file and uses the configured camera. Both use the same scene loader and
+bindings. Play runs an unsaved copy of the scene; standalone reads the saved file. Both open on
+the scene's main camera when set. Scenes without a main camera use the editor camera
+in Play and the configured camera in standalone. Both use the same scene loader and
 behaviour lifecycle. A behaviour can call `try_change_scene("scenes/other.scene.toml")`
 in `on_update` to queue a scene change for the next frame. The first accepted request
 wins, and a load failure logs the reason and leaves the current scene active.
@@ -49,7 +50,7 @@ python scripts/tools/new_editor_project.py build/helmet-game --demo
 ```
 
 The demo uses the repository's helmet assets, builds its C# behaviour into `scripts/`
-and generates a short WAV. Move with A/D, play the sound with Space, and switch
+and generates a short WAV. Move with W/A/S/D, play the sound with Space, and switch
 between Workshop and Hangar with Enter. The behaviour source is in `script-source/`.
 
 ## Windows game export
@@ -151,13 +152,11 @@ edit the selected node's transform.
   window to close. The window is resizable from its edges because the caption installs a thin
   hit-test band; maximising honours the monitor work area. The default is off, so other projects keep
   their decorated window and the dark `dark_window_frame` frame.
-- **Content browser.** The asset catalogue is rendered into the 24 authored
-  tiles (`asset_0` .. `asset_23`); `#browser_search` filters the id list (`OrdinalIgnoreCase`) and
-  `#browser_count` reports "shown / total". A tile click moves a `#4a9eff` border to that tile and
-  writes `asset: <id>` into the status bar. **Build Thumbnail** renders the selected asset offscreen
-  and caches the resulting image in the editor output's `ui/thumbnails` folder. An asset without a
-  cached image shows a placeholder glyph.
-  double-click adds the asset as a root node at the origin, selects it, and records an undoable edit.
+- **Content Browser.** Click a folder to open it, or use **Up** and **Root** to navigate back.
+  Search matches asset IDs and folder paths inside the current folder and its subfolders.
+  **Previous** and **Next** page through results 48 items at a time. Double-click an asset or
+  drag it into the viewport to place a scene instance. **Build Thumbnail** renders the selected
+  asset offscreen and caches the preview.
 - **World Outliner.** Expand or collapse a group from its disclosure control. Ctrl-click toggles
   individual nodes and Shift-click selects a range of visible rows. Search reveals matching nodes and
   their ancestors, including matches inside collapsed groups. Edit > Duplicate Selection copies each
@@ -169,8 +168,8 @@ edit the selected node's transform.
   Undo and redo update the dirty indicator relative to the most recent save.
 - **Asset placement.** Drag an asset tile into the viewport to place it on the construction plane.
   Click Pipeline in Details to change between the selected asset's supported pipelines.
-- **Play / Stop.** Play starts a separate renderer process from a temporary copy of the scene and
-  the editor camera. It runs bundled animation and optional node scripts. Stop closes the play
+- **Play / Stop.** Play starts a separate renderer process from a temporary copy of the scene, with its main
+  camera or the current editor view as a fallback. It runs bundled animation and optional node scripts. Stop closes the play
   process and returns to the editor with the open document and undo history intact.
 - **Viewport toolbar.** `Move`, `Rotate` and `Scale` expose X/Y/Z handles at the selected node's
   pivot. Drag along the handle to move or scale, or across the handle to rotate. `World`/`Local`
@@ -193,7 +192,7 @@ restores the same boxes). The caption buttons need a real window and are verifie
 | `document/scene_document.cs`, `document_node.cs` | The editable tree: uid, name, asset, pipeline, transform, visible, flags, children, runtime node id. |
 | `document/document_io.cs` | The strict TOML reader/writer for `*.scene.toml`. |
 | `document/scene_sync.cs` | One `rebuild` at startup, then per-node `create_one`/`destroy_one`/`push` into the activated tree. |
-| `editing/undo_stack.cs`, `undo_command.cs`, `selection.cs` | The undoable edits, the 64-entry history and the selection set. |
+| `editing/undo_stack.cs`, `undo_command.cs`, `node_selection.cs` | The undoable edits, the 64-entry history and the selection set. |
 | `panels/outliner_panel.cs`, `details_panel.cs`, `status_bar.cs`, `content_browser_panel.cs` | Outliner rows keyed by node UID, plus details, asset tiles and status. |
 | `ui/editor.rml` | The document markup and its inline style: menu bar, toolbar, viewport column, bottom dock, outliner column and the three splitters. |
 | `main.toml` | The entry scene the manifest points at: window size and title, and the `[render] fxaa` switch the viewport needs. |
@@ -240,7 +239,7 @@ step, even though it changes both the lane and the node.
 ## Importing models
 
 In Content Browser, choose **Import** and browse for a GLB or glTF 2.0 model, or paste its path.
-The destination is the project's configured asset library. Use the suggested asset ID or enter a
+The destination is the current Content Browser folder. Use the suggested asset ID or enter a
 different one. The importer creates a PBR asset folder, preserves the relative paths of external
 buffers and textures inside the model's directory, and refuses missing files or duplicate IDs.
 The new asset stays selected in Content Browser; double-click it or drag it into the viewport.
@@ -248,16 +247,107 @@ Use **Refresh** to rescan asset folders changed outside the editor. Existing sce
 their loaded data. Imported files belong to the project, so undoing a placement only removes
 the instance from the scene.
 
+Folders come from the engine's asset catalogue. To include nested packages, use
+`scan_depth` in the asset library's `library.toml`. A depth of 1 lists direct
+asset directories, and 2 includes assets inside a grouping folder. If opening a
+scene finds a missing asset ID, the dialog names the affected node and lists any
+additional missing references in **Output Log**.
+
+## Renaming and moving assets
+
+Select a tile and choose **Edit Asset**. **Name** is the display name shown in
+the browser. **Folder** is the package path relative to the asset library,
+including its final directory name. The asset ID stays the same, including
+IDs originally inferred from the folder name, so saved scenes keep their
+references.
+
+The destination must be discoverable under the library's scan and ignore rules.
+Moving a package keeps its local dependencies and rebases shared motion paths.
+The editor refuses the move when another asset references a motion file inside
+the package.
+
+## Audio sources
+
+Put clips in the project's audio/ directory, then use **Add > Audio Source**.
+In Details, choose a clip, set volume from 0 to 1 and choose whether to loop.
+Use **Preview** and **Stop** to check the draft, and **Apply** to record the edit.
+**Refresh Files** discovers clips added while the editor is open. The editor
+lists WAV, MP3, FLAC, OGG, Opus, and QOA.
+
+Use an authored node reference in C# and call scene.try_play_audio_source or
+scene.try_stop_audio_source. Each instance owns its own player for the lifetime
+of its active scene. Sources store project-relative clip paths and use ordinary
+non-spatial playback. Audio sources are supported from scene version 9.
+
+The helmet demo uses a door trigger to play its audio source, then changes rooms.
+Space previews the same authored cue during gameplay.
+
+## Static collision boxes
+
+Choose **Add > Collision Box** or enable **Solid Box** on a node in Details.
+The cyan outline shows the box, and its scale sets the full width, height and
+depth. **Trigger Volume** marks the separate overlap sensor, shown in amber
+when selected on its own. Solid boxes use the authored world transform from
+scene load.
+
+Call scene.try_move with a node and a world-space displacement to sweep its
+origin against the solid boxes. The optional radius expands the box planes by
+that world-space clearance. The result includes the actual displacement and
+whether the move was blocked. Movement that hits a surface can continue along
+it. The helmet demo starts beside the doorway. Move forward to line up with
+the opening before moving right through its audio trigger.
+Solid boxes are supported starting in document version 10.
+
+## Box triggers
+
+Choose **Add > Box Trigger**. Select it to see its outline. Use **Move** and
+**Rotate** to place it and **Scale** to set the full width, height and depth.
+Mark a moving node with **Trigger Target** in Details. Its origin is the point
+tested against the volume.
+
+Attach a C# behaviour to the box and override on_trigger_enter(node_id other)
+and on_trigger_exit(node_id other). The runtime samples overlaps after each
+update and reports a transition once. Enter and exit callbacks may request a
+scene change. The helmet demo logs those transitions when you move across its
+doorway. Trigger fields are available from document version 8.
+
+## Input actions
+
+Open **File > Project Settings > Input Actions** to edit the project's keyboard
+bindings. Select or add an action, click **Record Key**, and press a supported
+key. An action may have multiple keys. Click a key chip to remove it, or press
+Escape while recording to cancel the capture.
+
+**Save** updates the project's explicit [input.actions] table in deren.toml.
+Each action needs at least one key. The saved bindings take effect the next time
+you start Play or launch the game. C# reads the same action names through
+input_state.
+
+## Reusable scene instances
+
+Save the source scene under the project's `scenes/` directory. In another scene,
+choose **Add > Scene Instance**, pick the saved scene and click **Add Instance**.
+The Outliner selects the instance. Rename, move, rotate, scale, hide, or duplicate
+it as a unit. Open the source scene to edit the linked nodes. Reopen the host
+scene or start Play to pick up saved source edits.
+
+The host document stores a project-relative link and its own instance transform.
+Each instance gets separate runtime nodes. Local script node references resolve
+inside their own instance. The host scene controls the main camera and environment
+slots. Use **Environment** in the instance's Details to override those linked
+models as a group. Choose **(source scene assignments)** to restore the source
+nodes' lane selections. The scene format supports instance links starting with version 7.
+
 ## Document format
 
 `document_io` owns a strict subset of TOML. Reading rejects an unknown or duplicated key, a duplicate
-uid, a missing or unknown parent, a version newer than 4 (an unsupported future file), an unparsable number and an unterminated
+uid, a missing or unknown parent, a version newer than 10 (an unsupported future file), an unparsable number and an unterminated
 string, and reports the file, line and reason. A file starts with `[document]`, then one `[[node]]`
 block per node in depth-first order, where a parent always appears before its children:
 
 ```toml
 [document]
-    version = 4
+    version = 10
     name = "untitled"
 
 [[node]]
@@ -292,9 +382,9 @@ copy, including unsaved edits.
 
 ## Limits
 
-One open document, 24 asset tiles, a fixed set of details rows (no
+One open document, a fixed set of details rows (no
 add/remove property outside declared script parameters). The content browser supports file import
-and double-click placement. Asset rename is not available. The Window menu moves the sidebar between left and right, puts the
+and double-click placement. The Window menu moves the sidebar between left and right, puts the
 browser and log dock above or below the viewport, and swaps the order of Outliner and Details.
 Splitters keep working in each arrangement. Panel sizes and positions are saved in the editor
 output's `editor-layout.json`. Reset Layout restores the default arrangement. The panels are docked
@@ -332,3 +422,32 @@ existing playback behavior. Use `--editor-selftest-asset laevatain` to exercise 
 The viewport supports right-drag to orbit, middle-drag to pan, and the scroll wheel to zoom.
 Select a node and press F or click Focus to frame its visible assets, including child nodes.
 A node without visible assets focuses its world-space pivot.
+
+## Point lights
+
+Choose **Add > Point Light**, then move the node with the viewport gizmo or the
+**Location** fields. In **Details**, enter linear RGB values from 0 to 1,
+non-negative intensity, and a positive range in world units. Click **Apply**
+to update the light and add the change to Undo.
+
+Lights follow their parent transforms and visibility. They save with the scene
+and are loaded by Play. Authored lights are supported from scene document version 5 onward.
+
+## Game cameras and instance materials
+
+Choose **Add > Camera** to place a perspective camera at the current view.
+Move it with the viewport gizmo or edit its location and rotation in **Details**.
+**Align to View** copies the current view's position and direction, **View Camera**
+moves the viewport to the selected camera, and **Apply FOV** updates the vertical
+lens angle in degrees. **Set as Main Camera** selects the startup camera for Play
+and standalone. Camera framing uses a world-up view. Duplicating copies the transform and lens. The current
+main camera keeps its startup role.
+
+Select a model instance and edit **Material Override** to change its linear RGB tint
+and metallic, roughness and emissive multipliers. These apply to the materials within
+that instance. **Reset** restores its imported material factors. Material factors and
+the instance's environment selection are saved together and applied in Play and
+standalone. Editing either property can be undone.
+
+Cameras and instance material overrides are stored in document version 6. Earlier
+scene documents still load.

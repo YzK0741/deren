@@ -55,7 +55,7 @@ namespace deren.editor {
         private List<environment_entry>? environment_entries;
         private status_bar? status_line;
         private undo_stack? undo_history;
-        private selection? selection_state;
+        private node_selection? selection_state;
         private string rename_field = string.Empty;
         // The projection aspect last handed to the renderer, so the per-frame check only calls out when
         // the viewport column actually changes shape.
@@ -158,9 +158,54 @@ namespace deren.editor {
                         options->capture_frames = 8;
                         options->capture_windowed = 0;
                         break;
+                    case "--editor-selftest-collision":
+                        requested_editor = true;
+                        requested_collision_selftest = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-audio-source":
+                        requested_audio_source_selftest = true;
+                        requested_editor = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-triggers":
+                        requested_editor = true;
+                        requested_trigger_selftest = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-input-actions":
+                        requested_editor = true;
+                        requested_input_action_selftest = true;
+                        options->capture_frames = 8;
+                        break;
                     case "--editor-selftest-project":
                         requested_editor = true;
                         requested_project_selftest = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-authoring":
+                        requested_editor = true;
+                        requested_authoring_selftest = true;
+                        options->capture_frames = 12;
+                        break;
+                    case "--editor-selftest-lights":
+                        requested_editor = true;
+                        requested_lights_selftest = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-instances":
+                        requested_instances_selftest = true;
+                        requested_editor = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-relocation":
+                        requested_relocation_selftest = true;
+                        requested_editor = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-browser":
+                        requested_editor = true;
+                        requested_browser_selftest = true;
                         options->capture_frames = 8;
                         break;
                     case "--editor-selftest-import":
@@ -254,7 +299,7 @@ namespace deren.editor {
                                              stop_marker, out runtime, out var runtime_status)) {
                     return runtime_status;
                 }
-                if (snapshot_directory != null) {
+                if (!runtime!.apply_main_camera() && snapshot_directory != null) {
                     apply_play_camera(Path.Combine(snapshot_directory, "camera.json"));
                 }
                 instance = this;
@@ -270,7 +315,7 @@ namespace deren.editor {
                 document = new scene_document();
                 document.add_root(new document_node { name = requested_thumbnail, asset = requested_thumbnail });
             } else if (requested_scene != null) {
-                if (!document_io.try_load(requested_scene, out var loaded, out var load_error) || loaded == null) {
+                if (!scene_instances.try_load(managed_bootstrap.project_directory, requested_scene, out var loaded, out var load_error) || loaded == null) {
                     host_logger.write($"Editor: cannot load scene '{requested_scene}': {load_error}");
                     return script_status.script_failure;
                 }
@@ -322,7 +367,7 @@ namespace deren.editor {
             reload_scripts();
             status_line = new status_bar(opened_document);
             undo_history = new undo_stack();
-            selection_state = new selection();
+            selection_state = new node_selection();
             // A crashed editor cannot run the cooperative stop that removes its play/thumbnail
             // workspaces, so the next launch sweeps whatever an earlier process left behind.
             play_session.sweep_stale_workspaces(workspace);
@@ -355,11 +400,74 @@ namespace deren.editor {
                 : string.Create(CultureInfo.InvariantCulture, $"Scene map: {Path.GetFileName(global_environment_hdr)}"));
             host_logger.write($"Editor: document ready ({count_nodes(document.roots)} node(s))");
 
+            if (requested_collision_selftest) {
+                var collision_status = run_collision_selftest();
+                if (collision_status != script_status.success) {
+                    cleanup();
+                    return collision_status;
+                }
+            }
+            if (requested_audio_source_selftest) {
+                var audio_status = run_audio_source_selftest();
+                if (audio_status != script_status.success) {
+                    cleanup();
+                    return audio_status;
+                }
+            }
+            if (requested_trigger_selftest) {
+                var trigger_status = run_trigger_selftest();
+                if (trigger_status != script_status.success) {
+                    cleanup();
+                    return trigger_status;
+                }
+            }
+            if (requested_input_action_selftest) {
+                var input_status = run_input_action_selftest();
+                if (input_status != script_status.success) {
+                    cleanup();
+                    return input_status;
+                }
+            }
             if (requested_project_selftest) {
                 var project_status = run_project_selftest();
                 if (project_status != script_status.success) {
                     cleanup();
                     return project_status;
+                }
+            }
+            if (requested_authoring_selftest) {
+                var authoring_status = run_authoring_selftest();
+                if (authoring_status != script_status.success) {
+                    cleanup();
+                    return authoring_status;
+                }
+            }
+            if (requested_lights_selftest) {
+                var lights_status = run_lights_selftest();
+                if (lights_status != script_status.success) {
+                    cleanup();
+                    return lights_status;
+                }
+            }
+            if (requested_instances_selftest) {
+                var instances_status = run_instances_selftest();
+                if (instances_status != script_status.success) {
+                    cleanup();
+                    return instances_status;
+                }
+            }
+            if (requested_relocation_selftest) {
+                var relocation_status = run_relocation_selftest();
+                if (relocation_status != script_status.success) {
+                    cleanup();
+                    return relocation_status;
+                }
+            }
+            if (requested_browser_selftest) {
+                var browser_status = run_browser_selftest();
+                if (browser_status != script_status.success) {
+                    cleanup();
+                    return browser_status;
                 }
             }
             if (requested_import_selftest != null) {
@@ -379,6 +487,7 @@ namespace deren.editor {
             }
 
             camera_input_installed = input_events.try_set_callback(input => {
+                if (capture_input_binding(input)) { return; }
                 if (input.type == input_type.key && input.key == key_code.f && input.down) {
                     focus_selection_requested = true;
                 } else if (input.type == input_type.key && input.key == key_code.escape && input.down &&
@@ -447,16 +556,18 @@ namespace deren.editor {
                     current.finish_gizmo(cancel: true);
                 }
                 current.handle_ui_events();
+                current.finish_input_capture();
                 if (current.active_dock_tab == "tab_log" && current.ui != null) {
                     current.output_log.refresh(current.ui);
                 }
                 current.refresh_panels();
                 current.sync_environment_lanes();
+                current.sync_point_lights();
                 current.update_viewport_aspect();
                 current.layout_gizmo();
                 if (current.focus_selection_requested) {
                     current.focus_selection_requested = false;
-                    if (!current.pending_new_scene && !current.pending_close && current.pending_open == null && !current.scene_path_open && !current.asset_import_open && current.open_project_panel == project_panel.none) {
+                    if (!current.pending_new_scene && !current.pending_close && current.pending_open == null && !current.scene_path_open && !current.asset_import_open && current.asset_edit_id == null && current.open_project_panel == project_panel.none) {
                         current.focus_selection();
                     }
                 }
@@ -496,9 +607,15 @@ namespace deren.editor {
                 if (open_project_panel != project_panel.none) {
                     if (open_project_panel == project_panel.scenes) {
                         handle_project_scenes(input);
+                    } else if (open_project_panel == project_panel.input_actions) {
+                        handle_input_actions(input);
                     } else {
                         handle_project_settings(input);
                     }
+                    continue;
+                }
+                if (asset_edit_id != null) {
+                    handle_asset_edit(input);
                     continue;
                 }
                 if (asset_import_open) {
@@ -525,10 +642,19 @@ namespace deren.editor {
                     continue;
                 }
                 if (input.type == rml_event_type.change) {
-                    if (input.id == rename_field_id) {
+                    if (input.id == "camera_fov") {
+                        camera_fov_draft = input.value;
+                    } else if (light_fields.ContainsKey(input.id)) {
+                        light_fields[input.id] = input.value;
+                    } else if (audio_fields.ContainsKey(input.id)) {
+                        audio_fields[input.id] = input.value;
+                    } else if (material_fields.ContainsKey(input.id)) {
+                        material_fields[input.id] = input.value;
+                    } else if (input.id == rename_field_id) {
                         rename_field = input.value;
                     } else if (input.id == "browser_search") {
                         browser_filter = input.value;
+                        reset_browser_interaction();
                         refresh_browser();
                     } else if (input.id == "outliner_search") {
                         outliner_filter = input.value;
@@ -583,8 +709,24 @@ namespace deren.editor {
                     continue;
                 }
                 switch (input.id) {
-                    case "btn_new":
-                        add_node();
+                    case "camera_apply_fov":
+                    case "camera_main":
+                    case "camera_view":
+                    case "camera_align":
+                        camera_command(input.id);
+                        break;
+                    case "material_apply":
+                    case "material_reset":
+                        apply_material_override(input.id == "material_reset");
+                        break;
+                    case "audio_apply":
+                    case "audio_preview":
+                    case "audio_stop":
+                    case "audio_refresh":
+                        handle_audio_source(input.id);
+                        break;
+                    case "light_apply":
+                        apply_point_light();
                         break;
                     case "btn_delete":
                         delete_selected();
@@ -618,6 +760,13 @@ namespace deren.editor {
                     case "detail_pipeline":
                         cycle_pipeline();
                         break;
+                    case "detail_collision_box":
+                    case "detail_trigger_volume":
+                        toggle_volume(solid: input.id == "detail_collision_box");
+                        break;
+                    case "detail_trigger_target":
+                        toggle_trigger_target();
+                        break;
                     case "detail_visible":
                         toggle_selected_visibility();
                         break;
@@ -629,6 +778,15 @@ namespace deren.editor {
                         break;
                     case "win_close":
                         close_window();
+                        break;
+                    case "browser_up":
+                    case "browser_root":
+                    case "browser_prev":
+                    case "browser_next":
+                        change_browser_location(input.id);
+                        break;
+                    case "browser_edit_asset":
+                        show_asset_edit();
                         break;
                     case "browser_import":
                         show_asset_import();
@@ -684,11 +842,40 @@ namespace deren.editor {
             if (ui == null) {
                 return false;
             }
+            if (id == "btn_new") {
+                toggle_menu("menu_add_items");
+                return true;
+            }
             if (id is "menu_file" or "menu_edit" or "menu_window" or "menu_help") {
                 toggle_menu($"{id}_items");
                 return true;
             }
             switch (id) {
+                case "menu_add_node":
+                    add_node();
+                    break;
+                case "menu_add_scene_instance":
+                    show_project_scenes(for_instance: true);
+                    break;
+                case "menu_add_audio_source":
+                    add_node(audio_source: true);
+                    break;
+                case "menu_add_collision_box":
+                    if (orbit_camera.try_get(out var collision_view)) {
+                        add_node(position: collision_view.target, collision_box: true);
+                    }
+                    break;
+                case "menu_add_box_trigger":
+                    if (orbit_camera.try_get(out var trigger_view)) {
+                        add_node(position: trigger_view.target, box_trigger: true);
+                    }
+                    break;
+                case "menu_add_camera":
+                    add_camera();
+                    break;
+                case "menu_add_point_light":
+                    add_point_light();
+                    break;
                 case "menu_file_new":
                     new_scene();
                     break;
@@ -776,7 +963,7 @@ namespace deren.editor {
         }
 
         private static readonly string[] menu_dropdown_ids =
-            ["menu_file_items", "menu_edit_items", "menu_window_items", "menu_help_items"];
+            ["menu_file_items", "menu_edit_items", "menu_window_items", "menu_help_items", "menu_add_items"];
 
         private void set_workspace_layout(workspace_layout value) {
             active_splitter = string.Empty;
@@ -970,28 +1157,17 @@ namespace deren.editor {
             }
         }
 
-        /// <summary>Picks an asset tile (#asset_N or #asset_N_name) and reports it in the status bar.</summary>
-        private bool select_asset(string id) {
-            if (!id.StartsWith("asset_", StringComparison.Ordinal)) {
-                return false;
+        private bool handle_asset_click(string id, long timestamp) {
+            if (browser == null || !content_browser_panel.try_tile_index(id, out var tile)) { return false; }
+            if (browser.try_open_folder(tile)) {
+                reset_browser_interaction();
+                return true;
             }
-            var digits = id["asset_".Length..];
-            if (digits.EndsWith("_name", StringComparison.Ordinal)) {
-                digits = digits[..^"_name".Length];
-            }
-            if (!int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tile) ||
-                browser == null || !browser.try_select_tile(tile)) {
-                return false;
-            }
-            notice = $"asset: {browser.selected_asset}";
+            if (!browser.try_select_tile(tile)) { return false; }
+            var asset = browser.selected_asset;
+            notice = $"asset: {asset}";
             refresh_browser();
             refresh_panels();
-            return true;
-        }
-
-        private bool handle_asset_click(string id, long timestamp) {
-            if (!select_asset(id) || browser == null) { return false; }
-            var asset = browser.selected_asset;
             var activate = asset == last_clicked_asset && timestamp >= last_asset_click &&
                 Stopwatch.GetElapsedTime(last_asset_click, timestamp).TotalMilliseconds <= 500;
             last_clicked_asset = activate ? string.Empty : asset;
@@ -1019,16 +1195,40 @@ namespace deren.editor {
             }
         }
 
-        private bool add_node(string? asset_id = null, vector_3? position = null) {
+        private bool add_node(string? asset_id = null, vector_3? position = null, point_light_component? light = null,
+                              transform_value? camera_placement = null, float camera_fov = scene_cameras.default_fov, string? subscene = null,
+                              bool box_trigger = false, bool audio_source = false, bool collision_box = false) {
             if (document == null || tree == null) {
                 return false;
             }
-            var parent = asset_id == null && selection_state != null && selection_state.primary != Guid.Empty
+            var parent = asset_id == null && light == null && camera_placement == null && subscene == null && !box_trigger && !audio_source && !collision_box && selection_state != null && selection_state.primary != Guid.Empty
                 ? document.find(selection_state.primary)
                 : null;
-            var node = new document_node { name = asset_id ?? "node", asset = asset_id };
+            if (parent?.subscene != null) { parent = null; }
+            bool camera = camera_placement.HasValue;
+            var node = new document_node {
+                name = subscene != null ? Path.GetFileName(subscene)[..^".scene.toml".Length] :
+                    audio_source ? "Audio Source" : collision_box ? "Collision Box" : box_trigger ? "Box Trigger" : camera ? "Camera" : light != null ? "Point Light" : asset_id ?? "node",
+                subscene = subscene,
+                box_trigger = box_trigger,
+                collision_box = collision_box,
+                audio_source = audio_source ? audio_source_component.unassigned : null,
+                asset = asset_id, light = light, camera = camera,
+                camera_fov = scene_cameras.valid_fov(camera_fov) ? camera_fov : scene_cameras.default_fov,
+            };
+            if (camera_placement is { } transform) { node.local = transform; }
             if (position is vector_3 placement) {
                 node.local.position = placement;
+            }
+            if (subscene != null) {
+                if (!scene_instances.try_populate(managed_bootstrap.project_directory, [node], document.path, out var error)) {
+                    notice = error ?? "Could not load scene instance";
+                    return false;
+                }
+                if (scene_lights.count(document.roots) + scene_lights.count([node]) > scene_lighting.max_point_lights) {
+                    notice = $"A scene supports at most {scene_lighting.max_point_lights} point lights";
+                    return false;
+                }
             }
             var previous_selection = selection_state?.primary ?? Guid.Empty;
             var index = parent != null ? parent.children.Count : document.roots.Count;
@@ -1037,6 +1237,7 @@ namespace deren.editor {
                 if (node.runtime.is_valid) { destroy_runtime(node); }
                 remove_document_node(parent, node);
                 if (asset_id != null) { notice = $"Cannot load asset: {asset_id}"; }
+                if (subscene != null) { notice = $"Cannot add '{subscene}'. Check the Output Log or the engine log."; }
                 refresh_panels();
                 return false;
             }
@@ -1048,7 +1249,7 @@ namespace deren.editor {
                 notice = $"Added asset: {asset_id}";
             }
             document.mark_dirty();
-            record_undo(asset_id == null ? "Create" : "Add Asset",
+            record_undo(subscene != null ? "Add Scene Instance" : audio_source ? "Add Audio Source" : collision_box ? "Add Collision Box" : box_trigger ? "Add Box Trigger" : camera ? "Add Camera" : light != null ? "Add Point Light" : asset_id == null ? "Create" : "Add Asset",
                 () => {
                     // The document goes first so a refused destroy cannot orphan a runtime node.
                     if (!remove_document_node(parent, node)) { return false; }
@@ -1148,17 +1349,23 @@ namespace deren.editor {
             var path = destination ?? document.path ??
                 Path.Combine(managed_bootstrap.project_directory, "scenes", default_scene_file);
             try {
+                if (scene_instances.references_path(managed_bootstrap.project_directory, document.roots, Path.GetFullPath(path))) {
+                    notice = "Cannot save over a source scene used by this document.";
+                    return false;
+                }
                 var directory = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(directory)) {
                     Directory.CreateDirectory(directory);
                 }
             } catch (Exception error) {
-                host_logger.write($"Editor: cannot create '{Path.GetDirectoryName(path)}': {error.GetBaseException().Message}");
+                notice = $"Could not create the scene directory: {error.GetBaseException().Message}";
+                host_logger.write($"Editor: {notice}");
                 return false;
             }
             // document_io.try_save writes the file and marks the document saved itself.
             if (!document_io.try_save(document, path, out var save_error)) {
-                host_logger.write($"Editor: cannot save '{path}': {save_error}");
+                notice = save_error ?? "Could not save the scene.";
+                host_logger.write($"Editor: cannot save '{path}': {notice}");
                 return false;
             }
             refresh_panels();
@@ -1677,6 +1884,9 @@ namespace deren.editor {
             outliner.refresh(document, selection_state, outliner_filter);
             var selected = selection_state.primary == Guid.Empty ? null : document.find(selection_state.primary);
             details?.refresh(document, selection_state, force_details);
+            refresh_point_light_details(selected);
+            refresh_camera_material_details(selected);
+            refresh_audio_source_details(selected);
             environment_ui?.refresh(document, global_environment_hdr, environment_catalog());
             environment_ui?.refresh_node(document, selected, environment_catalog());
             scripts_panel?.refresh(document, selection_state.primary, assets);
@@ -1738,6 +1948,7 @@ namespace deren.editor {
                 _ => viewport_gizmo.gizmo_mode.select,
             };
             gizmo.layout(ui, viewport, node, parent_world, tool, gizmo_local, width, height);
+            box_outline.layout(ui, viewport, node, parent_world, width, height);
         }
 
         private bool handle_gizmo(rml_event input) {
@@ -1847,8 +2058,12 @@ namespace deren.editor {
                 return;
             }
             if (!scene_path_saving) {
-                if (!document_io.try_load(path, out var loaded, out var error) || loaded == null) {
+                if (!scene_instances.try_load(managed_bootstrap.project_directory, path, out var loaded, out var error) || loaded == null) {
                     ui?.set_text("scene_path_message", error ?? "Could not open scene.");
+                    return;
+                }
+                if (missing_asset_message(loaded) is { } missing) {
+                    ui?.set_text("scene_path_message", missing);
                     return;
                 }
                 hide_scene_path();
@@ -1860,7 +2075,8 @@ namespace deren.editor {
             } else if (save_document(path)) {
                 hide_scene_path();
             } else {
-                ui?.set_text("scene_path_message", "Could not save the scene. Check the path and try again.");
+                ui?.set_text("scene_path_message", string.IsNullOrEmpty(notice) ?
+                    "Could not save the scene. Check the path and try again." : notice);
             }
         }
 
@@ -1977,13 +2193,9 @@ namespace deren.editor {
         private bool handle_asset_drag(rml_event input) {
             var pointer = new Vector2(input.x, input.y);
             if (input.type == rml_event_type.pointer_down && input.button == 0 &&
-                input.id.StartsWith("asset_", StringComparison.Ordinal)) {
-                var digits = input.id.AsSpan("asset_".Length);
-                int suffix = digits.IndexOf('_');
-                if (suffix >= 0) { digits = digits[..suffix]; }
-                if (int.TryParse(digits, out var tile) && browser?.try_tile_asset(tile, out var asset) == true) {
-                    asset_drag = (asset, pointer);
-                }
+                content_browser_panel.try_tile_index(input.id, out var tile) &&
+                browser?.try_tile_asset(tile, out var asset) == true) {
+                asset_drag = (asset, pointer);
             } else if (input.type == rml_event_type.pointer_cancel) {
                 asset_drag = null;
             } else if (input.type == rml_event_type.pointer_up && input.button == 0 && asset_drag is { } drag) {
@@ -2096,7 +2308,8 @@ namespace deren.editor {
                 !tree.try_pick_node(origin, direction, out var hit)) {
                 return;
             }
-            var node = document.find_runtime(hit);
+            var picked = document.find_runtime(hit);
+            var node = picked?.instance_root ?? picked;
             if (node == null) {
                 selection_state.clear();
             } else {
@@ -2127,6 +2340,7 @@ namespace deren.editor {
                 ui.set_text("btn_play", "Stopping...");
                 return;
             }
+            stop_audio_preview();
             if (orbit_camera.try_get(out var camera) && playing.start(document, camera, out notice)) {
                 ui.set_text("btn_play", "Stop");
                 output_log.add(Guid.Empty, "Play started", false);
@@ -2157,6 +2371,7 @@ namespace deren.editor {
         }
 
         private void cleanup() {
+            stop_audio_preview();
             editable_scripts?.Dispose();
             editable_scripts = null;
             scripts_panel = null;

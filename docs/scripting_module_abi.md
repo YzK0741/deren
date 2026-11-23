@@ -1012,7 +1012,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 43.
+- One global `managed_abi_version`, currently 44. ABI 44 adds the vertical field of view to the orbit camera pose. A zero FOV on a camera setter keeps the active lens.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -1427,3 +1427,11 @@ contract as the model picker: the chosen path is borrowed until the next path ca
 filters for `.hdr`; `utility::ask_open_file` grew `initial_directory` and `filter_label` parameters
 for it, and empty arguments keep the old behaviour. Both module ids are optional, so neither changes
 `managed_abi_version`.
+
+The asset authoring module also appends an optional catalogue directory query after
+the environment picker. It returns the directory of a scanned asset ID with the same
+path lifetime as the picker. The editor checks the table size before using it.
+
+A further optional entry returns the scanned display name (selector 0) or
+resolved motion path (selector 1) for an asset ID. The result is borrowed and
+the editor copies it immediately. This extends the optional table by size.

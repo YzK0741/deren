@@ -10,7 +10,7 @@ namespace deren.editor;
 /// The selection stores uids only and never resolves them against a document, so the caller decides
 /// what an unknown uid means.
 /// </remarks>
-internal sealed class selection
+internal sealed class node_selection
 {
     private readonly List<Guid> uids = [];
 
