@@ -298,6 +298,33 @@ namespace deren::app {
             return borrow_asset_path(assets().root, result);
         }
 
+        scripting::script_status asset_catalog_directory(scripting::utf8_view const id, scripting::utf8_view* result) {
+            if (result == nullptr || id.data == nullptr || id.length == 0) {
+                return scripting::script_status::invalid_argument;
+            }
+            *result = {};
+            auto const* entry = assets().library.find(std::string_view(id.data, id.length));
+            return entry != nullptr ? borrow_asset_path(entry->directory, result)
+                                    : scripting::script_status::asset_not_found;
+        }
+
+        scripting::script_status asset_catalog_metadata(scripting::utf8_view const id, std::uint32_t const field,
+                                                        scripting::utf8_view* result) {
+            if (result == nullptr || id.data == nullptr || id.length == 0 || field > 1) {
+                return scripting::script_status::invalid_argument;
+            }
+            *result = {};
+            auto const* entry = assets().library.find(std::string_view(id.data, id.length));
+            if (entry == nullptr) {
+                return scripting::script_status::asset_not_found;
+            }
+            if (field == 1) {
+                return borrow_asset_path(entry->motion, result);
+            }
+            *result = {.data = entry->name.data(), .length = static_cast<std::uint32_t>(entry->name.size())};
+            return scripting::script_status::success;
+        }
+
         scripting::script_status choose_asset_file(scripting::utf8_view* result) {
             if (result == nullptr) {
                 return scripting::script_status::invalid_argument;
@@ -1513,9 +1540,12 @@ namespace deren::app {
                 decltype(&choose_asset_file) choose;
                 decltype(&refresh_asset_catalog) refresh;
                 decltype(&choose_environment_file) choose_environment;
+                decltype(&asset_catalog_directory) directory;
+                decltype(&asset_catalog_metadata) metadata;
             };
             static asset_authoring_extended_api const extended{asset_catalog_root, choose_asset_file, refresh_asset_catalog,
-                                                               choose_environment_file};
+                                                               choose_environment_file, asset_catalog_directory,
+                                                               asset_catalog_metadata};
             *table = &extended;
             *byte_size = sizeof(extended);
             return scripting::script_status::success;

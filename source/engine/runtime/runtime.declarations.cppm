@@ -236,6 +236,7 @@ namespace deren::engine {
         // exactly at the screen center, where the primitive is framed against it
         float pitch = 0.0f;
         float distance = 2.2f;
+        float vertical_fov_degrees = 45.0f;
         // point the camera looks at and orbits around (default origin; main may sink it
         // together with the scene so the camera follows the primitive)
         glm::vec3 target = glm::vec3(0.0f);

@@ -69,7 +69,7 @@ namespace deren.editor {
             }
         }
 
-        internal void refresh(scene_document document, selection selection, string filter) {
+        internal void refresh(scene_document document, node_selection selection, string filter) {
             if (!ReferenceEquals(shown_document, document)) {
                 shown_document = document;
                 collapsed.Clear();
@@ -122,15 +122,16 @@ namespace deren.editor {
             ui.try_set_element_style(id + "_vis", "color", row.visible ? "#b0b0b0" : "#616161");
         }
 
-        private void collect(IReadOnlyList<document_node> nodes, selection selection, int depth, string filter) {
+        private void collect(IReadOnlyList<document_node> nodes, node_selection selection, int depth, string filter) {
             foreach (var node in nodes) {
                 if (filter.Length != 0 && !contains(node, filter)) {
                     continue;
                 }
                 bool closed = filter.Length == 0 && collapsed.Contains(node.uid);
+                bool expandable = node.subscene == null && node.children.Count != 0;
                 next.Add(new row_state(node.uid, depth, node.name, node.visible, selection.contains(node.uid),
-                                       selection.primary == node.uid, node.children.Count != 0, closed));
-                if (!closed && node.children.Count != 0) {
+                                       selection.primary == node.uid, expandable, closed));
+                if (!closed && expandable) {
                     collect(node.children, selection, depth + 1, filter);
                 }
             }
@@ -140,6 +141,7 @@ namespace deren.editor {
             if (node.name.Contains(filter, StringComparison.OrdinalIgnoreCase)) {
                 return true;
             }
+            if (node.subscene != null) { return false; }
             foreach (var child in node.children) {
                 if (contains(child, filter)) {
                     return true;

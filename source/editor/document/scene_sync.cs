@@ -191,7 +191,7 @@ internal static class scene_sync
         if (node.pipeline != null && !tree.try_set_pipeline(node.runtime, node.pipeline, out status)) {
             return false;
         }
-        if (!apply_environment(tree, node, out status)) {
+        if (!apply_materials(tree, node, out status)) {
             return false;
         }
         _ = try_set_name(tree, node);
@@ -199,26 +199,15 @@ internal static class scene_sync
         return true;
     }
 
-    /// <summary>
-    /// Points this node's materials, and those of every node under it, at the environment lane the
-    /// document stored.
-    /// </summary>
-    /// <remarks>
-    /// Lane 0 is what every material samples until told otherwise, so it needs no override and
-    /// disabling the override is exactly how a node returns to it — for itself and for its subtree.
-    /// Lanes 1..15 are expressed as a material override with the imported factors, and the host applies
-    /// it to the node's subtree. Because a parent's override covers its children, the push re-applies
-    /// every descendant's lane afterwards: otherwise pushing one node (a transform edit, an undo) would
-    /// repaint its children with the parent's map until the scene was reloaded. The result is that the
-    /// deepest lane wins over an ancestor's map, and a node on lane 0 opts its subtree out.
-    /// </remarks>
-    private static bool apply_environment(scene_tree tree, document_node node, out script_status status)
+    // The native override applies to a whole subtree. Restore each authored child after applying its
+    // ancestor so changing a parent's material or environment cannot repaint another model instance.
+    private static bool apply_materials(scene_tree tree, document_node node, out script_status status)
     {
-        if (!apply_environment_one(tree, node, out status)) {
+        if (!apply_material(tree, node, out status)) {
             return false;
         }
         foreach (var child in node.children) {
-            if (!apply_environment(tree, child, out status)) {
+            if (!apply_materials(tree, child, out status)) {
                 return false;
             }
         }
@@ -226,7 +215,7 @@ internal static class scene_sync
         return true;
     }
 
-    private static bool apply_environment_one(scene_tree tree, document_node node, out script_status status)
+    private static bool apply_material(scene_tree tree, document_node node, out script_status status)
     {
         status = script_status.invalid_argument;
         if (!node.runtime.is_valid) {
@@ -235,9 +224,19 @@ internal static class scene_sync
             status = script_status.success;
             return true;
         }
-        var value = material_override.imported;
-        value.environment_slot = (uint)node.environment;
-        return tree.try_set_material_override(node.runtime, in value, node.environment != 0, out status);
+        int lane = environment_lane(node);
+        var value = (node.material ?? instance_material.imported).to_override(lane);
+        return tree.try_set_material_override(node.runtime, in value, lane != 0 || node.material.HasValue, out status);
+    }
+
+    internal static int environment_lane(document_node node)
+    {
+        int lane = node.environment;
+        // An explicit instance override covers its linked content, including nested instances.
+        for (var instance = node.instance_parent; instance != null; instance = instance.instance_parent) {
+            if (instance.environment != 0) { lane = instance.environment; }
+        }
+        return lane;
     }
 
     /// <summary>

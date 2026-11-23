@@ -22,10 +22,16 @@ namespace deren.editor;
 internal static class document_io
 {
     /// <summary>
-    /// The file format version this writer speaks: 4 adds the scene environment lanes and the
+    /// The file format version this writer speaks: 5 adds point lights. Version 4 added environment lanes and the
     /// per-node lane index.
     /// </summary>
-    private const int format_version = 4;
+    private const int format_version = 10;
+    private const int audio_format_version = 9;
+    private const int trigger_format_version = 8;
+    private const int instance_format_version = 7;
+    private const int authoring_format_version = 6;
+    private const int point_light_format_version = 5;
+    private const int environment_format_version = 4;
 
     /// <summary>
     /// The oldest version this reader still accepts.
@@ -90,6 +96,14 @@ internal static class document_io
             }
         }
 
+        if (scene_lights.count(document.roots) > scene_lighting.max_point_lights) {
+            error = $"A scene supports at most {scene_lighting.max_point_lights} point lights.";
+            return false;
+        }
+        if (scene_cameras.count_main(document.roots) > 1) {
+            error = "Only one camera can be the main camera.";
+            return false;
+        }
         var known = new HashSet<Guid>();
         if (!append_nodes(text, document.roots, null, known, out error)) {
             return false;
@@ -258,6 +272,15 @@ internal static class document_io
             error = path + ": missing version in [document]";
             return false;
         }
+        if (version < point_light_format_version && scene_lights.count(built.roots) != 0) {
+            error = path + ": point lights need document version 5";
+            return false;
+        }
+        if (version < authoring_format_version && has_authoring_components(built.roots)) {
+            error = path + ": cameras and material overrides need document version 6";
+            return false;
+        }
+        if (!validate_versioned_nodes(built.roots, version, path, out error)) { return false; }
         if (!validate_environment(built, path, version, environment_seen, out error)) {
             return false;
         }
@@ -282,8 +305,8 @@ internal static class document_io
     private static bool validate_environment(scene_document document, string path, int version, bool stated,
                                              out string? error)
     {
-        if (version < format_version && stated) {
-            error = path + ": [environment] needs document version " + format_version.ToString(CultureInfo.InvariantCulture);
+        if (version < environment_format_version && stated) {
+            error = path + ": [environment] needs document version " + environment_format_version.ToString(CultureInfo.InvariantCulture);
             return false;
         }
         string? failure = null;
@@ -299,9 +322,9 @@ internal static class document_io
                 return;
             }
             if (node.environment != 0) {
-                if (version < format_version) {
+                if (version < environment_format_version) {
                     failure = path + ": the environment lane of a node needs document version " +
-                        format_version.ToString(CultureInfo.InvariantCulture);
+                        environment_format_version.ToString(CultureInfo.InvariantCulture);
                     return;
                 }
                 if (node.environment < 0 || node.environment >= global_environment.slot_count) {
@@ -385,10 +408,60 @@ internal static class document_io
                 text.Append("    environment = ").Append(node.environment.ToString(CultureInfo.InvariantCulture))
                     .Append('\n');
             }
+            if (node.audio_source is { } source) {
+                if (!source.valid) {
+                    error = $"Invalid audio source on node '{node.name}'.";
+                    return false;
+                }
+                text.Append("    audio_file = ").Append(quote(source.file)).Append((char)10);
+                text.Append("    audio_volume = ").Append(project_look.number(source.volume)).Append((char)10);
+                text.Append("    audio_loop = ").Append(source.loop ? "true" : "false").Append((char)10);
+            }
+            if (node.collision_box) { text.Append("    collision_box = true\n"); }
+            if (node.box_trigger) { text.Append("    box_trigger = true\n"); }
+            if (node.trigger_target) { text.Append("    trigger_target = true\n"); }
+            if (node.light is { } light) {
+                if (!light.valid) {
+                    error = $"Point light '{node.name}' has invalid settings.";
+                    return false;
+                }
+                text.Append("    point_light = [").Append(project_look.vector(light.colour)).Append(", ")
+                    .Append(project_look.number(light.intensity)).Append(", ").Append(project_look.number(light.range)).Append("]\n");
+            }
+            if (!node.camera && (node.main_camera || node.camera_fov != scene_cameras.default_fov)) {
+                error = $"Node '{node.name}' has camera settings but no camera.";
+                return false;
+            }
+            if (node.camera) {
+                if (!scene_cameras.valid_fov(node.camera_fov)) {
+                    error = $"Camera '{node.name}' field of view must be between 5 and 150 degrees.";
+                    return false;
+                }
+                text.Append("    camera = ").Append(quote(node.main_camera ? "main" : "perspective")).Append('\n');
+                text.Append("    camera_fov = ").Append(project_look.number(node.camera_fov)).Append('\n');
+            }
+            if (node.material is { } material) {
+                if (node.asset == null || !material.valid) {
+                    error = $"Node '{node.name}' needs a model and valid material override values.";
+                    return false;
+                }
+                text.Append("    material_override = [").Append(project_look.vector(material.tint)).Append(", ")
+                    .Append(project_look.number(material.metallic)).Append(", ")
+                    .Append(project_look.number(material.roughness)).Append(", ")
+                    .Append(project_look.number(material.emissive)).Append("]\n");
+            }
             text.Append("    position = ").Append(format_vector(node.local.position)).Append('\n');
             text.Append("    rotation = ").Append(format_vector(node.local.rotation_degrees)).Append('\n');
             text.Append("    scale = ").Append(format_vector(node.local.scale)).Append('\n');
-            if (!append_nodes(text, node.children, node.uid, known, out error)) {
+            if (node.subscene is { } linked) {
+                if (node.asset != null || node.children.Exists(child => child.instance_root == null) ||
+                    !linked.StartsWith("scenes/", StringComparison.Ordinal) ||
+                    !linked.EndsWith(".scene.toml", StringComparison.OrdinalIgnoreCase)) {
+                    error = $"Invalid scene instance '{node.name}'.";
+                    return false;
+                }
+                text.Append("    subscene = ").Append(quote(linked)).Append((char)10);
+            } else if (!append_nodes(text, node.children, node.uid, known, out error)) {
                 return false;
             }
         }
@@ -413,10 +486,16 @@ internal static class document_io
             return false;
         }
 
+        if (builder.audio_file == null && (builder.keys.Contains("audio_volume") || builder.keys.Contains("audio_loop"))) {
+            error = format_error(path, builder.line, "audio settings need an audio_file");
+            return false;
+        }
+
         var node = new document_node {
             uid = builder.uid,
             name = builder.name,
             asset = builder.asset,
+            subscene = builder.subscene,
             pipeline = builder.pipeline,
             script = builder.script,
             script_parameters = builder.script_parameters,
@@ -424,6 +503,16 @@ internal static class document_io
             visible = builder.visible,
             flags = builder.flags,
             environment = builder.environment,
+            light = builder.light,
+            audio_source = builder.audio_file != null
+                ? new audio_source_component(builder.audio_file, builder.audio_volume, builder.audio_loop) : null,
+            collision_box = builder.collision_box,
+            box_trigger = builder.box_trigger,
+            trigger_target = builder.trigger_target,
+            camera = builder.camera,
+            main_camera = builder.main_camera,
+            camera_fov = builder.camera_fov,
+            material = builder.material,
         };
         if (builder.has_parent) {
             if (!uids.TryGetValue(builder.parent, out var parent)) {
@@ -533,6 +622,77 @@ internal static class document_io
                 return false;
             }
             builder.environment = environment;
+            return true;
+        }
+        if (key == "audio_file") {
+            if (!parse_quoted(value, path, number, out var name, out error)) { return false; }
+            builder.audio_file = name.Replace((char)92, '/');
+            return true;
+        }
+        if (key == "audio_volume") {
+            return parse_float(value, path, number, out builder.audio_volume, out error);
+        }
+        if (key == "audio_loop") {
+            return parse_bool(value, path, number, out builder.audio_loop, out error);
+        }
+        if (key == "collision_box") {
+            return parse_bool(value, path, number, out builder.collision_box, out error);
+        }
+        if (key == "box_trigger") {
+            return parse_bool(value, path, number, out builder.box_trigger, out error);
+        }
+        if (key == "trigger_target") {
+            return parse_bool(value, path, number, out builder.trigger_target, out error);
+        }
+        if (key == "subscene") {
+            if (!parse_quoted(value, path, number, out var source, out error)) { return false; }
+            builder.subscene = source.Replace((char)92, '/');
+            return true;
+        }
+        if (key == "camera_fov") {
+            return parse_float(value, path, number, out builder.camera_fov, out error);
+        }
+        if (key == "camera") {
+            if (!parse_quoted(value, path, number, out var kind, out error)) { return false; }
+            if (kind is not ("perspective" or "main")) {
+                error = format_error(path, number, "camera must be perspective or main");
+                return false;
+            }
+            builder.camera = true;
+            builder.main_camera = kind == "main";
+            return true;
+        }
+        if (key == "material_override") {
+            var parts = value.StartsWith('[') && value.EndsWith(']') ? value[1..^1].Split(',') : [];
+            if (parts.Length != 6) {
+                error = format_error(path, number, "material_override needs RGB, metallic, roughness and emissive");
+                return false;
+            }
+            Span<float> values = stackalloc float[6];
+            for (var index = 0; index < values.Length; ++index) {
+                if (!parse_float(parts[index], path, number, out values[index], out error)) { return false; }
+            }
+            builder.material = new instance_material(new deren.vector_3 { x = values[0], y = values[1], z = values[2] },
+                                                     values[3], values[4], values[5]);
+            return true;
+        }
+        if (key == "point_light") {
+            var parts = value.StartsWith('[') && value.EndsWith(']') ? value[1..^1].Split(',') : [];
+            if (parts.Length != 5) {
+                error = format_error(path, number, "point_light must contain RGB, intensity and range");
+                return false;
+            }
+            Span<float> values = stackalloc float[5];
+            for (var index = 0; index < values.Length; ++index) {
+                if (!parse_float(parts[index], path, number, out values[index], out error)) { return false; }
+            }
+            var light = new point_light_component(new deren.vector_3 { x = values[0], y = values[1], z = values[2] },
+                                                  values[3], values[4]);
+            if (!light.valid) {
+                error = format_error(path, number, "point_light needs RGB from 0 to 1, non-negative intensity and positive range");
+                return false;
+            }
+            builder.light = light;
             return true;
         }
         if (key == "position") {
@@ -797,7 +957,7 @@ internal static class document_io
         return value.ToString("R", CultureInfo.InvariantCulture);
     }
 
-    private static string quote(string text)
+    internal static string quote(string text)
     {
         var built = new StringBuilder(text.Length + 2);
         built.Append('"');
@@ -842,6 +1002,37 @@ internal static class document_io
         return path + ": line " + number.ToString(CultureInfo.InvariantCulture) + ": " + message;
     }
 
+    private static bool validate_versioned_nodes(IReadOnlyList<document_node> nodes, int version, string path, out string? error) {
+        foreach (var node in nodes) {
+            if (node.subscene != null && version < instance_format_version) {
+                error = path + ": scene instances need document version 7";
+                return false;
+            }
+            if ((node.box_trigger || node.trigger_target) && version < trigger_format_version) {
+                error = path + ": trigger components need document version 8";
+                return false;
+            }
+            if (node.audio_source.HasValue && version < audio_format_version) {
+                error = path + ": audio sources need document version 9";
+                return false;
+            }
+            if (node.collision_box && version < format_version) {
+                error = path + ": collision boxes need document version 10";
+                return false;
+            }
+            if (!validate_versioned_nodes(node.children, version, path, out error)) { return false; }
+        }
+        error = null;
+        return true;
+    }
+
+    private static bool has_authoring_components(IReadOnlyList<document_node> nodes) {
+        foreach (var node in nodes) {
+            if (node.camera || node.material.HasValue || has_authoring_components(node.children)) { return true; }
+        }
+        return false;
+    }
+
     private static bool is_io_error(Exception exception)
     {
         return exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException;
@@ -861,12 +1052,24 @@ internal static class document_io
         internal Guid parent;
         internal bool has_parent;
         internal string? asset;
+        internal string? subscene;
         internal string? pipeline;
         internal string? script;
         internal readonly SortedDictionary<string, string> script_parameters = new(StringComparer.Ordinal);
         internal bool visible = true;
         internal uint flags;
         internal int environment;
+        internal point_light_component? light;
+        internal string? audio_file;
+        internal float audio_volume = 1;
+        internal bool audio_loop;
+        internal bool collision_box;
+        internal bool box_trigger;
+        internal bool trigger_target;
+        internal bool camera;
+        internal bool main_camera;
+        internal float camera_fov = scene_cameras.default_fov;
+        internal instance_material? material;
         internal deren.transform_value local = new() {
             scale = new deren.vector_3 { x = 1.0f, y = 1.0f, z = 1.0f },
         };

@@ -482,11 +482,10 @@ namespace deren::app {
             // TAA/SSAO live on this application's renderer, not on the runtime.
             deren::app::app_renderer* renderer = nullptr;
             // A managed set_environment_hdr() request is validated here and applied between frames
-            // (the upload waits for the GPU, which must never happen inside the callback). The slot
-            // travels with the path: 0 is the scene-wide environment, 1..3 the per-material lanes.
-            std::filesystem::path pending_environment;
-            std::uint32_t pending_environment_slot = 0;
-            bool environment_pending = false;
+            // (the upload waits for the GPU, which must never happen inside the callback).
+            // A request replaces the pending path for its own slot; an empty path requests procedural sky.
+            deren::utility::vessel::array<std::optional<std::filesystem::path>,
+                                        deren::engine::render_layout::heap_environment_capacity> pending_environments{};
             // A managed set_toon_rig() request is validated in app_scripting (finite lanes, clamped
             // expression index and shadow ladder) and queued here: the rig's block may not be written
             // while a frame is in flight, so the frame thread publishes it between frames. `toon_rig`
@@ -563,9 +562,7 @@ namespace deren::app {
         managed_bind_context managed_binding{.starting = true,
                                              .render_runtime = &runtime,
                                              .renderer = &app_renderer,
-                                             .pending_environment = {},
-                                             .pending_environment_slot = 0,
-                                             .environment_pending = false,
+                                             .pending_environments = {},
                                              .toon_rig = startup_toon_rig,
                                              .toon_rig_pending = false,
                                              .scene_aspect = 0.0F,
@@ -880,6 +877,7 @@ namespace deren::app {
             value->yaw_degrees = glm::degrees(camera.yaw);
             value->pitch_degrees = glm::degrees(camera.pitch);
             value->distance = camera.distance;
+            value->vertical_fov_degrees = camera.vertical_fov_degrees;
             value->target = {.x = camera.target.x, .y = camera.target.y, .z = camera.target.z};
             return true;
         };
@@ -888,13 +886,18 @@ namespace deren::app {
             if (context == nullptr || context->render_runtime == nullptr || value == nullptr ||
                 !std::isfinite(value->yaw_degrees) || !std::isfinite(value->pitch_degrees) ||
                 !std::isfinite(value->distance) || value->distance <= 0.0F || !std::isfinite(value->target.x) ||
-                !std::isfinite(value->target.y) || !std::isfinite(value->target.z)) {
+                !std::isfinite(value->target.y) || !std::isfinite(value->target.z) ||
+                (value->vertical_fov_degrees != 0.0F &&
+                 !(value->vertical_fov_degrees >= 5.0F && value->vertical_fov_degrees <= 150.0F))) {
                 return false;
             }
             auto& camera = context->render_runtime->camera;
             camera.yaw = glm::radians(value->yaw_degrees);
             camera.pitch = glm::radians(value->pitch_degrees);
             camera.distance = value->distance;
+            if (value->vertical_fov_degrees != 0.0F) {
+                camera.vertical_fov_degrees = value->vertical_fov_degrees;
+            }
             camera.target = glm::vec3(value->target.x, value->target.y, value->target.z);
             return true;
         };
@@ -931,9 +934,7 @@ namespace deren::app {
                     return deren::scripting::script_status::asset_not_found;
                 }
             }
-            context->pending_environment = std::move(request);
-            context->pending_environment_slot = environment_slot;
-            context->environment_pending = true;
+            context->pending_environments[environment_slot] = std::move(request);
             return deren::scripting::script_status::success;
         };
         // The toon light rig: the managed side hands over all ten lanes, the frame thread publishes
@@ -2003,12 +2004,13 @@ namespace deren::app {
             // that slot's current environment. Every decoded bake goes through the on-disk cache, so
             // a project that ships the same HDR pays for its convolutions once per source, not once
             // per launch.
-            if (managed_binding.environment_pending) {
-                std::uint32_t const environment_slot = managed_binding.pending_environment_slot;
-                std::filesystem::path request = std::move(managed_binding.pending_environment);
-                managed_binding.pending_environment.clear();
-                managed_binding.pending_environment_slot = 0;
-                managed_binding.environment_pending = false;
+            for (std::uint32_t environment_slot = 0; environment_slot < managed_binding.pending_environments.size(); ++environment_slot) {
+                auto& pending = managed_binding.pending_environments[environment_slot];
+                if (!pending) {
+                    continue;
+                }
+                std::filesystem::path request = std::move(*pending);
+                pending.reset();
                 auto const prepare_start = std::chrono::steady_clock::now();
                 environment_cache_report cache;
                 auto prepared = prepare_environment_cached(request, environment_cache_dir, sun_direction,

@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Collections.Generic;
 using deren;
 using deren.scripting;
 
@@ -22,7 +24,7 @@ namespace deren.editor {
             import_id = string.Empty;
             ui?.set_value("asset_import_source", import_source);
             ui?.set_value("asset_import_id", import_id);
-            ui?.set_text("asset_import_message", $"Destination: {root}");
+            ui?.set_text("asset_import_message", $"Destination: {import_destination(root)}");
             ui?.try_set_element_style("asset_import_prompt", "display", "flex");
             asset_import_open = true;
         }
@@ -75,7 +77,7 @@ namespace deren.editor {
             if (!asset_authoring.try_open(out var authoring) || authoring.library_root() is not { } library) {
                 return false;
             }
-            if (!asset_importer.try_import(authoring, library, source, id, out error)) {
+            if (!asset_importer.try_import(authoring, import_destination(library), source, id, out error)) {
                 host_logger.write($"Editor import: {error}");
                 return false;
             }
@@ -92,6 +94,52 @@ namespace deren.editor {
             return true;
         }
 
+        private string? missing_asset_message(scene_document scene) {
+            var known = new HashSet<string>(assets, StringComparer.Ordinal);
+            var missing = new List<string>();
+            void visit(IReadOnlyList<document_node> nodes, string parent) {
+                foreach (var node in nodes) {
+                    var path = parent.Length == 0 ? node.name : parent + " / " + node.name;
+                    if (node.asset is { } id && !known.Contains(id)) {
+                        missing.Add($"Asset '{id}' is missing at node '{path}'.");
+                    }
+                    visit(node.children, path);
+                }
+            }
+            visit(scene.roots, string.Empty);
+            if (missing.Count == 0) { return null; }
+            foreach (var message in missing) {
+                output_log.add(Guid.Empty, $"Scene '{scene.name}': {message}", error: true);
+                host_logger.write($"Editor: {message}");
+            }
+            return missing.Count == 1 ? missing[0] : $"{missing[0]} See Output Log for all {missing.Count} references.";
+        }
+
+        private string import_destination(string library) {
+            string folder = browser?.current_folder ?? string.Empty;
+            return folder.Length == 0 ? library : Path.Combine(library, folder);
+        }
+
+        private void reset_browser_interaction() {
+            asset_drag = null;
+            last_clicked_asset = string.Empty;
+        }
+
+        private void change_browser_location(string action) {
+            if (browser == null) { return; }
+            bool changed = action switch {
+                "browser_up" => browser.go_up(),
+                "browser_root" => browser.go_to_root(),
+                "browser_prev" => browser.change_page(-1),
+                "browser_next" => browser.change_page(1),
+                _ => false,
+            };
+            if (changed) {
+                reset_browser_interaction();
+                refresh_panels();
+            }
+        }
+
         private void refresh_asset_library() {
             if (!asset_authoring.try_open(out var authoring) || authoring.refresh() != script_status.success) {
                 notice = "Could not refresh the asset library.";
@@ -103,6 +151,7 @@ namespace deren.editor {
                 return;
             }
             assets = updated;
+            reset_browser_interaction();
             scripts_panel?.invalidate();
             invalidate_environment_catalog();
             if (browser != null && Array.IndexOf(updated, browser.selected_asset) < 0) {

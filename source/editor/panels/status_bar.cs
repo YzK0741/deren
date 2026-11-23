@@ -15,7 +15,7 @@ namespace deren.editor {
         /// A non-empty notice (the active tool, a picked asset, the About entry of the Help menu) is
         /// appended after the selection so the menu and viewport toolbar have a visible result.
         /// </summary>
-        internal void refresh(scene_document document, selection selection, string notice = "") {
+        internal void refresh(scene_document document, node_selection selection, string notice = "") {
             var path = string.IsNullOrEmpty(document.path) ? "untitled" : document.path!;
             var dirty = document.dirty ? " *dirty*" : string.Empty;
             var selected = selection.primary == Guid.Empty

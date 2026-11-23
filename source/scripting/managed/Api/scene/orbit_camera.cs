@@ -11,6 +11,8 @@ namespace deren {
         public float pitch_degrees;
         public float distance;
         public vector_3 target;
+        /// <summary>Vertical field of view in degrees. Zero keeps the current lens.</summary>
+        public float vertical_fov_degrees;
 
         /// <summary>
         /// Applies this pose to the active scene. Returns false when no scene is active; the

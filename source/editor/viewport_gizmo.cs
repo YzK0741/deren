@@ -169,7 +169,7 @@ namespace deren.editor {
             return new vector_3 { x = x / radians, y = y / radians, z = z / radians };
         }
 
-        private static bool project(Vector3 world, rml_rect viewport, uint width, uint height,
+        internal static bool project(Vector3 world, rml_rect viewport, uint width, uint height,
                                     out Vector2 screen, out float depth) {
             bool visible = camera_projection.try_project_point(world.X, world.Y, world.Z, out var x, out var y, out depth);
             screen = new Vector2(x * viewport.width / width, y * viewport.height / height);

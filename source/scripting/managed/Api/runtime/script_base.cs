@@ -7,6 +7,9 @@ namespace deren {
         private node_handle node;
         private int scene_thread;
         private Func<string, bool>? request_scene;
+        internal Func<node_id, bool, bool>? play_audio_source;
+        internal Func<node_id, bool>? stop_audio_source;
+        internal collision_move_handler? move_with_collision;
 
         protected scene_access scene => new(this);
 
@@ -23,10 +26,18 @@ namespace deren {
         public virtual void on_update(float delta_time) {
         }
 
+        /// <summary>A marked trigger target entered this node's authored box.</summary>
+        public virtual void on_trigger_enter(node_id other) {
+        }
+
+        /// <summary>A marked trigger target left this node's authored box.</summary>
+        public virtual void on_trigger_exit(node_id other) {
+        }
+
         public virtual void on_destroy() {
         }
 
-        /// <summary>During <see cref="on_update"/>, queues a project-relative scene for the next frame.
+        /// <summary>During an update or trigger callback, queues a project-relative scene for the next frame.
         /// Returns false when switching is unavailable, the path is invalid, or a request is already queued.
         /// The current scene remains active if loading the requested scene fails.</summary>
         protected bool try_change_scene(string path) {
@@ -61,6 +72,9 @@ namespace deren {
             node = default;
             scene_id = 0;
             request_scene = null;
+            play_audio_source = null;
+            stop_audio_source = null;
+            move_with_collision = null;
         }
 
         internal void ensure_bound() {

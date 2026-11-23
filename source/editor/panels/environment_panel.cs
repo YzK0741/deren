@@ -115,12 +115,14 @@ namespace deren.editor {
             // The lane index belongs in the key: two nodes can share a map text while one of them samples
             // the scene map and the other a lane, and the row has to move when the selection does.
             var key = markup_key(catalog, current) + '\u0004' + node.environment.ToString(CultureInfo.InvariantCulture);
+            bool instance = node.subscene != null;
+            if (instance) { key += "|instance"; }
             if (string.Equals(node_key, key, StringComparison.Ordinal)) {
                 return;
             }
             node_key = key;
             var empty_lane = node.environment != 0 && current.Length == 0;
-            if (!ui.try_set_markup(node_id, node_markup(current, catalog, empty_lane))) {
+            if (!ui.try_set_markup(node_id, node_markup(current, catalog, empty_lane, instance))) {
                 node_key = null;
                 return;
             }
@@ -230,9 +232,10 @@ namespace deren.editor {
             return markup.ToString();
         }
 
-        private static string node_markup(string current, IReadOnlyList<environment_entry> catalog, bool empty_lane) {
+        private static string node_markup(string current, IReadOnlyList<environment_entry> catalog, bool empty_lane, bool instance) {
             var markup = new StringBuilder();
-            markup.Append("<option value=\"").Append(scene_value).Append("\">(scene map)</option>");
+            markup.Append("<option value=\"").Append(scene_value).Append("\">")
+                .Append(instance ? "(source scene assignments)" : "(scene map)").Append("</option>");
             if (empty_lane) {
                 // The document points this object at a lane that carries no map, so the row shows that rather
                 // than claiming the object samples the scene map.
