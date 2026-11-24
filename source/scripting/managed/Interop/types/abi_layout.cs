@@ -21,6 +21,12 @@ namespace deren.scripting {
         toon_rig_desc = 13,
         /// <summary>ABI 42: the rml_ui table's pointer-event payload.</summary>
         rml_ui_event = 14,
+        /// <summary>ABI 45: the collision module's payloads (see <c>collision_api</c>).</summary>
+        collision_box_desc = 15,
+        collision_capsule_desc = 16,
+        collision_hit_desc = 17,
+        collision_move_desc = 18,
+        collision_floor_desc = 19,
     }
 
     /// <summary>One <c>{type, sizeof}</c> answer from the host's abi_layout entry point.</summary>

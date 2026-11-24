@@ -112,6 +112,10 @@ namespace game {
                     aspect_selftest.requested = true;
                     continue;
                 }
+                if (argument == "--collision-selftest") {
+                    collision_selftest.requested = true;
+                    continue;
+                }
                 if (argument == "--rml-layout-selftest" && i + 1 < args.Length) {
                     rml_layout_selftest.path = args[++i];
                     continue;
@@ -235,6 +239,9 @@ namespace game {
             }
             if (aspect_selftest.requested) {
                 return aspect_selftest.initialize(scripts);
+            }
+            if (collision_selftest.requested) {
+                return collision_selftest.initialize(scripts);
             }
             // ABI 35: every run exercises the settable boundary wait, so the host test can assert
             // the value arrived and the demo keeps a wait that is still generous for its batches.

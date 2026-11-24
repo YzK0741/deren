@@ -1128,6 +1128,7 @@ INPUT                  = ./docs/managed_resources.md \
 				./docs/scripting_ui_plan.md \
 				./docs/scripting_module_abi.md \
 				./docs/csharp_api_enhancement_plan.md \
+				./docs/editor_roadmap.md \
 				./docs/cpp26_features.md
 
 # This tag can be used to specify the character encoding of the source files

@@ -132,8 +132,8 @@ select.env_select option:hover { background-color: #32658e; color: #ffffff; }
 .axis_x { background-color: #804444; }
 .axis_y { background-color: #4d7346; }
 .axis_z { background-color: #3e6288; }
-#detail_visible, #detail_trigger_target, #detail_collision_box, #detail_trigger_volume { box-sizing: border-box; height: 23dp; padding: 0 9dp; background-color: #343434; border: 1dp #494949; border-radius: 3dp; color: #c0c0c0; font-size: 12dp; }
-#detail_visible:hover, #detail_trigger_target:hover, #detail_collision_box:hover, #detail_trigger_volume:hover { background-color: #464646; }
+#detail_visible, #detail_trigger_target, #detail_collision_box, #detail_trigger_volume, #detail_moving_solid { box-sizing: border-box; height: 23dp; padding: 0 9dp; background-color: #343434; border: 1dp #494949; border-radius: 3dp; color: #c0c0c0; font-size: 12dp; }
+#detail_visible:hover, #detail_trigger_target:hover, #detail_collision_box:hover, #detail_trigger_volume:hover, #detail_moving_solid:hover { background-color: #464646; }
 input:focus { border-color: #0070e0; }
 #status { box-sizing: border-box; height: 25dp; flex-shrink: 0; padding: 0 13dp; background-color: #1a1a1a; border-top: 1dp #383838; font-size: 11dp; line-height: 25dp; color: #929292; white-space: nowrap; }
 scrollbarvertical { width: 9dp; background-color: #191919; }
@@ -373,6 +373,7 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
         <div class="detail_header">Actor</div>
         <div class="detail_row"><div class="detail_label">Visible</div><button id="detail_visible">Visible: yes</button></div>
         <div class="detail_row"><div class="detail_label">Solid Box</div><button id="detail_collision_box">Disabled</button></div>
+        <div class="detail_row"><div class="detail_label">Moving Solid</div><button id="detail_moving_solid">Disabled</button></div>
         <div class="detail_row"><div class="detail_label">Trigger Volume</div><button id="detail_trigger_volume">Disabled</button></div>
         <div class="detail_row"><div class="detail_label">Trigger Target</div><button id="detail_trigger_target">Disabled</button></div>
         <div class="detail_row"><div class="detail_label">Flags</div><input id="detail_flags" type="text"/></div>

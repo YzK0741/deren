@@ -6,7 +6,7 @@ using System.Runtime.Loader;
 
 namespace deren.scripting {
     internal static unsafe class managed_bootstrap {
-        private const uint abi_version = 44;
+        private const uint abi_version = 45;
         internal static native_api core;
         internal static Assembly? game_assembly;
 
@@ -125,6 +125,12 @@ namespace deren.scripting {
             if (rml_status == script_status.module_invalid) {
                 host_logger.write(api, "Managed host: invalid RmlUi module; document calls will fail.");
             }
+            // ABI 45: the collision world. A pre-ABI-45 host has no kernel at all, which is a session
+            // without collision rather than a failure, so a missing module is not logged as an error.
+            var collision_status = collision_api.initialize(api);
+            if (collision_status == script_status.module_invalid) {
+                host_logger.write(api, "Managed host: invalid collision module; collision calls will fail.");
+            }
             // Framework baseline first: the project's initialize can still move anything after.
             project_config.apply();
             var status = game.initialize(api, scripts);
@@ -159,6 +165,7 @@ namespace deren.scripting {
                 rml_ui_api.shutdown();
                 ui_api.shutdown();
                 audio_api.shutdown();
+                collision_api.shutdown();
             }
         }
 

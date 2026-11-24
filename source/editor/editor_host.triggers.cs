@@ -18,6 +18,20 @@ namespace deren.editor {
             update_history_buttons();
         }
 
+        private void toggle_moving_solid() {
+            if (document?.find(selection_state?.primary ?? Guid.Empty) is not { } node) { return; }
+            if (!node.collision_box) { return; }
+            bool old = node.moving_solid;
+            bool assign(bool value) {
+                node.moving_solid = value;
+                mark_dirty_and_refresh();
+                return true;
+            }
+            assign(!old);
+            record_undo("Set Moving Solid", () => assign(old), () => assign(!old));
+            update_history_buttons();
+        }
+
         private void toggle_trigger_target() {
             if (document?.find(selection_state?.primary ?? Guid.Empty) is not { } node) { return; }
             bool old = node.trigger_target;

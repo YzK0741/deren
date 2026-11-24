@@ -5,6 +5,7 @@ export module deren.app.scripting;
 import deren.vstd;
 import deren.app.toon;
 import deren.application_configuration;
+import deren.engine.collision;
 import deren.engine.scene_tree;
 import deren.gaussian_loader;
 import deren.gltf_loader;
@@ -322,6 +323,14 @@ export namespace deren::app {
     class script_scene {
         bool owns_audio_session = false;
         scripting::rml_ui_api const* document_ui = nullptr;
+        /**
+         * ABI 45: the collision boxes of the ACTIVE scene, in world space.
+         *
+         * The kernel is stateless, so the host keeps the set and the managed side rebuilds it when its
+         * collision inputs change. A world belongs to the scene that was active when its boxes were
+         * added: `start` clears it, because every caller's ids belong to that document.
+         */
+        std::vector<engine::collision::obb> collision_boxes;
 
     public:
         script_scene() = default;
@@ -373,6 +382,20 @@ export namespace deren::app {
         static scripting::script_status query_node_bounds(std::uint64_t tree, scripting::node_handle node,
                                                           scripting::vector_3* center, float* radius);
         static scripting::script_status abi_layout(scripting::abi_layout_entry* out, std::uint32_t capacity);
+        // ABI 45: the collision module. The box set lives on the active scene (see collision_boxes) and
+        // these entry points only translate between the ABI payloads and deren.engine.collision.
+        static scripting::script_status collision_world_reset();
+        static scripting::script_status collision_add_box(scripting::collision_box_desc const* descriptor);
+        static scripting::script_status collision_remove_box(std::uint32_t id);
+        static scripting::script_status collision_sweep_capsule(
+            scripting::collision_capsule_desc const* capsule, float const* displacement,
+            scripting::collision_hit_desc* out_hit);
+        static scripting::script_status collision_move_capsule(
+            scripting::collision_capsule_desc const* capsule, float const* displacement, float walkable_normal_y,
+            scripting::collision_move_desc* out_move);
+        static scripting::script_status collision_find_floor(
+            scripting::collision_capsule_desc const* capsule, float max_distance, float walkable_normal_y,
+            scripting::collision_floor_desc* out_floor);
         /// The native_api entry that ends a frame-boundary wait; see managed_scene_host::notify_rendering.
         static scripting::script_status notify_rendering();
         /// ABI 35: the native_api entry that sets the frame-boundary wait. 0 waits indefinitely.

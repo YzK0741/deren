@@ -3,9 +3,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <glm/glm.hpp>
+#include <vector>
 
 import deren.scripting.managed_host;
 import deren.scripting.audio_host;
+import deren.engine.collision;
 import deren.ui.rml_scripting;
 
 extern "C" bool deren_audio_test_no_device();
@@ -1141,6 +1144,137 @@ namespace {
         input_sink_installed = callback != nullptr;
     }
 
+    // ABI 45: the collision world. The fake keeps the boxes the way the real host does and hands every
+    // query to the same kernel module, so the managed wrapper is checked against real answers instead of
+    // canned ones; the counters prove which calls crossed the table and which never left the wrapper.
+    std::vector<deren::engine::collision::obb> collision_boxes;
+    unsigned collision_resets = 0;
+    unsigned collision_adds = 0;
+    unsigned collision_removes = 0;
+    unsigned collision_sweeps = 0;
+    unsigned collision_moves = 0;
+    unsigned collision_floors = 0;
+    unsigned collision_rejections = 0;
+
+    deren::engine::collision::capsule collision_shape(collision_capsule_desc const* descriptor) {
+        deren::engine::collision::capsule shape{};
+        shape.lower = glm::vec3{descriptor->lower[0], descriptor->lower[1], descriptor->lower[2]};
+        shape.upper = glm::vec3{descriptor->upper[0], descriptor->upper[1], descriptor->upper[2]};
+        shape.radius = descriptor->radius;
+        return shape;
+    }
+
+    script_status collision_world_reset() {
+        collision_boxes.clear();
+        ++collision_resets;
+        return script_status::success;
+    }
+
+    script_status collision_add_box(collision_box_desc const* descriptor) {
+        if (descriptor == nullptr) {
+            ++collision_rejections;
+            return script_status::invalid_argument;
+        }
+        deren::engine::collision::obb value{};
+        value.center = glm::vec3{descriptor->center[0], descriptor->center[1], descriptor->center[2]};
+        value.half = glm::vec3{descriptor->half[0], descriptor->half[1], descriptor->half[2]};
+        value.axis_x = glm::vec3{descriptor->axis[0], descriptor->axis[1], descriptor->axis[2]};
+        value.axis_y = glm::vec3{descriptor->axis[3], descriptor->axis[4], descriptor->axis[5]};
+        value.axis_z = glm::vec3{descriptor->axis[6], descriptor->axis[7], descriptor->axis[8]};
+        value.id = descriptor->id;
+        value.enabled = descriptor->enabled != 0;
+        // Same rule as the host: a known id is replaced in place, not appended.
+        auto const existing = std::find_if(collision_boxes.begin(), collision_boxes.end(),
+                                           [&](auto const& box) { return box.id == value.id; });
+        if (existing != collision_boxes.end()) {
+            *existing = value;
+        } else {
+            collision_boxes.push_back(value);
+        }
+        ++collision_adds;
+        return script_status::success;
+    }
+
+    script_status collision_remove_box(std::uint32_t id) {
+        std::erase_if(collision_boxes, [id](auto const& box) { return box.id == id; });
+        ++collision_removes;
+        return script_status::success;
+    }
+
+    script_status collision_sweep_capsule(collision_capsule_desc const* descriptor, float const* displacement,
+                                          collision_hit_desc* out_hit) {
+        if (descriptor == nullptr || displacement == nullptr || out_hit == nullptr) {
+            ++collision_rejections;
+            return script_status::invalid_argument;
+        }
+        auto const shape = collision_shape(descriptor);
+        auto const answer = deren::engine::collision::sweep_capsule(
+            collision_boxes.data(), collision_boxes.size(), shape,
+            glm::vec3{displacement[0], displacement[1], displacement[2]});
+        *out_hit = collision_hit_desc{};
+        out_hit->hit = answer.hit ? 1u : 0u;
+        out_hit->time = answer.time;
+        out_hit->point[0] = answer.point.x;
+        out_hit->point[1] = answer.point.y;
+        out_hit->point[2] = answer.point.z;
+        out_hit->normal[0] = answer.normal.x;
+        out_hit->normal[1] = answer.normal.y;
+        out_hit->normal[2] = answer.normal.z;
+        out_hit->depth = answer.depth;
+        out_hit->id = answer.id;
+        ++collision_sweeps;
+        return script_status::success;
+    }
+
+    script_status collision_move_capsule(collision_capsule_desc const* descriptor, float const* displacement,
+                                         float walkable_normal_y, collision_move_desc* out_move) {
+        if (descriptor == nullptr || displacement == nullptr || out_move == nullptr) {
+            ++collision_rejections;
+            return script_status::invalid_argument;
+        }
+        auto const shape = collision_shape(descriptor);
+        auto const answer = deren::engine::collision::move_capsule(
+            collision_boxes.data(), collision_boxes.size(), shape,
+            glm::vec3{displacement[0], displacement[1], displacement[2]}, walkable_normal_y);
+        *out_move = collision_move_desc{};
+        out_move->displacement[0] = answer.displacement.x;
+        out_move->displacement[1] = answer.displacement.y;
+        out_move->displacement[2] = answer.displacement.z;
+        out_move->normal[0] = answer.normal.x;
+        out_move->normal[1] = answer.normal.y;
+        out_move->normal[2] = answer.normal.z;
+        out_move->id = answer.id;
+        out_move->contacts = answer.contacts;
+        out_move->blocked = answer.blocked ? 1u : 0u;
+        out_move->grounded = answer.grounded ? 1u : 0u;
+        ++collision_moves;
+        return script_status::success;
+    }
+
+    script_status collision_find_floor(collision_capsule_desc const* descriptor, float max_distance,
+                                       float walkable_normal_y, collision_floor_desc* out_floor) {
+        if (descriptor == nullptr || out_floor == nullptr) {
+            ++collision_rejections;
+            return script_status::invalid_argument;
+        }
+        auto const shape = collision_shape(descriptor);
+        auto const answer = deren::engine::collision::find_floor(collision_boxes.data(), collision_boxes.size(),
+                                                                 shape, max_distance, walkable_normal_y);
+        *out_floor = collision_floor_desc{};
+        out_floor->hit = answer.hit ? 1u : 0u;
+        out_floor->walkable = answer.walkable ? 1u : 0u;
+        out_floor->distance = answer.distance;
+        out_floor->point[0] = answer.point.x;
+        out_floor->point[1] = answer.point.y;
+        out_floor->point[2] = answer.point.z;
+        out_floor->normal[0] = answer.normal.x;
+        out_floor->normal[1] = answer.normal.y;
+        out_floor->normal[2] = answer.normal.z;
+        out_floor->id = answer.id;
+        ++collision_floors;
+        return script_status::success;
+    }
+
     script_status get_scene_module(std::uint32_t module, void const** table, std::uint32_t* byte_size) {
         if (table == nullptr || byte_size == nullptr) {
             return script_status::invalid_argument;
@@ -1173,6 +1307,19 @@ namespace {
             static audio_api const incomplete{};
             *table = audio_module_mode == 3 ? &incomplete : &audio_host::table();
             *byte_size = sizeof(audio_api) + (audio_module_mode == 2 ? 8 : 0);
+            return script_status::success;
+        }
+        if (module == static_cast<std::uint32_t>(native_module::collision)) {
+            // ABI 45: the table is all-or-nothing; the fake publishes the same six entries the host does,
+            // backed by the real kernel, so a reordered or missing entry shows up as a wrong answer.
+            static collision_api const published{.world_reset = collision_world_reset,
+                                                 .add_box = collision_add_box,
+                                                 .remove_box = collision_remove_box,
+                                                 .sweep_capsule = collision_sweep_capsule,
+                                                 .move_capsule = collision_move_capsule,
+                                                 .find_floor = collision_find_floor};
+            *table = &published;
+            *byte_size = sizeof(published);
             return script_status::success;
         }
         if (module == static_cast<std::uint32_t>(native_module::ui)) {
@@ -1283,6 +1430,13 @@ namespace {
             {.type = abi_type::animation_state, .size = sizeof(animation_state)},
             {.type = abi_type::diagnostic_counters, .size = sizeof(diagnostic_counters)},
             {.type = abi_type::toon_rig_desc, .size = sizeof(toon_rig_desc)},
+            {.type = abi_type::rml_ui_event, .size = sizeof(rml_ui_event)},
+            // ABI 45: the collision module's payloads.
+            {.type = abi_type::collision_box_desc, .size = sizeof(collision_box_desc)},
+            {.type = abi_type::collision_capsule_desc, .size = sizeof(collision_capsule_desc)},
+            {.type = abi_type::collision_hit_desc, .size = sizeof(collision_hit_desc)},
+            {.type = abi_type::collision_move_desc, .size = sizeof(collision_move_desc)},
+            {.type = abi_type::collision_floor_desc, .size = sizeof(collision_floor_desc)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1868,6 +2022,54 @@ namespace {
         return true;
     }
 
+    // ABI 45: the collision world. The demo turns itself into a self check when it sees
+    // `--collision-selftest`: it resets the world, adds a unit cube, sweeps a capsule at it and past it,
+    // slides a capsule down onto its top face, probes that face as a floor and removes the box again.
+    // This case owns the host half: the kernel received one reset, one box, three sweeps, two slides and
+    // one floor probe, and the world is empty again at the end.
+    bool run_collision_module(host_paths const& paths) {
+        char const* selftest_argv[]{"test_managed_host", "--collision-selftest"};
+        auto selftest_paths = paths;
+        selftest_paths.argc = 2;
+        selftest_paths.argv = const_cast<char**>(selftest_argv);
+        scene_fixture scene;
+        module_context = &scene;
+        native_api const api{.log = scene_log,
+                             .get_module = get_scene_module,
+                             .request_screenshot = request_screenshot,
+                             .set_input_event_callback = set_input_callback,
+                             .abi_layout = publish_abi_layout,
+                             .notify_rendering = record_notify,
+                             .set_frame_boundary_timeout = record_timeout,
+                             .panic = record_panic};
+        managed_api scripts;
+        if (initialize_managed_host(selftest_paths, api, scripts).status != host_status::success) {
+            std::fputs("collision: managed host initialization failed\n", stderr);
+            return false;
+        }
+        if (update_scene(scripts, 7, 0.5F) != script_status::success) {
+            std::fputs("collision: the managed self check failed\n", stderr);
+            return false;
+        }
+        if (collision_resets != 1 || collision_adds != 1 || collision_removes != 1 ||
+            collision_sweeps != 3 || collision_moves != 2 || collision_floors != 1 ||
+            collision_rejections != 0) {
+            std::fprintf(stderr, "collision: resets=%u adds=%u removes=%u sweeps=%u moves=%u floors=%u rejections=%u\n",
+                         collision_resets, collision_adds, collision_removes, collision_sweeps,
+                         collision_moves, collision_floors, collision_rejections);
+            return false;
+        }
+        if (!collision_boxes.empty()) {
+            std::fprintf(stderr, "collision: %zu boxes survived the removal\n", collision_boxes.size());
+            return false;
+        }
+        if (scripts.stop() != script_status::success) {
+            std::fputs("collision: managed stop failed\n", stderr);
+            return false;
+        }
+        return true;
+    }
+
     bool run_rml(host_paths const& paths, int mode) {
         rml_module_mode = mode;
         deren::ui::rml_document document;
@@ -2040,6 +2242,13 @@ int main(int argc, char** argv) {
     if (scenario == "scene_aspect") {
         if (!run_scene_aspect(paths)) {
             std::fputs("Managed scene aspect failed\n", stderr);
+            return 1;
+        }
+        return 0;
+    }
+    if (scenario == "collision_module") {
+        if (!run_collision_module(paths)) {
+            std::fputs("Managed collision module failed\n", stderr);
             return 1;
         }
         return 0;

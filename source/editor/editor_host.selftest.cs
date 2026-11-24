@@ -47,8 +47,8 @@ namespace deren.editor {
                 // still claim the old version, or an old build accepts it and drops the keys on its
                 // next save.
                 if (!document_io.try_serialize(document, out var header, out _) ||
-                    !header.Contains("version = 10", StringComparison.Ordinal)) {
-                    return selftest_failure("the writer did not publish the light-aware document version");
+                    !header.Contains("version = 11", StringComparison.Ordinal)) {
+                    return selftest_failure("the writer did not publish the moving-solid document version");
                 }
 
                 // THE SCENE ENVIRONMENT travels with the document: a lane and a node's lane index must
@@ -209,7 +209,7 @@ namespace deren.editor {
                     Array.Exists(older.environment_slots, slot => slot != null)) {
                     return selftest_failure("a version 3 document did not load as written");
                 }
-                File.WriteAllText(legacy_path, "[document]\n    version = 11\n    name = \"future\"\n");
+                File.WriteAllText(legacy_path, "[document]\n    version = 12\n    name = \"future\"\n");
                 if (document_io.try_load(legacy_path, out _, out _)) {
                     return selftest_failure("a document from a future version was accepted");
                 }
@@ -1247,23 +1247,70 @@ namespace deren.editor {
                 return selftest_failure("solid box edits did not participate in Undo and Redo");
             }
 
-            static scene_collision.static_box box(Vector3 size, float yaw, Vector3 center) {
-                Matrix4x4.Invert(Matrix4x4.CreateScale(size) * Matrix4x4.CreateRotationY(yaw) *
-                                 Matrix4x4.CreateTranslation(center), out var inverse);
-                return new scene_collision.static_box(inverse);
+            // The kernel is exercised directly for the geometry cases: a thin wall, a corner, a gap the
+            // capsule must fit through, and a floor. The numbers are exact contact distances (the kernel
+            // has no skin): the wall face is at x = 1.98 and the sphere radius is 0.12, so a head-on move
+            // stops at 1.86, and the same capsule walking diagonally into both a wall and a cross box
+            // stops on x = 1.86 and z = 0.86.
+            static vector_3 at(float x, float y, float z) => new() { x = x, y = y, z = z };
+            static collision_box block(vector_3 center, vector_3 half, uint id) =>
+                new(center, half, at(1, 0, 0), at(0, 1, 0), at(0, 0, 1), id);
+            static collision_capsule sphere(float x, float y, float z, float radius = 0.12f) =>
+                new(at(x, y, z), at(x, y, z), radius);
+            collision_world.reset();
+            if (!collision_world.add_box(block(at(2, 0, 0), at(0.02f, 1.5f, 3), 1)) ||
+                !collision_world.add_box(block(at(0, -0.6f, 0), at(2, 0.1f, 2), 3))) {
+                return selftest_failure("the collision kernel did not accept the selftest boxes");
             }
-            var wall = box(new Vector3(6, 3, 0.04f), MathF.PI / 2, new Vector3(2, 0, 0));
-            var cross = box(new Vector3(6, 3, 0.04f), 0, new Vector3(0, 0, 1));
-            var straight = scene_collision.slide(Vector3.Zero, new Vector3(12, 0, 0), 0.12f, [wall], out bool hit);
-            var diagonal = scene_collision.slide(Vector3.Zero, new Vector3(6, 0, 2), 0.12f, [wall], out bool slid);
-            var corner = scene_collision.slide(Vector3.Zero, new Vector3(6, 0, 2), 0.12f, [wall, cross], out bool stopped);
-            var escape = scene_collision.slide(new Vector3(2, 0, 0), Vector3.UnitX, 0.12f, [wall], out bool trapped);
-            if (!hit || !slid || !stopped || trapped || MathF.Abs(straight.X - 1.8595f) > 0.001f ||
-                MathF.Abs(diagonal.X - straight.X) > 0.001f || MathF.Abs(diagonal.Z - 2) > 0.001f ||
-                MathF.Abs(corner.X - 1.8595f) > 0.001f || MathF.Abs(corner.Z - 0.8595f) > 0.001f ||
-                escape != Vector3.UnitX) {
-                return selftest_failure($"unexpected box sweep result: straight {straight}, slide {diagonal}, corner {corner}, escape {escape}");
+            var straight = default(capsule_move);
+            var diagonal = default(capsule_move);
+            if (!collision_world.move(sphere(0, 0, 0), at(12, 0, 0), out straight) ||
+                !collision_world.move(sphere(0, 0, 0), at(6, 0, 2), out diagonal) ||
+                !straight.blocked || !diagonal.blocked ||
+                MathF.Abs(straight.displacement.x - 1.86f) > 0.005f ||
+                MathF.Abs(diagonal.displacement.x - 1.86f) > 0.005f ||
+                MathF.Abs(diagonal.displacement.z - 2.0f) > 0.005f ||
+                straight.grounded || diagonal.grounded || straight.normal.x > -0.95f) {
+                return selftest_failure($"unexpected capsule sweep result: straight {straight}, slide {diagonal}");
             }
+            if (!collision_world.add_box(block(at(0, 0, 1), at(3, 1.5f, 0.02f), 2))) {
+                return selftest_failure("the collision kernel did not accept the corner box");
+            }
+            var corner = default(capsule_move);
+            if (!collision_world.move(sphere(0, 0, 0), at(6, 0, 2), out corner) || !corner.blocked ||
+                MathF.Abs(corner.displacement.x - 1.86f) > 0.005f ||
+                MathF.Abs(corner.displacement.z - 0.86f) > 0.005f) {
+                return selftest_failure($"a corner did not slide along both walls: {corner}");
+            }
+            // A downward probe onto the floor must report a landing with an up-facing normal, and the
+            // same probe over the floor's edge must travel unimpeded: that is how a behaviour tells them
+            // apart. The floor's top is y = -0.5 and the sphere keeps its radius (0.12) above it, so
+            // landing from y = 0.2 must travel -0.58.
+            var land = default(capsule_move);
+            var edge = default(capsule_move);
+            if (!collision_world.move(sphere(0, 0.2f, 0), at(0, -3, 0), out land) ||
+                !collision_world.move(sphere(3, 0.2f, 0), at(0, -3, 0), out edge) ||
+                !land.blocked || !land.grounded || MathF.Abs(land.displacement.y + 0.58f) > 0.005f ||
+                land.normal.y < 0.99f || edge.blocked || edge.grounded ||
+                MathF.Abs(edge.displacement.y + 3.0f) > 0.001f) {
+                return selftest_failure($"a downward sweep did not land on the floor and fall past an edge: land {land}, edge {edge}");
+            }
+            // The capsule the demo walks with has a 0.3 radius, so a 0.7 wide opening between two walls
+            // is passable on the centre line and blocked once the capsule is offset into a wall.
+            if (!collision_world.remove_box(1) || !collision_world.remove_box(2) ||
+                !collision_world.add_box(block(at(0, 0, 0.85f), at(0.05f, 1.5f, 0.5f), 4)) ||
+                !collision_world.add_box(block(at(0, 0, -0.85f), at(0.05f, 1.5f, 0.5f), 5))) {
+                return selftest_failure("the collision kernel did not accept the doorway boxes");
+            }
+            var gap = default(capsule_move);
+            var offset = default(capsule_move);
+            if (!collision_world.move(sphere(-2, 0, 0, 0.3f), at(5, 0, 0), out gap) ||
+                !collision_world.move(sphere(-2, 0, 0.2f, 0.3f), at(5, 0, 0), out offset) ||
+                gap.blocked || MathF.Abs(gap.displacement.x - 5.0f) > 0.005f ||
+                !offset.blocked) {
+                return selftest_failure($"a 0.7 wide opening did not admit a 0.3 radius capsule on the centre line: gap {gap}, offset {offset}");
+            }
+            collision_world.reset();
             var path = Path.Combine(managed_bootstrap.project_directory, "scenes", $"collision-check-{Guid.NewGuid():N}.scene.toml");
             try {
                 if (!document_io.try_save(document, path, out var error) ||
@@ -1274,8 +1321,82 @@ namespace deren.editor {
             } finally {
                 File.Delete(path);
             }
+            // A moving solid follows its node's world transform instead of the one captured at load. The
+            // flag only makes sense on a solid box, participates in Undo and Redo, needs version 11 and
+            // must survive a save and a reload. The solid box left over from the Undo/Redo round is on.
+            toggle_moving_solid();
+            if (!node.collision_box || !node.moving_solid) {
+                return selftest_failure("could not mark a solid box as a moving solid");
+            }
+            if (!undo_history.try_undo() || node.moving_solid || !undo_history.try_redo() || !node.moving_solid) {
+                return selftest_failure("the moving solid flag did not participate in Undo and Redo");
+            }
+            try {
+                if (!document_io.try_save(document, path, out var error) ||
+                    !document_io.try_load(path, out var loaded, out error) ||
+                    loaded?.find(node.uid)?.moving_solid != true) {
+                    return selftest_failure($"moving solid data did not round trip: {error}");
+                }
+                var older = File.ReadAllText(path).Replace("version = 11", "version = 10", StringComparison.Ordinal);
+                File.WriteAllText(path, older);
+                if (document_io.try_load(path, out _, out var refused) || refused?.Contains("moving solids need document version 11", StringComparison.Ordinal) != true) {
+                    return selftest_failure($"a version 10 document with a moving solid was not refused: {refused}");
+                }
+            } finally {
+                File.Delete(path);
+            }
+            // A moving solid samples its node's world transform at the start of every sweep, so lifting a
+            // door opens the passage it used to fill. A static box keeps the transform it was collected
+            // with, which is what the same node must do once it is no longer marked as moving.
+            if (tree == null || document.roots.Count == 0) {
+                return selftest_failure("the scene has no root to sweep through the moving solid");
+            }
+            var walker = document.roots[0];
+            var walker_restore = walker.local;
+            var door_restore = node.local;
+            try {
+                node.local.position = new vector_3 { x = 0, y = 0, z = 0 };
+                node.local.scale = new vector_3 { x = 2, y = 2, z = 2 };
+                walker.local.position = new vector_3 { x = 0, y = 0, z = -3 };
+                if (!push_runtime(node) || !push_runtime(walker)) {
+                    return selftest_failure("could not place the moving solid and the sweeping root");
+                }
+                var collision = new scene_collision(document, tree);
+                collision_move closed = default;
+                if (!collision.try_move(walker.runtime, new vector_3 { z = 5 }, 0.1f, 0.0f, 0.0f, 0.0f, out closed) || !closed.blocked) {
+                    return selftest_failure($"the closed moving solid did not block the sweep: {closed}");
+                }
+                // Driving the door's transform, as a behaviour does, must move its collision with it.
+                node.local.position.y = 5;
+                collision_move opened = default;
+                if (!push_runtime(node) ||
+                    !collision.try_move(walker.runtime, new vector_3 { z = 5 }, 0.1f, 0.0f, 0.0f, 0.0f, out opened) ||
+                    opened.blocked || MathF.Abs(opened.displacement.z - 5) > 0.001f) {
+                    return selftest_failure($"the opened moving solid still blocked the sweep: {opened}");
+                }
+                // The same node authored as a static box stays at the transform it was collected with.
+                node.moving_solid = false;
+                node.local.position.y = 0;
+                if (!push_runtime(node)) { return selftest_failure("could not re-author the solid box"); }
+                walker.local.position = new vector_3 { x = 0, y = 0, z = -3 };
+                if (!push_runtime(walker)) { return selftest_failure("could not reset the root for the static sweep"); }
+                collision = new scene_collision(document, tree);
+                node.local.position.y = 5;
+                collision_move stale = default;
+                if (!push_runtime(node) ||
+                    !collision.try_move(walker.runtime, new vector_3 { z = 5 }, 0.1f, 0.0f, 0.0f, 0.0f, out stale) ||
+                    !stale.blocked) {
+                    return selftest_failure($"a static box followed its node instead of its authored transform: {stale}");
+                }
+            } finally {
+                node.moving_solid = true;
+                node.local = door_restore;
+                walker.local = walker_restore;
+                _ = push_runtime(node);
+                _ = push_runtime(walker);
+            }
             set_active_tool("vp_scale");
-            host_logger.write("Editor selftest: solid box authoring, thin-wall sweep, rotated wall, slide and corner passed");
+            host_logger.write("Editor selftest: solid box authoring, capsule wall and corner sweep, offset doorway, floor landing, edge fall, moving solid and a lifted door passed");
             return script_status.success;
         }
 

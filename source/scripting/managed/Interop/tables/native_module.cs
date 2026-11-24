@@ -7,6 +7,8 @@ namespace deren.scripting {
         node_bounds = 5,
         rml_ui_extended = 6,
         asset_authoring = 7,
-        asset_authoring_extended = 8
+        asset_authoring_extended = 8,
+        /// <summary>ABI 45: the capsule collision world (see <c>collision_api</c>).</summary>
+        collision = 9
     }
 }

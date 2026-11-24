@@ -83,6 +83,7 @@ namespace deren.editor {
             ui.set_value(flags_id, node.flags.ToString(CultureInfo.InvariantCulture));
             ui.set_text(visible_id, node.visible ? "Visible: yes" : "Visible: no");
             ui.set_text("detail_collision_box", node.collision_box ? "Enabled" : "Disabled");
+            ui.set_text("detail_moving_solid", node.moving_solid ? "Enabled" : "Disabled");
             ui.set_text("detail_trigger_volume", node.box_trigger ? "Enabled" : "Disabled");
             ui.set_text("detail_trigger_target", node.trigger_target ? "Enabled" : "Disabled");
             ui.set_text("detail_asset_label", node.subscene != null ? "Source Scene" : "Asset");
