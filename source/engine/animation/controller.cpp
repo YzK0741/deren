@@ -225,6 +225,9 @@ namespace deren::engine::animation {
             node_pose const base = base_it == this->base_poses.end() ? node_pose{} : base_it->second;
             glm::mat4 const trs = glm::translate(glm::mat4(1.0f), base.translation) * glm::mat4_cast(base.rotation) * glm::scale(glm::mat4(1.0f), base.scale);
             for (node_target const& target : targets) {
+                if (target.node == nullptr) {
+                    continue; // the node disappeared after a structural edit; rebind() will retry
+                }
                 target.node->local = target.scene_root ? glm::translate(glm::mat4(1.0f), this->import_shift) * trs : trs;
             }
         }
@@ -314,6 +317,9 @@ namespace deren::engine::animation {
         glm::mat4 const trs = glm::translate(glm::mat4(1.0f), pose.translation) * glm::mat4_cast(pose.rotation) * glm::scale(glm::mat4(1.0f), pose.scale);
         bool changed = false;
         for (node_target const& target : targets) {
+            if (target.node == nullptr) {
+                continue; // the node disappeared after a structural edit; rebind() will retry
+            }
             glm::mat4 const local = target.scene_root ? glm::translate(glm::mat4(1.0f), this->import_shift) * trs : trs;
             // Sampling a paused/constant channel still publishes morph and skin state each frame.
             // Only an actual local change invalidates scene bounds; compare every target so an
@@ -364,6 +370,45 @@ namespace deren::engine::animation {
             }
         }
         deren::utility::log("skinning: bind pose captured for {} joint matrix(es) ({} rig(s))", this->bind_inverse.size(), this->skin_rigs.size());
+    }
+
+    void controller::rebind() {
+        // A structural edit elsewhere in the tree (a live import, for example) can move the
+        // scene_node containers this controller addresses, which invalidates every cached pointer.
+        // Re-walk the tree in the SAME order init() walked it and re-address each target: a target
+        // whose node disappeared is left null and skipped until the placement that owns it goes away.
+        if (this->host.scene == nullptr) {
+            return;
+        }
+        for (auto& [source, targets] : this->source_nodes) {
+            (void)source;
+            for (node_target& target : targets) {
+                target.node = nullptr;
+                target.scene_root = false;
+            }
+        }
+        deren::utility::vessel::unordered_map<std::size_t, std::size_t> cursors;
+        auto const collect = [this, &cursors](auto&& self, deren::engine::scene_tree::scene_node& node, bool parent_outside_import) -> void {
+            if (node.import_instance == this->import_id && node.source_index != deren::engine::scene_tree::no_source_index) {
+                auto const it = this->source_nodes.find(node.source_index);
+                if (it != this->source_nodes.end()) {
+                    std::size_t& cursor = cursors[node.source_index];
+                    if (cursor < it->second.size()) {
+                        node_target& target = it->second[cursor];
+                        target.node = &node;
+                        target.scene_root = parent_outside_import;
+                        ++cursor;
+                    }
+                }
+            }
+            for (deren::engine::scene_tree::scene_node& child : node.children) {
+                self(self, child, node.import_instance != this->import_id);
+            }
+        };
+        for (deren::engine::scene_tree::scene_node& root : this->host.scene->roots) {
+            collect(collect, root, true);
+        }
+        this->refresh_debug_name();
     }
 
     void controller::update(float const dt_seconds) {
@@ -557,7 +602,7 @@ namespace deren::engine::animation {
             return;
         }
         auto const it = this->source_nodes.find(this->debug_source);
-        if (it != this->source_nodes.end() && !it->second.empty()) {
+        if (it != this->source_nodes.end() && !it->second.empty() && it->second.front().node != nullptr) {
             this->debug_node_name = it->second.front().node->node_name;
         }
     }

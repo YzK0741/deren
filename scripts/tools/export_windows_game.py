@@ -6,6 +6,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import struct
+import subprocess
 import tempfile
 import tomllib
 from urllib.parse import unquote, urlsplit
@@ -217,6 +218,11 @@ def copy_project(root: Path, output: Path, extra_data: list[str], extra_assets: 
         if relative == Path(".") or relative.parts[0] in {".deren", "app", "asset", "deren.toml"}:
             raise ValueError(f"--data cannot copy the project root or a reserved path: {value!r}")
         copy_path(root / relative, data_root / relative)
+    for value in manifest.get("export", {}).get("include", []):
+        relative = project_path(root, value, "[export] include")
+        if relative == Path("."):
+            raise ValueError("[export] include cannot copy the project root")
+        copy_path(root / relative, data_root / relative)
 
     copy_path(root / render, data_root / render)
     # Keep the renderer document byte-for-byte. Bring along the project-relative files it names.
@@ -263,6 +269,28 @@ def copy_project(root: Path, output: Path, extra_data: list[str], extra_assets: 
     (data_root / "deren.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def check_project(build: Path, root: Path) -> None:
+    """Run the editor's project check so the package is built from a project that can be packaged."""
+    executable = build / "deren.exe"
+    if not executable.is_file():
+        raise ValueError(f"The build is missing deren.exe: {build}")
+    log = root / "deren-debug.log"
+    offset = log.stat().st_size if log.is_file() else 0
+    result = subprocess.run([str(executable), "run", str(root), "--check-project"], cwd=root,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    problems = []
+    if log.is_file():
+        with log.open("rb") as handle:
+            handle.seek(offset)
+            for line in handle.read().decode("utf-8", "replace").splitlines():
+                marker = "Project check:"
+                if marker in line:
+                    problems.append(line.split(marker, 1)[1].strip())
+    if result.returncode != 0:
+        detail = "; ".join(problems) if problems else f"deren.exe exited with {result.returncode}"
+        raise ValueError(f"The project did not pass its check: {detail}")
+
+
 def export(build: Path, root: Path, destination: Path, dotnet_root: Path, data: list[str], assets: list[str]) -> None:
     if destination.exists() or destination.is_symlink():
         raise ValueError(f"Export destination already exists: {destination}")
@@ -270,6 +298,7 @@ def export(build: Path, root: Path, destination: Path, dotnet_root: Path, data: 
     if destination.is_relative_to(root):
         raise ValueError("Choose an export destination outside the source project.")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    check_project(build, root)
     with tempfile.TemporaryDirectory(prefix=".deren-export-", dir=destination.parent) as staging:
         output = Path(staging) / "package"
         output.mkdir()

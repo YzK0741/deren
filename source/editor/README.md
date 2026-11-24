@@ -76,8 +76,40 @@ entries are copied with their asset folders and license files. Referenced glTF
 buffers, textures and motion files within the asset library are included too.
 Renderer inputs must use project-relative paths.
 
+List content that only a script loads at runtime in the project manifest, so the
+export copies it without a repeated `--data` flag:
+
+```toml
+[export]
+    include = ["dynamic/levels.toml", "audio/voice"]
+```
+
+Before packaging, the export runs the project check described below and refuses
+to write a package when it reports a problem. The check and the exporter share
+one implementation, so a project that checks clean is exactly a project that can
+be packaged.
+
 `--build` selects a different build output and `--dotnet-root` selects the
 .NET installation used to assemble the private runtime.
+
+## Project check
+
+The project check walks the saved project data and reports references that
+cannot resolve: the startup scenes named by the manifest, every scene under
+`scenes/`, asset library ids, scene instances (recursively, with a depth cap and
+loop detection), behaviour bindings, audio files, environment maps, and the
+`[export] include` list. Run it from the command line with:
+
+```powershell
+D:\deren\build\deren.exe run . --check-project
+```
+
+It prints one line per problem (`file: node 'Name': message`) followed by
+`Project check passed: N scene(s), M reference(s).` or a failure summary, and
+exits with a failure status when anything is broken. In the editor, **Check
+Project** in the project scene panel runs the same check and shows the first
+problem in the panel. A project whose startup scene cannot be built still opens
+for a command-line check (with an empty scene) so the problems can be reported.
 
 ## What P1 ships
 
@@ -388,10 +420,48 @@ slots. Use **Environment** in the instance's Details to override those linked
 models as a group. Choose **(source scene assignments)** to restore the source
 nodes' lane selections. The scene format supports instance links starting with version 7.
 
+Select a node inside an instance to edit its script parameters. The Script panel
+marks every row **From source** until the placement changes it, and the value then
+becomes an **Instance override** of that placement only: two instances of the same
+door can point at different targets while the source scene keeps one default. The
+source scene owns the node structure and the script binding, so those rows stay
+read-only inside an instance. **Restore source** drops the override and returns the
+value the source scene authors, and a later source edit reaches every instance that
+did not override it. Overrides are keyed by the source node uid, so they survive a
+reload and a source rename; the writer stores them as
+`instance_parameter."<source uid>"."<name>" = "<value>"` on the instance node's
+line, and version 12 is the first format that can carry them. Play and the
+standalone export load the same host document, so both resolve the same overrides.
+
+## Animation placements
+
+A placement of an animated asset owns its own player: its own clock, its own
+clip and its own skin matrices. Two placements of the same character therefore
+animate independently, and placing a second one no longer freezes the first.
+The **Animation** group in Details appears for a placement whose asset carries
+clips and holds two rows:
+
+- **Initial Clip** picks which of that asset's clips the player opens, or
+  **default** for the asset's own first clip. The list comes from the placement's
+  player, so it names exactly the clips that asset ships.
+- **Auto Play** starts that clip when Play or the standalone game enters the
+  scene. Off leaves the placement paused, which is what the editor tree shows.
+
+Both rows are authored per placement and participate in undo and redo. Importing
+an asset never applies them, and removing one placement drops only that
+placement's player: the other characters keep animating. A node without an asset
+or subscene cannot carry the rows. Animation placements need document version 13;
+older documents without them still load.
+
+Use a script with the placement's `node_id` when it has to steer that character
+alone, for example `animation_player.try_seek(self, 21f)`. The no-argument
+overloads of `animation_player` address the scene's first player, which is what
+scenes saved before version 13 relied on.
+
 ## Document format
 
 `document_io` owns a strict subset of TOML. Reading rejects an unknown or duplicated key, a duplicate
-uid, a missing or unknown parent, a version newer than 11 (an unsupported future file), an unparsable number and an unterminated
+uid, a missing or unknown parent, a version newer than 13 (an unsupported future file), an unparsable number and an unterminated
 string, and reports the file, line and reason. A file starts with `[document]`, then one `[[node]]`
 block per node in depth-first order, where a parent always appears before its children:
 
@@ -410,8 +480,9 @@ block per node in depth-first order, where a parent always appears before its ch
     scale = [1, 1, 1]
 ```
 
-`uid` and `name` are required; `parent` (a parent uid), `asset`, `pipeline` and `environment` (the
-lane the node samples, 0 for the scene map) are optional. An `[environment]` table between
+`uid` and `name` are required; `parent` (a parent uid), `asset`, `pipeline`, `environment` (the
+lane the node samples, 0 for the scene map), `animation_clip` (the clip index for a placement, -1
+or absent for the asset default) and `animation_autoplay` are optional. An `[environment]` table between
 `[document]` and the first node stores the scene lanes as `slot_1`..`slot_15`; an absent lane stays
 absent, and an empty string means the procedural sky. Floats are written so they round-trip exactly.
 

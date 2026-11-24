@@ -25,7 +25,9 @@ internal static class document_io
     /// The file format version this writer speaks: 11 adds moving solids. Version 10 added static collision
     /// boxes. Version 5 adds point lights. Version 4 added environment lanes and the per-node lane index.
     /// </summary>
-    private const int format_version = 11;
+    private const int format_version = 13;
+    private const int instance_parameter_format_version = 12;
+    private const int animation_placement_format_version = 13;
     private const int moving_solid_format_version = 11;
     private const int collision_format_version = 10;
     private const int audio_format_version = 9;
@@ -419,6 +421,20 @@ internal static class document_io
                 text.Append("    audio_volume = ").Append(project_look.number(source.volume)).Append((char)10);
                 text.Append("    audio_loop = ").Append(source.loop ? "true" : "false").Append((char)10);
             }
+            if (node.asset != null || node.subscene != null) {
+                if (node.animation_clip < -1) {
+                    error = $"Placement '{node.name}' has an invalid initial animation clip.";
+                    return false;
+                }
+                if (node.animation_clip >= 0) {
+                    text.Append("    animation_clip = ")
+                        .Append(node.animation_clip.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                }
+                if (node.animation_autoplay) { text.Append("    animation_autoplay = true\n"); }
+            } else if (node.animation_clip >= 0 || node.animation_autoplay) {
+                error = $"Node '{node.name}' has animation settings but no asset placement.";
+                return false;
+            }
             if (node.collision_box) { text.Append("    collision_box = true\n"); }
             if (node.moving_solid) { text.Append("    moving_solid = true\n"); }
             if (node.box_trigger) { text.Append("    box_trigger = true\n"); }
@@ -464,6 +480,14 @@ internal static class document_io
                     return false;
                 }
                 text.Append("    subscene = ").Append(quote(linked)).Append((char)10);
+                if (node.instance_overrides is { } overrides) {
+                    foreach (var (origin, values) in overrides) {
+                        foreach (var (parameter, value) in values) {
+                            text.Append("    instance_parameter.").Append(quote(origin.ToString("D", CultureInfo.InvariantCulture)))
+                                .Append('.').Append(quote(parameter)).Append(" = ").Append(quote(value)).Append((char)10);
+                        }
+                    }
+                }
             } else if (!append_nodes(text, node.children, node.uid, known, out error)) {
                 return false;
             }
@@ -499,6 +523,7 @@ internal static class document_io
             name = builder.name,
             asset = builder.asset,
             subscene = builder.subscene,
+            instance_overrides = builder.instance_overrides.Count == 0 ? null : builder.instance_overrides,
             pipeline = builder.pipeline,
             script = builder.script,
             script_parameters = builder.script_parameters,
@@ -511,6 +536,8 @@ internal static class document_io
                 ? new audio_source_component(builder.audio_file, builder.audio_volume, builder.audio_loop) : null,
             collision_box = builder.collision_box,
             moving_solid = builder.moving_solid,
+            animation_clip = builder.animation_clip,
+            animation_autoplay = builder.animation_autoplay,
             box_trigger = builder.box_trigger,
             trigger_target = builder.trigger_target,
             camera = builder.camera,
@@ -576,6 +603,29 @@ internal static class document_io
             builder.asset = asset;
             return true;
         }
+        const string instance_prefix = "instance_parameter.";
+        if (key.StartsWith(instance_prefix, StringComparison.Ordinal)) {
+            if (!split_quoted_key(key[instance_prefix.Length..], out var source, out var parameter) ||
+                !Guid.TryParse(source, out var source_uid)) {
+                error = format_error(path, number,
+                    "expected instance_parameter.<source uid>.<name> with both parts quoted");
+                return false;
+            }
+            if (!parse_quoted(value, path, number, out var raw, out error)) { return false; }
+            if (parameter.Length == 0) {
+                error = format_error(path, number, "empty scene instance parameter name");
+                return false;
+            }
+            if (!builder.instance_overrides.TryGetValue(source_uid, out var values)) {
+                values = new SortedDictionary<string, string>(StringComparer.Ordinal);
+                builder.instance_overrides.Add(source_uid, values);
+            }
+            if (!values.TryAdd(parameter, raw)) {
+                error = format_error(path, number, "duplicate scene instance parameter override");
+                return false;
+            }
+            return true;
+        }
         const string parameter_prefix = "script_parameter.";
         if (key.StartsWith(parameter_prefix, StringComparison.Ordinal)) {
             if (!parse_quoted(key[parameter_prefix.Length..], path, number, out var parameter, out error) ||
@@ -638,6 +688,18 @@ internal static class document_io
         }
         if (key == "audio_loop") {
             return parse_bool(value, path, number, out builder.audio_loop, out error);
+        }
+        if (key == "animation_clip") {
+            if (!parse_int(value, path, number, out var clip, out error)) { return false; }
+            if (clip < 0) {
+                error = format_error(path, number, "animation_clip must be zero or greater");
+                return false;
+            }
+            builder.animation_clip = clip;
+            return true;
+        }
+        if (key == "animation_autoplay") {
+            return parse_bool(value, path, number, out builder.animation_autoplay, out error);
         }
         if (key == "collision_box") {
             return parse_bool(value, path, number, out builder.collision_box, out error);
@@ -1004,6 +1066,51 @@ internal static class document_io
         return built.ToString();
     }
 
+    /// <summary>
+    /// Splits a key of two quoted segments joined by a dot, such as uid.name, into the
+    /// decoded segments. Both parts are quoted so a parameter name may contain a dot.
+    /// </summary>
+    private static bool split_quoted_key(string key, out string first, out string second)
+    {
+        first = string.Empty;
+        second = string.Empty;
+        int index = 0;
+        if (!unquote_segment(key, ref index, out first) || index >= key.Length || key[index] != '.') {
+            return false;
+        }
+        index++;
+        return unquote_segment(key, ref index, out second) && index == key.Length;
+    }
+
+    private static bool unquote_segment(string key, ref int index, out string value)
+    {
+        value = string.Empty;
+        if (index >= key.Length || key[index] != '"') { return false; }
+        index++;
+        var built = new StringBuilder();
+        while (index < key.Length) {
+            char character = key[index++];
+            if (character == '"') {
+                value = built.ToString();
+                return true;
+            }
+            if (character != '\\') {
+                built.Append(character);
+                continue;
+            }
+            if (index >= key.Length) { return false; }
+            switch (key[index++]) {
+                case '\\': built.Append('\\'); break;
+                case '"': built.Append('"'); break;
+                case 'n': built.Append('\n'); break;
+                case 'r': built.Append('\r'); break;
+                case 't': built.Append('\t'); break;
+                default: return false;
+            }
+        }
+        return false;
+    }
+
     private static string format_error(string path, int number, string message)
     {
         return path + ": line " + number.ToString(CultureInfo.InvariantCulture) + ": " + message;
@@ -1030,6 +1137,22 @@ internal static class document_io
             if (node.moving_solid && version < moving_solid_format_version) {
                 error = path + ": moving solids need document version 11";
                 return false;
+            }
+            if ((node.animation_clip >= 0 || node.animation_autoplay) && version < animation_placement_format_version) {
+                error = path + ": animation placement settings need document version " +
+                    animation_placement_format_version.ToString(CultureInfo.InvariantCulture);
+                return false;
+            }
+            if (node.instance_overrides is { Count: > 0 }) {
+                if (node.subscene == null) {
+                    error = path + ": scene instance parameter overrides need a subscene node";
+                    return false;
+                }
+                if (version < instance_parameter_format_version) {
+                    error = path + ": scene instance parameter overrides need document version " +
+                        instance_parameter_format_version.ToString(CultureInfo.InvariantCulture);
+                    return false;
+                }
             }
             if (!validate_versioned_nodes(node.children, version, path, out error)) { return false; }
         }
@@ -1064,6 +1187,7 @@ internal static class document_io
         internal bool has_parent;
         internal string? asset;
         internal string? subscene;
+        internal readonly SortedDictionary<Guid, SortedDictionary<string, string>> instance_overrides = new();
         internal string? pipeline;
         internal string? script;
         internal readonly SortedDictionary<string, string> script_parameters = new(StringComparer.Ordinal);
@@ -1076,6 +1200,8 @@ internal static class document_io
         internal bool audio_loop;
         internal bool collision_box;
         internal bool moving_solid;
+        internal int animation_clip = -1;
+        internal bool animation_autoplay;
         internal bool box_trigger;
         internal bool trigger_target;
         internal bool camera;

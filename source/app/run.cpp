@@ -533,31 +533,55 @@ namespace deren::app {
             // The size a panel falls back to when the game names none (`[gui] panel_width/panel_height`).
             float ui_default_width = 380.0F;
             float ui_default_height = 140.0F;
-            // ---- ABI 35: THE CHARACTER ANIMATION PLAYER ----
+            // ---- ABI 35/46: THE CHARACTER ANIMATION PLAYERS ----
             //
-            // ONE player for the scene, built when the first asset whose manifest names a motion file
-            // is bound. The host owns it because it needs the runtime's per-frame skin/morph slots and
-            // the scene pointer; managed code only names the clip and the clock. `animation_commands`
-            // is written from the managed frame thread and drained by the frame thread right before it
-            // records, which is why it is the one field here behind a lock.
+            // ONE controller per placement of an animated asset. A placement imports its own copy of
+            // the skeleton, so it needs its own playback clock, its own pose writes and its own skin
+            // block; two placements of the same character can therefore run different clips at
+            // different times. Each controller is given a disjoint slice of the runtime's per-frame
+            // skin matrix buffer and morph scratch (sized by scene_skin_capacity /
+            // scene_morph_capacity); next_skin_base/next_morph_base track the first free position, and
+            // a placement the buffers no longer fit stays static with a log line instead of
+            // overwriting another character's joints. Managed code addresses one player by its
+            // placement node and only names the clip and the clock.
             struct animation_command {
                 deren::app::animation_command_kind kind = deren::app::animation_command_kind::select;
                 std::uint32_t index = 0;
                 float value = 0.0F;
             };
-            std::unique_ptr<deren::engine::animation::controller> player;
-            deren::scripting::animation_state animation_state{};
-            std::vector<std::string> animation_names;
+            struct animation_player_entry {
+                std::unique_ptr<deren::engine::animation::controller> player;
+                // Packed node id of the placement the clips drive; a removal at or below it drops the
+                // entry, because the controller keeps node addresses and a raw scene pointer.
+                std::uint64_t owner_node = 0;
+                std::string asset_id;
+                std::vector<std::string> names;
+                deren::scripting::animation_state state{};
+                std::vector<animation_command> pending;
+                std::uint32_t skin_base = 0;
+                std::size_t morph_base = 0;
+                /** The entry whose placement node is @p owner, or nullptr. The caller holds animation_mutex. */
+                static animation_player_entry* find(managed_bind_context& context, std::uint64_t const owner) {
+                    if (owner == 0) {
+                        // "The scene's first player": what a caller that names no placement gets. The
+                        // per-placement entries stay addressable, so this is a convenience, not a rule.
+                        return context.players.empty() ? nullptr : &context.players.front();
+                    }
+                    for (animation_player_entry& entry : context.players) {
+                        if (entry.owner_node == owner) {
+                            return &entry;
+                        }
+                    }
+                    return nullptr;
+                }
+            };
+            std::vector<animation_player_entry> players;
+            std::uint32_t next_skin_base = 4; // 4 = first block after the shared identity block
+            std::size_t next_morph_base = 0;
             std::mutex animation_mutex;
-            std::vector<animation_command> animation_pending;
             // ABI 43: the window the managed request controls act on; null for an offscreen capture,
             // which must answer module_unavailable instead of pretending to move a window.
             deren::app::glfw_window* window = nullptr;
-            // The packed node id of the asset subtree the player was imported from (0 while no player
-            // exists). A removal only drops the player when the removed node belongs to that subtree:
-            // an unrelated delete must not stop the character, but the animated nodes must not outlive
-            // the player's raw pointer into the tree either.
-            std::uint64_t player_owner_node = 0;
         };
         managed_bind_context managed_binding{.starting = true,
                                              .render_runtime = &runtime,
@@ -578,30 +602,31 @@ namespace deren::app {
                                              .ui_available = false,
                                              .ui_default_width = 380.0F,
                                              .ui_default_height = 140.0F,
-                                             .player = nullptr,
-                                             .animation_state = {},
-                                             .animation_names = {},
+                                             .players = {},
+                                             .next_skin_base = 4,
+                                             .next_morph_base = 0,
                                              .animation_mutex = {},
-                                             .animation_pending = {},
-                                             .window = &window,
-                                             .player_owner_node = 0};
-        // The snapshot every ABI 35 query reads. The frame thread writes it once per frame; a managed
-        // thread reads it under the same lock, so a query never sees a half-built state.
+                                             .window = &window};
+        // The per-player snapshot every ABI animation query reads. The frame thread refreshes it once
+        // per frame; a managed thread reads it under the same lock, so a query never sees a
+        // half-built state. Callers must hold no lock when calling this.
         constexpr auto publish_animation_state = +[](managed_bind_context& context) {
-            deren::scripting::animation_state state{};
-            if (context.player != nullptr) {
-                auto const& player = *context.player;
-                state.playable_count = static_cast<std::uint32_t>(player.playable_count());
-                state.current = static_cast<std::uint32_t>(player.current());
-                state.has_active = player.has_active() ? 1 : 0;
-                state.playing = player.is_playing() ? 1 : 0;
-                state.available = 1;
-                state.time = player.current_time();
-                state.duration = player.loop_duration();
-                state.speed = player.speed();
-            }
             std::lock_guard const lock(context.animation_mutex);
-            context.animation_state = state;
+            for (managed_bind_context::animation_player_entry& entry : context.players) {
+                deren::scripting::animation_state state{};
+                if (entry.player != nullptr) {
+                    auto const& player = *entry.player;
+                    state.playable_count = static_cast<std::uint32_t>(player.playable_count());
+                    state.current = static_cast<std::uint32_t>(player.current());
+                    state.has_active = player.has_active() ? 1 : 0;
+                    state.playing = player.is_playing() ? 1 : 0;
+                    state.available = 1;
+                    state.time = player.current_time();
+                    state.duration = player.loop_duration();
+                    state.speed = player.speed();
+                }
+                entry.state = state;
+            }
         };
         auto const bind_managed_asset = +[](void* opaque, deren::engine::scene_tree::scene_node& parent,
                                             std::string_view asset_id, deren::app::managed_asset_source const& source) -> bool {
@@ -610,11 +635,14 @@ namespace deren::app {
             // Live imports may grow GPU tables used by older frames. This wait is per import, not per frame.
             if (!context.starting) {
                 runtime.rhi_face().wait_idle();
-                // Controllers cache scene-node addresses, which a structural edit may invalidate.
-                context.player.reset();
-                context.animation_names.clear();
-                context.animation_pending.clear();
-                publish_animation_state(context);
+                // A structural edit can move the node containers every controller addresses, so the
+                // existing players re-resolve their targets instead of being dropped: a second
+                // character imported live must not stop the first one's animation.
+                for (managed_bind_context::animation_player_entry& entry : context.players) {
+                    if (entry.player != nullptr) {
+                        entry.player->rebind();
+                    }
+                }
             }
             // A CLOUD IS STAGED, NOT IMPORTED: it has no scene graph, no materials and no toon lookup, so
             // the whole import path below does not apply. The upload happens once per library id (the
@@ -675,14 +703,23 @@ namespace deren::app {
             if (result.primitive_count == 0) {
                 return false;
             }
-            // ---- ABI 35: THE ANIMATION PLAYER IS BUILT FROM THE FIRST ASSET THAT BRINGS CLIPS ----
+            // ---- ABI 35/46: EVERY PLACEMENT OF AN ANIMATED ASSET GETS ITS OWN PLAYER ----
             //
-            // One player drives the whole scene: the runtime has ONE skin-matrix region for the
-            // animation controller (blocks 4.. after the shared identity block), so a second animated
-            // asset is reported and stays static instead of silently stealing the skeleton writes.
+            // A placement imports its own copy of the skeleton and poses that copy's nodes, so a second
+            // character needs its own clock, its own clip and its own skin block instead of sharing one.
+            // Each player therefore takes a disjoint slice of the runtime skin/morph buffers, allocated
+            // from next_skin_base/next_morph_base (the first slice starts after the shared identity
+            // block, blocks 0-3), and managed code addresses it by the PLACEMENT node - the entity id
+            // packed as (generation << 32) | index, the same packing node_handle uses.
+            //
             // init() is legal here because a bind runs inside the managed update, before the frame is
-            // paced: the per-frame skin slots it writes are not being recorded yet.
-            if (context.player == nullptr && !source.scenes->animations.empty()) {
+            // paced: the per-frame skin slots it writes are not being recorded yet. The skin upload
+            // itself is clamped by the runtime, so the capacity check below runs BEFORE the player is
+            // published: an asset that does not fit is reported and stays static rather than writing
+            // into another character's blocks.
+            if (!source.scenes->animations.empty()) {
+                std::uint32_t const skin_base = context.next_skin_base;
+                auto const morph_base = static_cast<std::uint32_t>(context.next_morph_base);
                 auto player = std::make_unique<deren::engine::animation::controller>();
                 deren::engine::animation::backend const backend{
                     .scene = &runtime.get_scene(),
@@ -694,28 +731,46 @@ namespace deren::app {
                     .run_tasks = [&runtime](std::span<std::function<void()>> tasks) { runtime.run_tasks(tasks); },
                     .task_worker_count = [&runtime]() { return runtime.task_pool_threads(); },
                 };
-                player->init(*source.scenes, backend, import_shift, result.import_instance);
-                context.animation_names.clear();
-                for (std::size_t index = 0; index < player->playable_count(); ++index) {
-                    context.animation_names.emplace_back(player->playable_name(index));
+                player->init(*source.scenes, backend, import_shift, result.import_instance, skin_base, morph_base);
+                std::size_t const skin_blocks = player->skin_block_count();
+                std::size_t const morph_floats = player->morph_float_count();
+                if (skin_blocks == 0 ||
+                    skin_base + skin_blocks > deren::engine::scene_skin_capacity ||
+                    static_cast<std::size_t>(morph_base) + morph_floats > deren::engine::scene_morph_capacity) {
+                    deren::utility::log("animation: '{}' has {} clip(s), but the skin buffer is full "
+                                        "({} of {} blocks used) - the asset stays static",
+                                        asset_id, source.scenes->animations.size(), skin_base,
+                                        deren::engine::scene_skin_capacity);
+                } else {
+                    managed_bind_context::animation_player_entry entry{};
+                    entry.player = std::move(player);
+                    entry.owner_node = (static_cast<std::uint64_t>(parent.node_id.generation) << 32) |
+                                       parent.node_id.index;
+                    entry.asset_id = std::string{asset_id};
+                    entry.skin_base = skin_base;
+                    entry.morph_base = morph_base;
+                    for (std::size_t index = 0; index < entry.player->playable_count(); ++index) {
+                        entry.names.emplace_back(entry.player->playable_name(index));
+                    }
+                    std::string names;
+                    for (auto const& name : entry.names) {
+                        if (!names.empty()) {
+                            names += ", ";
+                        }
+                        names += '\'';
+                        names += name;
+                        names += '\'';
+                    }
+                    deren::utility::log("animation: '{}' placement {:#x} now drives {} clip(s) [{}], skin block {}",
+                                        asset_id, entry.owner_node, entry.player->playable_count(), names, skin_base);
+                    context.next_skin_base += static_cast<std::uint32_t>(skin_blocks);
+                    context.next_morph_base += morph_floats;
+                    {
+                        std::lock_guard const lock{context.animation_mutex};
+                        context.players.push_back(std::move(entry));
+                    }
+                    publish_animation_state(context);
                 }
-                std::string names;
-                for (auto const& name : context.animation_names) {
-                    names += names.empty() ? "'" : ", '";
-                    names += name;
-                    names += '\'';
-                }
-                deren::utility::log("animation: '{}' drives the scene - {} clip(s) [{}]", asset_id,
-                                    player->playable_count(), names);
-                context.player = std::move(player);
-                // The subtree root the clips address: a removal inside it invalidates the player.
-                context.player_owner_node =
-                    (static_cast<std::uint64_t>(parent.node_id.generation) << 32) | parent.node_id.index;
-                publish_animation_state(context);
-            } else if (context.player != nullptr && !source.scenes->animations.empty()) {
-                deren::utility::log("animation: '{}' has {} clip(s), but one player already drives this scene - "
-                                    "the asset stays static",
-                                    asset_id, source.scenes->animations.size());
             }
             // THE SHADOW FIT: the frame's directional shadow maps frame the sphere the imported
             // primitives occupy, which is what makes the sun cast a shadow at all. `enable_shadows`
@@ -755,17 +810,20 @@ namespace deren::app {
             // replacement tree must not inherit the previous one's splats. The cached uploads stay valid
             // (their device tables outlive the staging) and are reused when the new tree places them again.
             context->render_runtime->clear_gaussian_assets();
-            // A new tree also ends the animation player: it holds a raw pointer to the tree it animated
-            // and the node indices the clips address, and set_scene() only stores that pointer, so
-            // keeping it would write skin matrices into a tree that no longer exists.
-            if (context->player != nullptr) {
-                deren::utility::log("animation: the scene tree was replaced - dropping the player");
-                context->player.reset();
-                context->player_owner_node = 0;
-                context->animation_names.clear();
-                context->animation_pending.clear();
-                publish_animation_state(*context);
+            // A new tree also ends every animation player: each holds a raw pointer to the tree it
+            // animated and the node indices the clips address, and set_scene() only stores that
+            // pointer, so keeping them would write skin matrices into a tree that no longer exists.
+            {
+                std::lock_guard const lock{context->animation_mutex};
+                if (!context->players.empty()) {
+                    deren::utility::log("animation: the scene tree was replaced - dropping {} player(s)",
+                                        context->players.size());
+                    context->players.clear();
+                }
+                context->next_skin_base = 4;
+                context->next_morph_base = 0;
             }
+            publish_animation_state(*context);
             context->render_runtime->set_scene(managed);
             context->render_runtime->scene_changed();
             return true;
@@ -1014,44 +1072,57 @@ namespace deren::app {
             }
             return context->window->begin_window_drag();
         };
-        // ---- ABI 35: THE ANIMATION ENTRIES ----
+        // ---- ABI 35/46: THE ANIMATION ENTRIES ----
         // The queries read the snapshot the frame thread publishes; the commands only queue work for
-        // that thread, because the player writes GPU-visible per-slot buffers that may not be touched
-        // between pace_and_acquire() and the end of the frame.
-        auto const get_managed_animation_state = +[](void* opaque, deren::scripting::animation_state& out) -> bool {
+        // that thread, because a player writes GPU-visible per-slot buffers that may not be touched
+        // between pace_and_acquire() and the end of the frame. Each entry names its PLACEMENT, so two
+        // characters of the same asset are answered - and commanded - independently.
+        auto const get_managed_animation_state = +[](void* opaque, deren::scripting::node_handle node,
+                                                     deren::scripting::animation_state& out) -> bool {
             auto* context = static_cast<managed_bind_context*>(opaque);
             if (context == nullptr) {
                 return false;
             }
             std::lock_guard const lock(context->animation_mutex);
-            out = context->animation_state;
+            auto const* const entry = managed_bind_context::animation_player_entry::find(*context, node.value);
+            if (entry == nullptr) {
+                return false;
+            }
+            out = entry->state;
             return true;
         };
-        auto const get_managed_animation_name = +[](void* opaque, std::uint32_t index, std::string_view& name) -> bool {
+        auto const get_managed_animation_name = +[](void* opaque, deren::scripting::node_handle node,
+                                                    std::uint32_t index, std::string_view& name) -> bool {
             auto* context = static_cast<managed_bind_context*>(opaque);
-            if (context == nullptr || context->player == nullptr) {
+            if (context == nullptr) {
                 return false;
             }
             std::lock_guard const lock(context->animation_mutex);
-            if (index >= context->animation_names.size()) {
+            auto const* const entry = managed_bind_context::animation_player_entry::find(*context, node.value);
+            if (entry == nullptr || index >= entry->names.size()) {
                 return false;
             }
             // The view borrows the player's storage and lives until the player is rebuilt.
-            name = context->animation_names[index];
+            name = entry->names[index];
             return true;
         };
-        auto const queue_managed_animation = +[](void* opaque, deren::app::animation_command_kind kind,
-                                                 std::uint32_t index, float value) -> bool {
+        auto const queue_managed_animation = +[](void* opaque, deren::scripting::node_handle node,
+                                                 deren::app::animation_command_kind kind, std::uint32_t index,
+                                                 float value) -> bool {
             auto* context = static_cast<managed_bind_context*>(opaque);
-            if (context == nullptr || context->player == nullptr) {
+            if (context == nullptr) {
                 return false;
             }
-            // Reject against the PUBLISHED state, not against the player: a managed request is answered
-            // with success only when the frame thread will certainly be able to apply it.
+            // Reject against the PUBLISHED snapshot, not against the player: a managed request is
+            // answered with success only when the frame thread will certainly be able to apply it.
             std::lock_guard const lock(context->animation_mutex);
+            auto* const entry = managed_bind_context::animation_player_entry::find(*context, node.value);
+            if (entry == nullptr) {
+                return false;
+            }
             switch (kind) {
             case deren::app::animation_command_kind::select:
-                if (index >= context->animation_state.playable_count) {
+                if (index >= entry->state.playable_count) {
                     return false;
                 }
                 break;
@@ -1068,7 +1139,7 @@ namespace deren::app {
                 }
                 break;
             }
-            context->animation_pending.push_back({.kind = kind, .index = index, .value = value});
+            entry->pending.push_back({.kind = kind, .index = index, .value = value});
             return true;
         };
         // ABI 37: the managed side's fault. This lambda has no way back - the call writes the same
@@ -1778,9 +1849,11 @@ namespace deren::app {
             deren::app::managed_asset_binder{
                 .context = &managed_binding, .bind = bind_managed_asset, .before_remove = +[](void* opaque, deren::scripting::node_handle node) {
                     auto& context = *static_cast<managed_bind_context*>(opaque);
-                    // The player holds node indices of the asset subtree it was imported from, so only a
+                    // A player holds node indices of the asset subtree it was imported from, so only a
                     // removal inside that subtree invalidates it. Testing every removal dropped the
-                    // animation of a live character whenever the game deleted an unrelated node.
+                    // animation of a live character whenever the game deleted an unrelated node. Each
+                    // placement owns one player, so a removal drops exactly the players whose placement
+                    // it destroys and leaves the other characters animating.
                     auto const packed = [](auto const id) {
                         return (static_cast<std::uint64_t>(id.generation) << 32) | id.index;
                     };
@@ -1795,21 +1868,41 @@ namespace deren::app {
                         }
                         return false;
                     };
-                    bool owns_player = false;
-                    if (context.player != nullptr && context.player_owner_node != 0) {
-                        for (auto const& root : context.render_runtime->get_scene().roots) {
-                            if (packed(root.node_id) == context.player_owner_node && in_subtree(in_subtree, root)) {
-                                owns_player = true;
-                                break;
+                    std::vector<std::uint64_t> dropped;
+                    {
+                        std::lock_guard const lock(context.animation_mutex);
+                        for (auto const& entry : context.players) {
+                            if (entry.owner_node == node.value) {
+                                dropped.push_back(entry.owner_node);
+                                continue;
+                            }
+                            for (auto const& root : context.render_runtime->get_scene().roots) {
+                                if (packed(root.node_id) == entry.owner_node && in_subtree(in_subtree, root)) {
+                                    dropped.push_back(entry.owner_node);
+                                    break;
+                                }
                             }
                         }
                     }
-                    if (!context.starting && owns_player) {
-                        context.render_runtime->rhi_face().wait_idle();
-                        context.player.reset();
-                        context.player_owner_node = 0;
-                        context.animation_names.clear();
-                        context.animation_pending.clear();
+                    if (!dropped.empty()) {
+                        // The players write GPU-visible buffers, so no frame may be in flight while
+                        // they die. Before the runtime starts no frame exists yet, so only then can
+                        // the idle wait be skipped - the players must still be dropped either way,
+                        // because they cache node pointers of the subtree that is going away.
+                        if (!context.starting) {
+                            context.render_runtime->rhi_face().wait_idle();
+                        }
+                        {
+                            std::lock_guard const lock(context.animation_mutex);
+                            context.players.erase(
+                                std::ranges::remove_if(context.players,
+                                                       [&dropped](managed_bind_context::animation_player_entry const& entry) {
+                                                           return std::ranges::find(dropped, entry.owner_node) != dropped.end();
+                                                       })
+                                    .begin(),
+                                context.players.end());
+                        }
+                        // publish_animation_state takes the lock itself, so it runs outside the block above.
                         publish_animation_state(context);
                     }
                     // A removed leaf must not survive in the next frame's cached BVH.
@@ -2143,33 +2236,45 @@ namespace deren::app {
                 std::this_thread::yield();
                 continue;
             }
-            // ABI 35: advance the animation player between the acquired slot and the recording, which is
-            // the window its update() contract requires: the pose it writes is the one this frame
-            // records, and no managed command can touch the player while the frame is being built.
-            if (managed_binding.player != nullptr) {
-                std::vector<managed_bind_context::animation_command> commands;
+            // ABI 35/46: advance every animation player between the acquired slot and the recording,
+            // which is the window its update() contract requires: the pose it writes is the one this
+            // frame records, and no managed command can touch a player while the frame is being built.
+            // Each player owns one placement, so two characters of the same asset advance
+            // independently here - different clips, different clocks, one shared buffer.
+            if (!managed_binding.players.empty()) {
+                struct pending_player {
+                    deren::engine::animation::controller* player;
+                    std::vector<managed_bind_context::animation_command> commands;
+                };
+                std::vector<pending_player> pending;
                 {
                     std::lock_guard const lock(managed_binding.animation_mutex);
-                    commands.swap(managed_binding.animation_pending);
-                }
-                deren::engine::animation::controller& player = *managed_binding.player;
-                for (managed_bind_context::animation_command const& command : commands) {
-                    switch (command.kind) {
-                    case deren::app::animation_command_kind::select:
-                        player.select(command.index);
-                        break;
-                    case deren::app::animation_command_kind::playing:
-                        player.set_playing(command.value != 0.0F);
-                        break;
-                    case deren::app::animation_command_kind::speed:
-                        player.set_speed(command.value);
-                        break;
-                    case deren::app::animation_command_kind::time:
-                        player.set_time(command.value);
-                        break;
+                    pending.reserve(managed_binding.players.size());
+                    for (auto& entry : managed_binding.players) {
+                        pending.push_back({entry.player.get(), std::move(entry.pending)});
+                        entry.pending.clear();
                     }
                 }
-                player.update(dt);
+                for (pending_player& item : pending) {
+                    deren::engine::animation::controller& player = *item.player;
+                    for (managed_bind_context::animation_command const& command : item.commands) {
+                        switch (command.kind) {
+                        case deren::app::animation_command_kind::select:
+                            player.select(command.index);
+                            break;
+                        case deren::app::animation_command_kind::playing:
+                            player.set_playing(command.value != 0.0F);
+                            break;
+                        case deren::app::animation_command_kind::speed:
+                            player.set_speed(command.value);
+                            break;
+                        case deren::app::animation_command_kind::time:
+                            player.set_time(command.value);
+                            break;
+                        }
+                    }
+                    player.update(dt);
+                }
                 publish_animation_state(managed_binding);
             }
             // Phase 3: record + submit + present the paced frame

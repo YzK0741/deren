@@ -148,6 +148,12 @@ namespace {
     bool animation_available = false;
     // The clip the fixture pretends the player holds; the names are reported from here.
     constexpr std::uint32_t animation_clip_count = 2;
+    // ABI 46: the tree and the PLACEMENT node every animation entry must name. The scenario uses this
+    // pair, and a call naming any other node must be refused, which is what makes a node-scoped lookup
+    // visible from the managed side.
+    constexpr std::uint64_t animation_tree = 7;
+    constexpr std::uint64_t animation_placement = 0x0000000200000007ull;
+    std::uint32_t animation_wrong_nodes = 0;
     constexpr char const* animation_clip_names[animation_clip_count] = {"idle", "bibideba"};
     // ABI 40: renaming a node. The self check performs one accepted rename, one rejection of its own
     // (the over-long name; the empty one never leaves the C# wrapper), one stale handle and two name
@@ -558,11 +564,24 @@ namespace {
     script_status set_toon_rig(toon_rig_desc const* value);
     script_status get_toon_rig(toon_rig_desc* value);
 
-    // ABI 35: the fake animation player, over the counters declared beside the other fixtures.
-    script_status get_animation_state(animation_state* out) {
+    // ABI 46: the fixture refuses a request that names another tree or another node, so a wrapper that
+    // dropped the placement would see scene_not_found instead of the player.
+    bool animation_targets(std::uint64_t tree, node_handle node) {
+        if (tree == animation_tree && node.value == animation_placement) {
+            return true;
+        }
+        ++animation_wrong_nodes;
+        return false;
+    }
+
+    // ABI 35/46: the fake animation player, over the counters declared beside the other fixtures.
+    script_status get_animation_state(std::uint64_t tree, node_handle node, animation_state* out) {
         ++animation_queries;
         if (out == nullptr) {
             return script_status::invalid_argument;
+        }
+        if (!animation_targets(tree, node)) {
+            return script_status::scene_not_found;
         }
         if (!animation_available) {
             return script_status::module_unavailable;
@@ -579,11 +598,14 @@ namespace {
         return script_status::success;
     }
 
-    script_status animation_playable_count(std::uint32_t* count) {
+    script_status animation_playable_count(std::uint64_t tree, node_handle node, std::uint32_t* count) {
         if (count == nullptr) {
             return script_status::invalid_argument;
         }
         *count = 0;
+        if (!animation_targets(tree, node)) {
+            return script_status::scene_not_found;
+        }
         if (!animation_available) {
             return script_status::module_unavailable;
         }
@@ -591,12 +613,16 @@ namespace {
         return script_status::success;
     }
 
-    script_status animation_playable_name(std::uint32_t index, utf8_view* name) {
+    script_status animation_playable_name(std::uint64_t tree, node_handle node, std::uint32_t index,
+                                          utf8_view* name) {
         if (name == nullptr) {
             return script_status::invalid_argument;
         }
         *name = {};
         ++animation_name_queries;
+        if (!animation_targets(tree, node)) {
+            return script_status::scene_not_found;
+        }
         if (!animation_available) {
             return script_status::module_unavailable;
         }
@@ -607,8 +633,11 @@ namespace {
         return script_status::success;
     }
 
-    script_status select_animation(std::uint32_t index) {
+    script_status select_animation(std::uint64_t tree, node_handle node, std::uint32_t index) {
         ++animation_selects;
+        if (!animation_targets(tree, node)) {
+            return script_status::scene_not_found;
+        }
         animation_last_select = index;
         if (!animation_available) {
             return script_status::module_unavailable;
@@ -616,8 +645,11 @@ namespace {
         return index < animation_clip_count ? script_status::success : script_status::invalid_argument;
     }
 
-    script_status set_animation_playing(std::uint8_t playing) {
+    script_status set_animation_playing(std::uint64_t tree, node_handle node, std::uint8_t playing) {
         ++animation_play_requests;
+        if (!animation_targets(tree, node)) {
+            return script_status::scene_not_found;
+        }
         animation_last_playing = playing;
         if (!animation_available) {
             return script_status::module_unavailable;
@@ -625,8 +657,11 @@ namespace {
         return playing <= 1 ? script_status::success : script_status::invalid_argument;
     }
 
-    script_status set_animation_speed(float speed) {
+    script_status set_animation_speed(std::uint64_t tree, node_handle node, float speed) {
         ++animation_speed_requests;
+        if (!animation_targets(tree, node)) {
+            return script_status::scene_not_found;
+        }
         animation_last_speed = speed;
         if (!animation_available) {
             return script_status::module_unavailable;
@@ -634,8 +669,11 @@ namespace {
         return script_status::success;
     }
 
-    script_status set_animation_time(float seconds) {
+    script_status set_animation_time(std::uint64_t tree, node_handle node, float seconds) {
         ++animation_time_requests;
+        if (!animation_targets(tree, node)) {
+            return script_status::scene_not_found;
+        }
         if (!animation_available) {
             return script_status::module_unavailable;
         }

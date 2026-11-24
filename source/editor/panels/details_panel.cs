@@ -39,6 +39,9 @@ namespace deren.editor {
         private const string flags_id = "detail_flags";
         private const string asset_id = "detail_asset";
         private const string pipeline_id = "detail_pipeline";
+        private const string animation_group_id = "animation_details";
+        private const string animation_clip_id = "detail_animation_clip";
+        internal const string animation_autoplay_id = "detail_animation_autoplay";
 
         private readonly rml_document ui;
         private Guid shown = Guid.Empty;
@@ -91,6 +94,30 @@ namespace deren.editor {
             ui.set_text(pipeline_id, node.pipeline ?? "-");
             // The environment row is a select whose entries are the scene's lanes, so it is painted by
             // environment_panel.refresh_node rather than by this text write.
+            refresh_animation(node);
+        }
+
+        /// <summary>
+        /// Paints the animation rows for a placement. The clip list comes from the placement's own
+        /// player - the editor tree binds the asset, so an animated asset already holds its clips -
+        /// and a node without a player (no asset, no motion, a subscene with no animated placement)
+        /// hides the whole group instead of offering a choice that would do nothing.
+        /// </summary>
+        private void refresh_animation(document_node node) {
+            string[] clips = node.runtime.is_valid && (node.asset != null || node.subscene != null)
+                ? animation_player.get_clip_names(node.runtime) : [];
+            ui.try_set_element_style(animation_group_id, "display", clips.Length == 0 ? "none" : "block");
+            if (clips.Length == 0) { return; }
+            var markup = new System.Text.StringBuilder();
+            markup.Append("<option value=\"-1\">(asset default)</option>");
+            for (var index = 0; index < clips.Length; ++index) {
+                markup.Append("<option value=\"").Append(index.ToString(CultureInfo.InvariantCulture))
+                    .Append("\">").Append(System.Net.WebUtility.HtmlEncode(clips[index])).Append("</option>");
+            }
+            ui.try_set_markup(animation_clip_id, markup.ToString());
+            int stored = node.animation_clip >= clips.Length ? -1 : node.animation_clip;
+            ui.set_value(animation_clip_id, stored.ToString(CultureInfo.InvariantCulture));
+            ui.set_text(animation_autoplay_id, node.animation_autoplay ? "Enabled" : "Disabled");
         }
 
         /// <summary>

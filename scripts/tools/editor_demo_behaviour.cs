@@ -198,4 +198,47 @@ namespace editor_demo {
             host_logger.write($"Helmet demo: left {(second_scene ? "Hangar" : "Workshop")}");
         }
     }
+
+    /// Drives ONE placement's own animation player: the placement starts its clip at an authored
+    /// time, so two characters that share an asset and a clip still show different poses. ABI 46
+    /// builds a player per placement, so this script can never steer its neighbour.
+    public sealed class animation_offset_behaviour : script_base {
+        [editor_parameter("Clip")]
+        public int clip;
+
+        [editor_parameter("Start time")]
+        public float start_time = 1.0f;
+
+        [editor_parameter("Play")]
+        public bool play = true;
+
+        private bool started;
+
+        public override void on_create() {
+            // attach() runs again after a scene switch, so the placement gets a fresh player there.
+            started = false;
+        }
+
+        public override void on_update(float delta_time) {
+            if (started || !self.is_alive()) { return; }
+            // THE PLAYER EXISTS ONLY AFTER THE PLACEMENT'S ASSET IMPORTED: the first update can land
+            // before that finishes, so wait a frame instead of failing the scene.
+            if (!animation_player.try_get_info(self, out var info) || !info.available) { return; }
+            started = true;
+            if (clip >= 0 && !animation_player.try_select(self, clip)) {
+                host_logger.write($"Animation demo: character at {position_text()} has no clip {clip}");
+            }
+            if (start_time > 0 && !animation_player.try_seek(self, start_time)) {
+                host_logger.write("Animation demo: cannot seek the character's player");
+            }
+            if (play && !animation_player.try_set_playing(self, true)) {
+                host_logger.write("Animation demo: cannot start the character's player");
+            }
+        }
+
+        private string position_text() {
+            var position = transform.position;
+            return $"{position.x:0.##},{position.y:0.##},{position.z:0.##}";
+        }
+    }
 }

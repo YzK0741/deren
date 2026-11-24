@@ -278,13 +278,14 @@ struct scene_api {
     acquire_radiance_image; // (uint32* width, uint32* height, float* rgba, uint32 float_count)
     reset_temporal_history;
     write_radiance_cube;    // (utf8_view path, uint32 size, float const* pixels, uint32 float_count)
-    get_animation_state;    // (animation_state* value)
-    animation_playable_count;   // (uint32* count)
-    animation_playable_name;    // (uint32 index, utf8_view* name)
-    select_animation;       // (uint32 index)
-    set_animation_playing;  // (uint8 playing)
-    set_animation_speed;    // (float speed)
-    set_animation_time;     // (float seconds)
+    // ABI 46: the animation player is addressed by the scene tree and the PLACEMENT node.
+    get_animation_state;    // (uint64 tree, node_handle node, animation_state* value)
+    animation_playable_count;   // (uint64 tree, node_handle node, uint32* count)
+    animation_playable_name;    // (uint64 tree, node_handle node, uint32 index, utf8_view* name)
+    select_animation;       // (uint64 tree, node_handle node, uint32 index)
+    set_animation_playing;  // (uint64 tree, node_handle node, uint8 playing)
+    set_animation_speed;    // (uint64 tree, node_handle node, float speed)
+    set_animation_time;     // (uint64 tree, node_handle node, float seconds)
     // ABI 38: reading the graph back, world <-> screen, and frame counters.
     node_child_count;       // (uint64 tree, node_handle node, uint32* count)
     node_child;             // (uint64 tree, node_handle node, uint32 index, node_handle* child)
@@ -401,17 +402,26 @@ leaves the pointer null, and the C# wrapper reports `module_unavailable`.
   already drawing, so a cube needs a square window whose side is a power of two in 16..512 and a
   mismatched extent is reported instead of being stretched. An existing output file is never
   overwritten (the writer stages a `.part-<clock>` sibling and renames it).
-- `get_animation_state` reads the snapshot of the host's character animation player: how many clips
-  it holds, which one is selected, whether the clock is running, its time, the clip's looping
-  duration, and the playback multiplier. `animation_playable_name` names one clip; the view borrows
-  the player's storage and stays valid until the player is rebuilt (a scene replacement drops it).
+- The character animation player is per PLACEMENT since ABI 46, so `tree` and `node` address one:
+  the placement's `node_handle` in the scene tree that owns it. Two placements of the same asset
+  import their own copy of the skeleton, so each gets its own player, its own clock, its own clip
+  selection and its own slice of the runtime skin and morph buffers - animating one leaves the other
+  alone. `tree == 0` falls back to the scene that owns the players (the starting scene, else the
+  newest), and `node.value == 0` to that scene's FIRST player, which is what a single-character game
+  that never made a handle needs; ABI 45 and older entries were tree-less and always meant that
+  first player. A node that owns no player (no motion in the bound asset, a full skin buffer, or a
+  node that is not a placement) is `scene_not_found`.
+- `get_animation_state` reads the snapshot of that player: how many clips it holds, which one is
+  selected, whether the clock is running, its time, the clip's looping duration, and the playback
+  multiplier. `animation_playable_name` names one clip; the view borrows the player's storage and
+  stays valid until the player is rebuilt (a scene replacement drops it).
 - `select_animation`, `set_animation_playing`, `set_animation_speed`, and `set_animation_time` are
   the whole command surface. They only QUEUE work for the frame thread, which applies it between
   `pace_and_acquire()` and the recording, so a successful call means "accepted", and the snapshot
-  shows the applied result one frame later. The player itself is built by the host at bind time from
-  the first asset whose manifest names a motion file; managed code never samples a clip, writes a
+  shows the applied result one frame later. The players are built by the host at bind time, one per
+  placement whose asset manifest names a motion file; managed code never samples a clip, writes a
   skin matrix, or uploads a morph delta. Until such an asset is bound every entry reports
-  `module_unavailable`; an out-of-range clip index is `invalid_argument`, as is a negative or
+  `scene_not_found`; an out-of-range clip index is `invalid_argument`, as is a negative or
   non-finite speed (the host clamps 0..16) or a non-finite time. `set_animation_time` scrubs to a
   time and pauses, so a GUI drag does not fight the advancing clock; a time outside the clip is
   clamped.
@@ -605,19 +615,26 @@ window again); `frame_diagnostics.frame_counters` carries the render extent, the
 timing interval count and whether timing is available; `gpu_timing_text` copies the renderer's table
 into a managed string rather than handing out the borrowed view.
 
-The character animation player is global to the scene, and the game only drives it:
+The character animation player is per placement, and the game only drives it; every entry takes
+the placement's `node_id`, and a default handle addresses the scene's first player:
 
 ```csharp
-bool animation_player.try_get_info(out animation_player.animation_info value);   // available, clip_count, current_clip,
-                                                          // has_active, playing, time, duration, speed
-string[] animation_player.get_clip_names();
-bool animation_player.try_get_clip_name(int index, out string? name);
-bool animation_player.try_play();
-bool animation_player.try_pause();
-bool animation_player.try_select(int index);
-bool animation_player.try_set_speed(float speed);
-bool animation_player.try_seek(float seconds);                   // scrub and pause
+bool animation_player.try_get_info(node_id node, out animation_player.animation_info value);
+                                                    // available, clip_count, current_clip,
+                                                    // has_active, playing, time, duration, speed
+string[] animation_player.get_clip_names(node_id node);
+bool animation_player.try_get_clip_name(node_id node, int index, out string? name);
+bool animation_player.try_play(node_id node);
+bool animation_player.try_pause(node_id node);
+bool animation_player.try_select(node_id node, int index);
+bool animation_player.try_set_speed(node_id node, float speed);
+bool animation_player.try_seek(node_id node, float seconds);     // scrub and pause
 ```
+
+Each of those also has a no-`node` overload that addresses the scene's first player, so a
+single-character game that holds no handle writes `animation_player.try_select(0)`. Passing a handle
+that owns no player (a node that is not a placement, an asset with no motion, an asset the skin
+buffer had no room for) fails with `script_status.scene_not_found`.
 
 The post-processing knobs are global too:
 
@@ -1012,7 +1029,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 45. ABI 44 adds the vertical field of view to the orbit camera pose. A zero FOV on a camera setter keeps the active lens. ABI 45 publishes the capsule collision kernel as optional module id 9 (`collision`) and lists its five payload records in `abi_layout`; the core table is unchanged.
+- One global `managed_abi_version`, currently 46. ABI 44 adds the vertical field of view to the orbit camera pose. A zero FOV on a camera setter keeps the active lens. ABI 45 publishes the capsule collision kernel as optional module id 9 (`collision`) and lists its five payload records in `abi_layout`; the core table is unchanged. ABI 46 addresses the character animation player by the scene tree and the placement node, so the seven animation entries of `scene_api` each gained a leading `(uint64 tree, node_handle node)`; the core table's layout is otherwise unchanged, and a `0` tree / `0` node still means the scene's first player.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -1223,6 +1240,13 @@ Status values are returned through the ABI; no exception crosses the native boun
   editor's viewport needs. `native_module::node_bounds` resolves to a two-entry table and, being a
   new optional module, changes nothing in the core layout or in `managed_abi_version` - see "Node
   bounds module" below.
+- v46 made the character animation player per placement: `get_animation_state`, `animation_playable_count`,
+  `animation_playable_name`, `select_animation`, `set_animation_playing`, `set_animation_speed` and
+  `set_animation_time` each take a leading `(uint64 tree, node_handle node)`, the host keeps one player
+  per animated PLACEMENT (its own clip, clock, speed, skin-matrix block and morph region), and a node
+  that owns no player answers `scene_not_found`. The tree-less ABI 45 call shape is still reachable by
+  passing `0, 0`, which resolves to the scene's first player, so a single-character game needs no
+  change; a host that exposes no `scene_api` unchanged, and no record grew.
 - v45 published the collision kernel as module id 9 (`collision`): a world of world-space boxes plus
   `sweep_capsule`, `move_capsule` and `find_floor`. The core table is untouched, but the module passes
   five records by pointer, so `collision_box_desc`, `collision_capsule_desc`, `collision_hit_desc`,
