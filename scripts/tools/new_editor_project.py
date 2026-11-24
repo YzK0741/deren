@@ -49,35 +49,54 @@ def write_demo(root: Path, managed_api: Path) -> None:
 
 
 def write_scene(path: Path, name: str, asset: str | None = None, second_scene: bool = False) -> None:
-    version = 10 if asset else 3
+    version = 11 if asset else 3
     content = f'[document]\nversion = {version}\nname = {quote(name)}\n\n[[node]]\nuid = "{uuid4()}"\n'
     if asset is None:
         content += 'name = "root"\n'
     else:
         sound_uid = uuid4()
+        door_uid = uuid4()
         content += (
             f'name = "Helmet"\nasset = {quote(asset)}\n'
             'script = "HelmetDemo.dll:editor_demo.helmet_behaviour"\n'
             f'script_parameter."second_scene" = "{second_scene}"\n'
             f'script_parameter."sound" = "{sound_uid}"\n'
+            f'script_parameter."door" = "{door_uid}"\n'
             'trigger_target = true\nposition = [0, 0, 0.55]\n'
             f'\n[[node]]\nuid = "{uuid4()}"\nname = "Door Trigger"\n'
-            'position = [0.53, -0.65, 0]\nscale = [0.24, 2.4, 0.34]\n'
+            # Tall enough to meet a capsule character: the demo capsule is 0.9 + 0.3 around its origin, so
+            # the character centre stands 1.2 above whatever it stands on. The box spans y -3.65..2.35.
+            'position = [0.53, -0.65, 0]\nscale = [0.24, 6.0, 0.34]\n'
             'script = "HelmetDemo.dll:editor_demo.door_trigger_behaviour"\nbox_trigger = true\n'
             f'script_parameter."second_scene" = "{second_scene}"\n'
             f'script_parameter."sound" = "{sound_uid}"\n'
             f'\n[[node]]\nuid = "{sound_uid}"\nname = "Door Audio"\n'
             'audio_file = "audio/tone.wav"\naudio_volume = 0.7\naudio_loop = false\n'
         )
-        for wall, position, scale in (
-            ("Door Wall North", [0.32, -0.55, 0.785], [0.06, 2.4, 1.13]),
-            ("Door Wall South", [0.32, -0.55, -0.785], [0.06, 2.4, 1.13]),
-            ("Workshop Obstacle", [-0.42, -0.55, 0.30], [0.14, 2.4, 0.32]),
+        # The demo floor, the start platform and the walls double as visible geometry: their block
+        # asset has the scale of their collision box, so a player can see the passage, the obstacle
+        # and the floor the character stands on instead of walking into invisible walls.
+        for wall, position, scale, extra in (
+            ("Workshop Floor", [0, -1.85, 0], [6, 0.2, 6], ""),
+            ("Start Platform", [-0.05, -0.22, 0.05], [1.0, 0.2, 1.2], ""),
+            ("Door Wall North", [0.32, -0.55, 1.015], [0.06, 2.4, 1.13], ""),
+            ("Door Wall South", [0.32, -0.55, -1.015], [0.06, 2.4, 1.13], ""),
+            ("Workshop Obstacle", [-0.42, -0.55, 0.30], [0.14, 2.4, 0.32], ""),
         ):
             content += (
                 f'\n[[node]]\nuid = "{uuid4()}"\nname = {quote(wall)}\n'
-                f'position = {json.dumps(position)}\nscale = {json.dumps(scale)}\ncollision_box = true\n'
+                f'asset = "block"\nposition = {json.dumps(position)}\nscale = {json.dumps(scale)}\n'
+                f'collision_box = true\n{extra}'
             )
+        # The door fills the gap between the two door walls. It is a moving solid, so the collision
+        # follows the node when the demo behaviour lifts it, and the same opening changes from blocked
+        # to passable without touching the walls. The gap is 0.9 across so the 0.3-radius character
+        # capsule fits through with room to spare, while the closed door still fills it exactly.
+        content += (
+            f'\n[[node]]\nuid = "{door_uid}"\nname = "Workshop Door"\n'
+            'asset = "block"\nposition = [0.32, -0.55, 0]\nscale = [0.06, 2.4, 0.90]\n'
+            'collision_box = true\nmoving_solid = true\n'
+        )
     path.write_text(content, encoding="utf-8")
 
 
@@ -112,7 +131,7 @@ def create_project(root: Path, assembly: Path, assets: Path | None, name: str, d
     else:
         write_scene(scene, name)
     actions = (
-        '\n[input.actions]\nplay_tone = ["space"]\nnext_scene = ["enter"]\n'
+        '\n[input.actions]\nplay_tone = ["space"]\nnext_scene = ["enter"]\ninteract = ["e"]\n'
         'move_right = ["d"]\nmove_left = ["a"]\nmove_forward = ["w"]\nmove_back = ["s"]\n'
         if demo else ''
     )

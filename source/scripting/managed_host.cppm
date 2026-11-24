@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 44;
+    inline constexpr std::uint32_t managed_abi_version = 45;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -478,6 +478,112 @@ export namespace deren::scripting {
         script_status (*window_close)() = nullptr;
         script_status (*window_begin_drag)() = nullptr;
     };
+    // ONE BOX OF THE COLLISION WORLD (ABI 45). The box is stored in WORLD space: centre, one unit axis
+    // per local direction and the world half extents along them. The kernel works in world space on
+    // purpose - a rotated or non-uniformly scaled document node would turn a capsule into an ellipsoid
+    // in the node's own frame, so the host never sees box-space shapes. `id` is the caller's number and
+    // is reported back unchanged; `enabled` 0 keeps the box in the set but out of every query, so a
+    // caller can toggle a door without rebuilding the world.
+    struct collision_box_desc {
+        float center[3] = {0.0F, 0.0F, 0.0F};
+        float half[3] = {0.5F, 0.5F, 0.5F};
+        float axis[9] = {1.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 1.0F};
+        std::uint32_t id = 0;
+        std::uint8_t enabled = 1;
+        std::uint8_t padding[3] = {0, 0, 0};
+    };
+
+    static_assert(sizeof(collision_box_desc) == 68);
+
+    // THE SWEPT SHAPE (ABI 45): a capsule is the segment lower..upper dilated by `radius`; a sphere is
+    // lower == upper. `padding` keeps the size a multiple of 8 so the mirror stays trivially checkable.
+    struct collision_capsule_desc {
+        float lower[3] = {0.0F, 0.0F, 0.0F};
+        float upper[3] = {0.0F, 1.0F, 0.0F};
+        float radius = 0.3F;
+        float padding = 0.0F;
+    };
+
+    static_assert(sizeof(collision_capsule_desc) == 32);
+
+    // ONE SWEEP'S RESULT (ABI 45). time is the fraction of the requested displacement travelled before
+    // the first contact (1 when nothing was hit, 0 when the start already overlaps); point is the closest
+    // point on the box at that time, normal the contact direction to separate along, depth how far the
+    // start was already inside (positive only when time == 0), and id the collider that answered.
+    struct collision_hit_desc {
+        std::uint8_t hit = 0;
+        std::uint8_t padding[3] = {0, 0, 0};
+        float time = 1.0F;
+        float point[3] = {0.0F, 0.0F, 0.0F};
+        float normal[3] = {0.0F, 1.0F, 0.0F};
+        float depth = 0.0F;
+        std::uint32_t id = 0;
+    };
+
+    static_assert(sizeof(collision_hit_desc) == 40);
+
+    // ONE SLIDE'S RESULT (ABI 45): the displacement actually travelled (shorter than requested when a
+    // contact blocked it), the last contact normal, its id, how many contacts the loop used, whether
+    // anything blocked it, and whether a contact surface was walkable (grounded).
+    struct collision_move_desc {
+        float displacement[3] = {0.0F, 0.0F, 0.0F};
+        float normal[3] = {0.0F, 1.0F, 0.0F};
+        std::uint32_t id = 0;
+        std::int32_t contacts = 0;
+        std::uint8_t blocked = 0;
+        std::uint8_t grounded = 0;
+        std::uint8_t padding[2] = {0, 0};
+    };
+
+    static_assert(sizeof(collision_move_desc) == 36);
+
+    // ONE FLOOR PROBE (ABI 45): hit is 1 when a box was met within the requested distance; distance is
+    // measured from the capsule's LOWEST point along the probe (so it already excludes the radius),
+    // point and normal describe the contact, walkable applies the host's floor-angle threshold, and id
+    // names the box.
+    struct collision_floor_desc {
+        std::uint8_t hit = 0;
+        std::uint8_t walkable = 0;
+        std::uint8_t padding[2] = {0, 0};
+        float distance = 0.0F;
+        float point[3] = {0.0F, 0.0F, 0.0F};
+        float normal[3] = {0.0F, 1.0F, 0.0F};
+        std::uint32_t id = 0;
+    };
+
+    static_assert(sizeof(collision_floor_desc) == 36);
+
+    // THE COLLISION WORLD (ABI 45). Managed code owns the policy - which boxes exist, how the capsule is
+    // tuned, substepping, step-up and floor snapping - and the host owns only this set plus the kernel
+    // calls. A world belongs to the active scene: after the scene changes, the managed side rebuilds it.
+    // Every function answers scene_not_found when no scene is active and invalid_argument for a null
+    // pointer, a non-finite value, a non-positive half extent, axes that are not unit length, or more
+    // boxes than the world accepts.
+    struct collision_api {
+        // Removes every box. Called before a rebuild, not per frame.
+        script_status (*world_reset)() = nullptr;
+        // Adds a box, or replaces the one with the same id (a moving solid updates its box instead of
+        // rebuilding the world). `descriptor` is borrowed for the call.
+        script_status (*add_box)(collision_box_desc const* descriptor) = nullptr;
+        // Removes the box with @p id; removing an id that is not there is success (a rebuild may race
+        // the removal of a box it already dropped).
+        script_status (*remove_box)(std::uint32_t id) = nullptr;
+        // Sweeps the capsule by @p displacement (a 3-float array, borrowed). The answer is success with
+        // `hit == 0` when nothing was in the way, so a caller does not have to treat a clear path as an
+        // error.
+        script_status (*sweep_capsule)(collision_capsule_desc const* capsule, float const* displacement,
+                                       collision_hit_desc* out_hit) = nullptr;
+        // Sweeps, slides along what it hits and reports the total displacement. @p walkable_normal_y is
+        // the minimum upward normal component that counts as ground (0.71 is 45 degrees-ish, matching
+        // the engine default).
+        script_status (*move_capsule)(collision_capsule_desc const* capsule, float const* displacement,
+                                      float walkable_normal_y, collision_move_desc* out_move) = nullptr;
+        // Probes downwards for the nearest box within @p max_distance and answers whether its normal is
+        // walkable. `hit == 0` means nothing was within reach (an edge or the air).
+        script_status (*find_floor)(collision_capsule_desc const* capsule, float max_distance,
+                                    float walkable_normal_y, collision_floor_desc* out_floor) = nullptr;
+    };
+
     // ONE FRAME'S PANEL CONTENT (ABI 31). The managed game describes its debug panel every frame and the
     // host turns each call into the overlay plugin's widget. Every pointer is borrowed until the frame is
     // presented and points at the caller's own storage, so a control edits the game's state directly and
@@ -552,7 +658,13 @@ export namespace deren::scripting {
         diagnostic_counters = 12,
         toon_rig_desc = 13,
         // ABI 42: the pointer-event payload of the rml_ui table (28 bytes).
-        rml_ui_event = 14
+        rml_ui_event = 14,
+        // ABI 45: the collision module's payloads (see collision_api).
+        collision_box_desc = 15,
+        collision_capsule_desc = 16,
+        collision_hit_desc = 17,
+        collision_move_desc = 18,
+        collision_floor_desc = 19
     };
 
     struct abi_layout_entry {
@@ -573,7 +685,10 @@ export namespace deren::scripting {
         asset_authoring = 7,
         // ABI 43: module 7 plus the environment-map picker. Appended under its own id rather than grown
         // in place so a Game.dll built against module 7 keeps working: it never asks for this table.
-        asset_authoring_extended = 8
+        asset_authoring_extended = 8,
+        // ABI 45: the capsule collision world. The kernel (deren.engine.collision) is stateless, so the
+        // host owns the box set and the managed side rebuilds it whenever its collision inputs change.
+        collision = 9
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.

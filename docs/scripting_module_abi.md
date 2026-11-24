@@ -1012,7 +1012,7 @@ Status values are returned through the ABI; no exception crosses the native boun
 
 ## 8. Layout and versioning
 
-- One global `managed_abi_version`, currently 44. ABI 44 adds the vertical field of view to the orbit camera pose. A zero FOV on a camera setter keeps the active lens.
+- One global `managed_abi_version`, currently 45. ABI 44 adds the vertical field of view to the orbit camera pose. A zero FOV on a camera setter keeps the active lens. ABI 45 publishes the capsule collision kernel as optional module id 9 (`collision`) and lists its five payload records in `abi_layout`; the core table is unchanged.
 - No `context` parameter and no per-module version.
 - One version means one exact layout, and since v33 the layout is checked as well: the host
   publishes `{type, sizeof}` for every struct both sides share through `native_api.abi_layout`,
@@ -1223,6 +1223,13 @@ Status values are returned through the ABI; no exception crosses the native boun
   editor's viewport needs. `native_module::node_bounds` resolves to a two-entry table and, being a
   new optional module, changes nothing in the core layout or in `managed_abi_version` - see "Node
   bounds module" below.
+- v45 published the collision kernel as module id 9 (`collision`): a world of world-space boxes plus
+  `sweep_capsule`, `move_capsule` and `find_floor`. The core table is untouched, but the module passes
+  five records by pointer, so `collision_box_desc`, `collision_capsule_desc`, `collision_hit_desc`,
+  `collision_move_desc` and `collision_floor_desc` joined `abi_layout` and the global version moved
+  with them - a resized record must not be read through an older build. The policy around the kernel
+  (which boxes a document produces, capsule tuning, substepping, step-up, floor snapping) stays in
+  managed code and is not part of this ABI.
 
 ## Audio module
 
@@ -1435,3 +1442,59 @@ path lifetime as the picker. The editor checks the table size before using it.
 A further optional entry returns the scanned display name (selector 0) or
 resolved motion path (selector 1) for an asset ID. The result is borrowed and
 the editor copies it immediately. This extends the optional table by size.
+
+## Collision module
+
+Optional native module id 9 (`collision`) exposes the capsule collision kernel. It exists so the
+editor's Play mode and the exported game can share one swept-capsule solver instead of the managed
+side approximating one with point sweeps: the native side owns the geometry, managed code owns every
+policy decision around it.
+
+The table is six entries, in this order, and is published all-or-nothing - the caller compares the
+returned byte size with its own layout before calling any of them:
+
+| Entry | Arguments after the implicit function name | Result |
+| --- | --- | --- |
+| `world_reset` | (none) | Removes every box |
+| `add_box` | `collision_box_desc const*` | Adds the box, or replaces the one with the same id |
+| `remove_box` | `uint32_t` id | Removes that box; a missing id is `success` |
+| `sweep_capsule` | `collision_capsule_desc const*`, `float const*` displacement, `collision_hit_desc*` out | First contact along the sweep |
+| `move_capsule` | capsule, displacement, `float` walkable normal y, `collision_move_desc*` out | Slide, then report where it stopped |
+| `find_floor` | capsule, `float` max distance, `float` walkable normal y, `collision_floor_desc*` out | Downward probe |
+
+The payload records are listed in `abi_layout` (section 8): `collision_box_desc` (68 bytes),
+`collision_capsule_desc` (32), `collision_hit_desc` (40), `collision_move_desc` (36) and
+`collision_floor_desc` (36).
+
+## Walls and floors are boxes in world space
+
+A box is a centre, the half extent along each of three unit axes, a caller-chosen id and an
+`enabled` byte; a disabled box takes part in no query, which is how a hidden solid stops blocking.
+Everything is WORLD space. A document node's own scaled unit cube is not used because a rotated or
+non-uniformly scaled node would turn a capsule into an ellipsoid in the node's frame: the managed
+side builds the world matrix and hands over the three axes and the extents.
+
+The swept shape is a capsule: the segment `lower`..`upper` dilated by `radius`. Equal ends make a
+sphere. `sweep_capsule` answers the fraction of the requested displacement travelled before the first
+contact (1 for a clear path, 0 when the start already overlaps), the contact point on the box, the
+normal pointing from the box toward the capsule, the overlap depth, and the id of the box that
+answered. `move_capsule` is the character-walking loop: advance to the first impact, project the rest
+of the displacement onto the contact plane, use the cross product of two distinct normals at a corner,
+and depenetrate along the normal when the start was already inside. It answers the displacement
+actually travelled, the last contact normal and id, the number of contacts resolved, `blocked`
+(including a start overlap) and `grounded` (the last normal was walkable). `find_floor` probes
+straight down and answers the hit, the distance from the capsule's lowest point along the probe
+(already excluding the radius), the contact and whether the normal was walkable.
+
+Walkable means `normal.y` at or above the caller's threshold; the kernel default is `0.71`
+(about 44.8 degrees). Error cases are `invalid_argument` for a null pointer, a non-finite value, a
+non-positive half extent, a non-unit axis, a radius that is not positive and an out-of-range
+threshold, and `scene_not_found` when no scene owns the world. A clear path is `success` with
+`hit == 0`, so a caller does not treat "nothing there" as an error.
+
+C# exposes this as `deren.collision_world` with `reset`, `add_box`, `remove_box`, `sweep`, `move` and
+`find_floor`, plus the `collision_capsule`, `collision_box`, `capsule_hit`, `capsule_move` and
+`capsule_floor` records and `default_walkable_floor_normal_y`. Each call has an overload with an
+`out script_status` for the case a bool is not enough, and a session on a host without the module
+answers `module_unavailable` instead of throwing. The module id alone does not change
+`managed_abi_version`; ABI 45 moved the version for the new payload records.

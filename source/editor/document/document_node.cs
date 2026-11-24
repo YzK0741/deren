@@ -70,6 +70,12 @@ internal sealed class document_node
     internal point_light_component? light;
     internal audio_source_component? audio_source;
     internal bool collision_box;
+    /// <summary>
+    /// True when the solid box follows this node's world transform instead of the transform it had
+    /// when the scene loaded. Moving solids cost one matrix rebuild per sweep; static ones reuse the
+    /// inverse captured at load.
+    /// </summary>
+    internal bool moving_solid;
     internal bool box_trigger;
     internal bool trigger_target;
     internal bool camera;

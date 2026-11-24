@@ -8,6 +8,7 @@ import deren.vstd;
 import deren.scripting.audio_host;
 import deren.app.toon;
 import deren.asset_library;
+import deren.engine.collision;
 import deren.engine.primitive;
 import deren.engine.render_layout;
 import deren.gaussian_loader;
@@ -460,6 +461,9 @@ namespace deren::app {
         tree = nullptr;
         tree_id = 0;
         asset_binder = binder;
+        // ABI 45: boxes name colliders by the managed side's own ids, so a fresh scene starts empty; a
+        // stale box left from the previous scene would answer sweeps the new document never authored.
+        collision_boxes.clear();
         // Every failure below must leave the scene as it found it: the editor retries play() after a
         // rejected game, and a half-installed host plus the owned audio session made that retry fail
         // with "an audio scripting session is already active" for a session that no longer exists.
@@ -1550,6 +1554,20 @@ namespace deren::app {
             *byte_size = sizeof(extended);
             return scripting::script_status::success;
         }
+        if (module == static_cast<std::uint32_t>(scripting::native_module::collision)) {
+            // ABI 45: the whole table, or nothing. The entries are positional, so a partial table would
+            // bind a caller to the wrong function; a host without the kernel answers module_unavailable.
+            static scripting::collision_api const collision_api{
+                .world_reset = collision_world_reset,
+                .add_box = collision_add_box,
+                .remove_box = collision_remove_box,
+                .sweep_capsule = collision_sweep_capsule,
+                .move_capsule = collision_move_capsule,
+                .find_floor = collision_find_floor};
+            *table = &collision_api;
+            *byte_size = sizeof(collision_api);
+            return scripting::script_status::success;
+        }
         constexpr auto rml_ui = static_cast<std::uint32_t>(scripting::native_module::rml_ui);
         constexpr auto rml_ui_extended = static_cast<std::uint32_t>(scripting::native_module::rml_ui_extended);
         if (module == rml_ui || module == rml_ui_extended) {
@@ -1692,6 +1710,13 @@ namespace deren::app {
             // ABI 42: the rml_ui table's pointer-event payload. The table itself is checked where the
             // managed side installs it, like scene_api and ui_api.
             {.type = abi_type::rml_ui_event, .size = sizeof(scripting::rml_ui_event)},
+            // ABI 45: the collision module's payloads. The table itself is checked where the managed side
+            // installs it, like scene_api and ui_api.
+            {.type = abi_type::collision_box_desc, .size = sizeof(scripting::collision_box_desc)},
+            {.type = abi_type::collision_capsule_desc, .size = sizeof(scripting::collision_capsule_desc)},
+            {.type = abi_type::collision_hit_desc, .size = sizeof(scripting::collision_hit_desc)},
+            {.type = abi_type::collision_move_desc, .size = sizeof(scripting::collision_move_desc)},
+            {.type = abi_type::collision_floor_desc, .size = sizeof(scripting::collision_floor_desc)},
         };
         constexpr auto count = static_cast<std::uint32_t>(std::size(entries));
         if (out == nullptr || capacity < count) {
@@ -1700,6 +1725,166 @@ namespace deren::app {
         for (std::uint32_t index = 0; index < count; ++index) {
             out[index] = entries[index];
         }
+        return scripting::script_status::success;
+    }
+
+    namespace {
+        // A world is rebuilt from a document, not streamed, so the cap only has to be generous enough for
+        // a large level and small enough that a runaway caller is an error instead of unbounded memory.
+        inline constexpr std::size_t collision_box_capacity = 65536;
+
+        bool is_finite3(float const* value) {
+            return std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
+        }
+
+        bool is_unit(float const* axis) {
+            auto const length = std::sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+            return std::isfinite(length) && std::abs(length - 1.0F) <= 1.0e-3F;
+        }
+
+        bool is_valid_capsule(scripting::collision_capsule_desc const& capsule) {
+            return is_finite3(capsule.lower) && is_finite3(capsule.upper) && std::isfinite(capsule.radius) &&
+                   capsule.radius > 0.0F;
+        }
+
+        engine::collision::capsule to_capsule(scripting::collision_capsule_desc const& capsule) {
+            return {.lower = {capsule.lower[0], capsule.lower[1], capsule.lower[2]},
+                    .upper = {capsule.upper[0], capsule.upper[1], capsule.upper[2]},
+                    .radius = capsule.radius};
+        }
+
+        engine::collision::obb to_obb(scripting::collision_box_desc const& descriptor) {
+            return {.center = {descriptor.center[0], descriptor.center[1], descriptor.center[2]},
+                    .axis_x = {descriptor.axis[0], descriptor.axis[1], descriptor.axis[2]},
+                    .axis_y = {descriptor.axis[3], descriptor.axis[4], descriptor.axis[5]},
+                    .axis_z = {descriptor.axis[6], descriptor.axis[7], descriptor.axis[8]},
+                    .half = {descriptor.half[0], descriptor.half[1], descriptor.half[2]},
+                    .id = descriptor.id,
+                    .enabled = descriptor.enabled != 0};
+        }
+
+        bool is_walkable_threshold(float const value) {
+            return std::isfinite(value) && value >= -1.0F && value <= 1.0F;
+        }
+    } // namespace
+
+    scripting::script_status script_scene::collision_world_reset() {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        owner->collision_boxes.clear();
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::collision_add_box(scripting::collision_box_desc const* const descriptor) {
+        if (descriptor == nullptr || !is_finite3(descriptor->center) || !is_finite3(descriptor->half) ||
+            descriptor->enabled > 1U || !is_unit(descriptor->axis) || !is_unit(descriptor->axis + 3) ||
+            !is_unit(descriptor->axis + 6)) {
+            return scripting::script_status::invalid_argument;
+        }
+        for (float const extent : descriptor->half) {
+            if (!std::isfinite(extent) || extent <= 0.0F) {
+                return scripting::script_status::invalid_argument;
+            }
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        // A moving solid updates its own box rather than rebuilding the world, so a repeated id replaces
+        // the stored box. Ids are the caller's, not indices: a replacement must not shift its neighbours.
+        for (auto& box : owner->collision_boxes) {
+            if (box.id == descriptor->id) {
+                box = to_obb(*descriptor);
+                return scripting::script_status::success;
+            }
+        }
+        if (owner->collision_boxes.size() >= collision_box_capacity) {
+            return scripting::script_status::invalid_argument;
+        }
+        owner->collision_boxes.push_back(to_obb(*descriptor));
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::collision_remove_box(std::uint32_t const id) {
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        std::erase_if(owner->collision_boxes, [id](engine::collision::obb const& box) { return box.id == id; });
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::collision_sweep_capsule(
+        scripting::collision_capsule_desc const* const capsule, float const* const displacement,
+        scripting::collision_hit_desc* const out_hit) {
+        if (capsule == nullptr || displacement == nullptr || out_hit == nullptr || !is_valid_capsule(*capsule) ||
+            !is_finite3(displacement)) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto const hit = engine::collision::sweep_capsule(owner->collision_boxes.data(), owner->collision_boxes.size(),
+                                                          to_capsule(*capsule),
+                                                          {displacement[0], displacement[1], displacement[2]});
+        *out_hit = {.hit = static_cast<std::uint8_t>(hit.hit ? 1 : 0),
+                    .padding = {0, 0, 0},
+                    .time = hit.time,
+                    .point = {hit.point.x, hit.point.y, hit.point.z},
+                    .normal = {hit.normal.x, hit.normal.y, hit.normal.z},
+                    .depth = hit.depth,
+                    .id = hit.id};
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::collision_move_capsule(
+        scripting::collision_capsule_desc const* const capsule, float const* const displacement,
+        float const walkable_normal_y, scripting::collision_move_desc* const out_move) {
+        if (capsule == nullptr || displacement == nullptr || out_move == nullptr || !is_valid_capsule(*capsule) ||
+            !is_finite3(displacement) || !is_walkable_threshold(walkable_normal_y)) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto const moved = engine::collision::move_capsule(owner->collision_boxes.data(),
+                                                           owner->collision_boxes.size(), to_capsule(*capsule),
+                                                           {displacement[0], displacement[1], displacement[2]},
+                                                           walkable_normal_y);
+        *out_move = {.displacement = {moved.displacement.x, moved.displacement.y, moved.displacement.z},
+                     .normal = {moved.normal.x, moved.normal.y, moved.normal.z},
+                     .id = moved.id,
+                     .contacts = moved.contacts,
+                     .blocked = static_cast<std::uint8_t>(moved.blocked ? 1 : 0),
+                     .grounded = static_cast<std::uint8_t>(moved.grounded ? 1 : 0),
+                     .padding = {0, 0}};
+        return scripting::script_status::success;
+    }
+
+    scripting::script_status script_scene::collision_find_floor(
+        scripting::collision_capsule_desc const* const capsule, float const max_distance, float const walkable_normal_y,
+        scripting::collision_floor_desc* const out_floor) {
+        if (capsule == nullptr || out_floor == nullptr || !is_valid_capsule(*capsule) || !std::isfinite(max_distance) ||
+            max_distance < 0.0F || !is_walkable_threshold(walkable_normal_y)) {
+            return scripting::script_status::invalid_argument;
+        }
+        script_scene* const owner = current_owner();
+        if (owner == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        auto const floor = engine::collision::find_floor(owner->collision_boxes.data(), owner->collision_boxes.size(),
+                                                         to_capsule(*capsule), max_distance, walkable_normal_y);
+        *out_floor = {.hit = static_cast<std::uint8_t>(floor.hit ? 1 : 0),
+                      .walkable = static_cast<std::uint8_t>(floor.walkable ? 1 : 0),
+                      .padding = {0, 0},
+                      .distance = floor.distance,
+                      .point = {floor.point.x, floor.point.y, floor.point.z},
+                      .normal = {floor.normal.x, floor.normal.y, floor.normal.z},
+                      .id = floor.id};
         return scripting::script_status::success;
     }
 

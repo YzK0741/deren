@@ -1,9 +1,17 @@
 using deren.scripting;
 
 namespace deren {
-    public readonly record struct collision_move(vector_3 displacement, bool blocked);
+    /// <summary>The outcome of one <see cref="scene_access.try_move"/> call.
+    /// <paramref name="displacement"/> is what the sweep actually applied, <paramref name="blocked"/> is set
+    /// when a surface stopped part of the move, <paramref name="normal"/> is the surface of the last blocked
+    /// step (zero when nothing was hit), and <paramref name="grounded"/> is set when a blocked step ran into
+    /// ground a character could stand on. A downward probe therefore reports a landing, while a downward
+    /// probe with no contact means the node is standing over an edge or in the air.</summary>
+    public readonly record struct collision_move(vector_3 displacement, bool blocked, vector_3 normal, bool grounded);
 
-    internal delegate bool collision_move_handler(node_id node, vector_3 displacement, float radius, out collision_move result);
+    internal delegate bool collision_move_handler(node_id node, vector_3 displacement, float radius,
+                                                  float half_height, float step_height, float delta_time,
+                                                  out collision_move result);
 
     public readonly struct scene_access {
         private readonly script_base? owner;
@@ -29,13 +37,22 @@ namespace deren {
             return owner.stop_audio_source?.Invoke(source) == true;
         }
 
-        /// <summary>Moves an authored node by a world-space displacement, sweeping its origin
-        /// against the scene's static boxes. Radius adds a world-space clearance around the origin.</summary>
-        public bool try_move(node_id node, vector_3 displacement, out collision_move result, float radius = 0) {
+        /// <summary>Moves an authored node by a world-space displacement, sliding it along the scene's solid
+        /// boxes. Radius and half_height describe the character capsule: the swept shape is the vertical
+        /// segment of that half height through the node's origin, dilated by the radius. A step_height above
+        /// zero lets the move rise onto a kerb instead of stopping. The result reports the applied
+        /// displacement, the last blocking surface normal, and whether the move ended against ground a
+        /// character could stand on: a downward probe that lands reports grounded, and one that finds nothing
+        /// means the node walked off an edge. Delta time is optional: when it is passed the move is split
+        /// into slices of game time (Unreal's MaxSimulationTimeStep, 0.05 s), so a slow frame is walked in
+        /// several steps instead of one long jump; without it the slices are sized from the radius.</summary>
+        public bool try_move(node_id node, vector_3 displacement, out collision_move result, float radius = 0,
+                             float half_height = 0, float step_height = 0, float delta_time = 0) {
             result = default;
             if (owner == null || !node.is_valid) { return false; }
             owner.ensure_bound();
-            return owner.move_with_collision?.Invoke(node, displacement, radius, out result) == true;
+            return owner.move_with_collision?.Invoke(node, displacement, radius, half_height, step_height,
+                                                     delta_time, out result) == true;
         }
 
         public unsafe bool try_spawn(string asset_id, transform_value pose, out node_id target) {

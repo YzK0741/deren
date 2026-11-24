@@ -22,10 +22,12 @@ namespace deren.editor;
 internal static class document_io
 {
     /// <summary>
-    /// The file format version this writer speaks: 5 adds point lights. Version 4 added environment lanes and the
-    /// per-node lane index.
+    /// The file format version this writer speaks: 11 adds moving solids. Version 10 added static collision
+    /// boxes. Version 5 adds point lights. Version 4 added environment lanes and the per-node lane index.
     /// </summary>
-    private const int format_version = 10;
+    private const int format_version = 11;
+    private const int moving_solid_format_version = 11;
+    private const int collision_format_version = 10;
     private const int audio_format_version = 9;
     private const int trigger_format_version = 8;
     private const int instance_format_version = 7;
@@ -418,6 +420,7 @@ internal static class document_io
                 text.Append("    audio_loop = ").Append(source.loop ? "true" : "false").Append((char)10);
             }
             if (node.collision_box) { text.Append("    collision_box = true\n"); }
+            if (node.moving_solid) { text.Append("    moving_solid = true\n"); }
             if (node.box_trigger) { text.Append("    box_trigger = true\n"); }
             if (node.trigger_target) { text.Append("    trigger_target = true\n"); }
             if (node.light is { } light) {
@@ -507,6 +510,7 @@ internal static class document_io
             audio_source = builder.audio_file != null
                 ? new audio_source_component(builder.audio_file, builder.audio_volume, builder.audio_loop) : null,
             collision_box = builder.collision_box,
+            moving_solid = builder.moving_solid,
             box_trigger = builder.box_trigger,
             trigger_target = builder.trigger_target,
             camera = builder.camera,
@@ -637,6 +641,9 @@ internal static class document_io
         }
         if (key == "collision_box") {
             return parse_bool(value, path, number, out builder.collision_box, out error);
+        }
+        if (key == "moving_solid") {
+            return parse_bool(value, path, number, out builder.moving_solid, out error);
         }
         if (key == "box_trigger") {
             return parse_bool(value, path, number, out builder.box_trigger, out error);
@@ -1016,8 +1023,12 @@ internal static class document_io
                 error = path + ": audio sources need document version 9";
                 return false;
             }
-            if (node.collision_box && version < format_version) {
+            if (node.collision_box && version < collision_format_version) {
                 error = path + ": collision boxes need document version 10";
+                return false;
+            }
+            if (node.moving_solid && version < moving_solid_format_version) {
+                error = path + ": moving solids need document version 11";
                 return false;
             }
             if (!validate_versioned_nodes(node.children, version, path, out error)) { return false; }
@@ -1064,6 +1075,7 @@ internal static class document_io
         internal float audio_volume = 1;
         internal bool audio_loop;
         internal bool collision_box;
+        internal bool moving_solid;
         internal bool box_trigger;
         internal bool trigger_target;
         internal bool camera;

@@ -22,6 +22,7 @@ target_sources(deren_engine
         source/engine/gaussian_splatting/gpu_frame.cppm
         source/engine/gaussian_splatting/probe.cppm
         source/engine/math/math.cppm
+        source/engine/collision/collision_world.cppm
         source/engine/lighting/environment_controls.cppm
         source/engine/lighting/radiance_capture.cppm
         source/engine/lighting/reflection_probe.cppm
@@ -112,6 +113,7 @@ target_sources(deren_engine
         source/engine/gaussian_splatting/gpu_probe.cpp
         source/engine/gaussian_splatting/raster.gpu.cpp
         source/engine/gaussian_splatting/gpu_frame.cpp
+        source/engine/collision/collision_world.cpp
         source/engine/math/math.cpp
         ${VR_RUNTIME_PRIVATE_SOURCES}
         source/engine/pass/taa.cpp

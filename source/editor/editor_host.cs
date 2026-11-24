@@ -764,6 +764,9 @@ namespace deren.editor {
                     case "detail_trigger_volume":
                         toggle_volume(solid: input.id == "detail_collision_box");
                         break;
+                    case "detail_moving_solid":
+                        toggle_moving_solid();
+                        break;
                     case "detail_trigger_target":
                         toggle_trigger_target();
                         break;
