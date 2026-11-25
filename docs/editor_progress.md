@@ -711,7 +711,170 @@ script" first and one entry per definition, picks "No script" and requires one u
 presses a boolean parameter, picks the other value and requires one undo to put it back; and presses a text
 parameter, types `7`, presses Enter and requires the parameter and its undo.
 
-## 2. Decisions taken
+### 1.27 The classic arrangement and its metrics
+
+The scene screen that M2 delivered did not look like the shell it replaced: it had no caption row, so the
+minimize, maximize and close cells the classic document drew itself were simply gone, and its three-pane
+layout was an invention of mine (outliner on the left, details on the right, the project browser across the
+bottom) rather than the classic one. The window is borderless, so the caption has to be drawn by the UI; the
+three cells route to `window_control.try_minimize`, `try_toggle_maximize` and `try_close`, and a press on the
+blank part of the caption calls `try_begin_drag`, which hands the press to the system move loop. The glyphs
+are painted from rectangles (a rule, a square outline and a stepped cross) because the sources stay ASCII.
+
+The arrangement is now the classic one: a caption row with the app name, the menus, the document name and the
+three cells; the action strip (Add, Delete, Save, Undo, Redo, Play, the node name field, Rename, and the mode
+label); the tool strip (Select, Move, Rotate, Scale, World/Local, Focus, the camera mode); then the preview
+with its dock under it on the left and the outliner over the details on the right, with the status line at the
+bottom. Which side the sidebar sits on, whether the dock is above the preview and which half of the sidebar is
+on top all come from the `workspace_layout` record, so the classic shell's own arrangement restores too.
+
+The metrics are no longer hand-picked. Two sources were read and followed: Blender's panel grid
+(`source/blender/editors/interface/interface_intern.hh`: `PNL_HEADER` is `UI_UNIT_Y * 1.25`, 24 pixels by
+default, and menus pad by `0.2 * UI_UNIT_Y`), and Slate's dock tabs and splitters (`FDockTabStyle` with
+`SetTabPadding(FMargin(5, 2, 5, 2))`, an active-tab indicator painted from
+`Docking.Tab.ActiveTabIndicatorColor`, and a handle that paints from the arranged child positions). So
+`ui_theme.row_height` is 20 and `row_step` 22, `panel_header_height` is 25, the splitter is 4 pixels thick
+with no grip decoration, and a dock tab is a painted cell with a two-pixel accent rule across its top instead
+of underlined text.
+
+Two smaller fixes came with it. A divider now keeps the offset it was grabbed at, so the first move no longer
+jumps the handle to the cursor by the pointer's position inside it. And the inspector grew the scroll strip
+Slate and Blender both show: a bare thumb whose length is the fraction of the content the window covers,
+painted only when the content overflows, because the inspector is taller than its panel for any node with
+several components.
+
+The filmstrip above the preview was a duplicate of the camera mode in the tool strip, so it is gone; the
+preview is the raw viewport below the strips, the way the classic left area was.
+
+The selftest changed with the layout. The splitter phase now measures the sidebar width (its direction follows
+`sidebar_left`), clamps against `scene_viewport_min`, checks the sidebar divider through `outliner_height`, and
+checks the dock divider through `scene_browser_height`. The play phase presses `toolbar_play` instead of the
+removed header button. The scroll phase pins a short window and the environment phase scrolls the inspector to
+its bottom before it looks for the last section, because the sections that come after the animation rows -
+the script rows and the environment rows - now sit below it. It is still seventeen lines, green at 100% and
+150%.
+
+### 1.28 The area tree
+
+The fixed three-region layout became a tree, the way Blender's screen is a set of areas: `area_node` is either
+a split with children and a share for each, or a leaf holding one editor type (`viewport`, `outliner`,
+`details`, `dock`). Blender keeps a screen as a graph of vertices and edges (`ScrArea` with a `char
+spacetype` and a `char headertype`, plus `vertbase` / `edgebase` / `areabase` in `DNA_screen_types.h`), which
+allows L shaped junctions; a tree cannot, so the trade is deliberate - side by side and stacked splits only,
+and swapping two areas is done by changing a leaf's editor type. The default tree reproduces the classic
+arrangement and its sizes at a 1600 pixel window, so the first frame still looks like the shell.
+
+The tree owns the arrangement, the panels keep their own builders: `build_area_tree` walks it and gives each
+leaf a rect, `build_area_leaf` hands that rect to `build_scene_outliner_caption` + `build_scene_outliner`,
+`build_scene_details` + its scroll strip, or `build_scene_bottom_caption` + `build_scene_bottom`. Sizes are
+distributed by share and clamped by each subtree's `minimum()`, so a divider cannot hide a panel. A drag adds
+the pointer's travel since the press to the share the split had then (a delta, not an absolute position), so
+pressing a handle never moves it, and both the smallest share and both children's minimum pixels bound the
+result. Dividers are keyed by their path (`area_split_0_0`), which is what the selftest presses.
+
+The record moved to `<project>/.deren/editor-areas.json`, versioned: `{ version, active, workspaces: [{ name,
+tree }] }`, with the split axis as `column` / `row` and a leaf's editor type as its `kind`. An unknown version,
+a malformed node or a missing file all fall back to the default tree instead of leaving the reader with an
+empty screen. The classic shell's `editor-layout.json` is untouched; the migration of its
+`sidebar_left` / `dock_top` / `details_first` switches and its three sizes happens when that shell is removed.
+
+The splitter phase was rewritten for the tree: it drags `area_split_0_0` and checks the root's first share moved,
+checks the release wrote the file and that reloading it keeps the share, drives the drag past both ends to
+prove the clamp keeps the preview at `scene_viewport_min` and the sidebar at its minimum, then moves the two
+inner splits (`area_split_2_0` for the outliner over the details, `area_split_1_0` for the dock under the
+preview). The phase restores a deep copy of the tree, not a reference: the drag mutates shares in place, and a
+reference would leave the next phase laying out against the dragged tree.
+
+### 1.29 The area headers
+
+Each leaf now owns its header instead of the screen owning one toolbar for everything, which is what Blender's
+area header does: the editor type cell on the left, the panel's own controls beside it, maximize on the right.
+`build_area_type_cell` renders the leaf's kind ("Viewport", "Outliner", "Details", "Content") and a press opens
+the catalogue in the overlay the inspector's list rows already use, through `open_scene_combo("area_type|" + path, ...)`;
+`pick_scene_combo` routes the pick to `apply_scene_area_kind`, which changes the leaf's kind, clears any
+maximized leaf, saves the tree and reports the new kind in the notice. The dock's kind is named "Content" rather
+than "Project" so the header does not repeat the "Project" tab directly beneath it.
+
+The maximize cell (`area_max_<path>`, text "Restore" while maximized) swaps the whole tree for that one leaf:
+`build_scene_screen` checks `scene_area_maximized` first and, when it is set, calls `build_area_leaf` directly
+for the full window with the synthetic path "max", so the maximized area keeps its own header - including the
+restore cell - and the dividers disappear. Pressing the cell again clears the field; both transitions save.
+
+The two tool strips moved out of the global chrome and into the preview area, because the actions belong to the
+viewport and not to the window: `build_scene_toolbar` (Add, Delete, Save, Undo, Redo, Play, the node name field,
+Rename, "SCENE EDITOR") opens with the type cell and closes with the maximize cell, and
+`build_scene_toolbar_tools` follows with Select, Move, Rotate, Scale, World/Local, Focus and the camera mode on
+the right. The cell heights come from the caller so the header cells sit on the same baseline as the buttons
+beside them.
+
+The details caption lost its duplicated title: the type cell already names the panel, so `build_scene_caption`
+only paints a title when one is passed and the details leaf passes none. Selftest phase 18
+(`verify_scene_area_header`) presses the type cell, requires the catalogue to open with one entry per
+`area_kinds.all` member, requires the overlay to paint it (`next_ui.overlay_root` - the main tree does not carry
+overlays), switches the leaf to Details and back, then presses the maximize cell, requires the dividers to be
+gone and `viewport` to fill the window, presses Restore and requires the tree back. It restores a deep copy of
+the tree and re-saves the file afterwards, so the phase does not leak into the ones that follow.
+
+### 1.30 Workspaces, the Dope Sheet area and Split/Join
+
+The tree is now a list of workspaces rather than a single arrangement: `area_layout.workspaces` holds one
+`area_workspace` per tab (name plus tree), `area_layout.root` still reads and writes the active one, and
+`add_workspace`/`remove_workspace`/`rename_workspace` keep the rules small - a new tab is named after the first
+unused "Layout N", the last tab cannot be closed, and a rename to an existing name gets a " name N" suffix.
+`save` writes `{ "version": 2, "active": ..., "workspaces": [...] }` and `load` accepts every workspace whose
+tree parses, matching `active` by name; a version 1 file (one bare tree) is read as a one-workspace list, so an
+arrangement saved before the tabs existed still opens. The strip above the areas renders one `dock_tab` per
+workspace plus `workspace_new`, `workspace_rename`, `workspace_close` and an "N areas" label; the active tab
+becomes an editable field while renaming, which reuses the same `ui_text_edit` and `handle_text_field_key`
+path as the node name field.
+
+The Dope Sheet is a normal area kind now (`area_kind.dope`, named "Dope Sheet"), painted by
+`build_scene_dope_leaf`, which borrows the rows and the transport from the standalone Dope Sheet screen and
+sizes them to the leaf: the transport is dropped when the leaf is shorter than the ruler plus a row, and
+`next_ui_list_height` is set from the leaf so the channel list scrolls inside it. Input is forwarded rather
+than duplicated - `press_scene_dope` calls `press_next_ui`, `scene_dope_gesture` mirrors
+`next_ui_gesture` into the scene drag path, `scroll_scene_dope` calls `scroll_next_ui` - so a scrub in the
+area behaves exactly like a scrub on the Dope Sheet screen.
+
+Split and Join are static tree surgery in `area_layout`: `divide(root, path, stacked)` clones a leaf into two
+halves of the same kind (axis picked from the leaf's measured width and height, so a wide area splits
+side-by-side), and `join(root, path)` removes a leaf, hands its share to the nearest sibling and collapses a
+split that is down to one child. Both refuse the cases that would break a tree - `area_max_leaves` (8) and
+"no sibling" - and both are reachable from the `area_edit_<path>` row the leaf headers draw next to the
+maximize cell, which is hidden for leaves narrower than 360 px so a small area does not lose its own controls.
+Selftest phase 19 (`verify_scene_workspaces`) covers the tab add/rename/save round trip through a temporary
+file, the Dope Sheet leaf painting and ignoring a viewport press, and a split followed by a join returning the
+leaf count.
+
+### 1.31 The content browser grid and the inspector boxes
+
+The browser was a list of rows; it is now a grid of 120x150 tiles in the shape the classic shell showed.
+`build_scene_bottom` measures the dock first and hands the tile area the height that is left after the tool
+row and the breadcrumb (`scene_browser_toolbar_height`, `scene_browser_breadcrumb_height`), then
+`build_scene_browser_toolbar` draws "Search assets", Import, Refresh, Edit Asset and Build Thumbnail plus the
+count and the paging arrows, and `build_scene_browser_breadcrumb` draws `Root` and `Up` (only inside a folder)
+with the folder path. The grid itself is still a `ui_list_view`: one list row is one row of tiles, so
+`scene_browser_grid_rows` is the ceiling of the visible matches over the measured column count and both the
+wheel and the scrollbar work unchanged; each tile pads a 96 px frame, the name and the asset id, and keeps the
+old keys (`scene_asset_<index>`, `scene_folder_<match>`) so the press path, the selftest and the paging are
+untouched. The frame paints an ASCII-only asset mark (a folder outline or a picture frame with a bar) because
+this frontend has no thumbnail textures yet; Build Thumbnail still calls the real cache through
+`thumbnails.begin`.
+
+Import calls the native file picker and the same `asset_importer.try_import` the classic dialog used, with the
+id suggested from the file name; Refresh rescans the library; Edit Asset reports that renaming a catalogue
+entry still needs the asset dialog it does not have here rather than pretending to open one. The default tree
+grew a taller dock (0.34 of the preview column) because a tile row plus its tool row and breadcrumb does not
+fit in the old 0.22 - the first selftest run after the grid failed exactly that way, with a press aimed at the
+middle of a tile landing outside the panel.
+
+The inspector draws group boxes: a section header now opens a group and every row after it is wrapped in a
+frame one gap taller than the row, so the two side rules run on without a break, and the header paints its own
+top and bottom rules. The frame is drawn per row on purpose - nesting the rows in real containers would change
+every hit key the panels and the selftest use - and the row accounting adds the extra gap the frame occupies,
+which is what the scrolling window and the scrollbar clamp read.
+
+
 
 1. The animation editor must not share the scene editor's layout. Scene-only entry points (import,
    collision, trigger, audio, pipeline, arbitrary asset import) must not exist while animating

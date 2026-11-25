@@ -193,6 +193,28 @@ internal sealed unsafe partial class editor_host {
                 this.scene_selftest_phase = 17;
                 return script_status.success;
             }
+            case 17: {
+                // The area headers: each leaf names its editor type, the type cell opens the catalogue,
+                // and the last cell maximizes one area and restores the tree.
+                if (verify_scene_area_header() is { } area_problem) {
+                    return selftest_failure(area_problem);
+                }
+                host_logger.write(
+                    "Editor selftest: the area headers listed the editor types and maximized one area.");
+                this.scene_selftest_phase = 18;
+                return script_status.success;
+            }
+            case 18: {
+                // The workspace strip and the tree tools: a workspace is added, renamed, switched and
+                // saved, the Dope Sheet runs as an area type, and an area splits and joins again.
+                if (verify_scene_workspaces() is { } workspace_problem) {
+                    return selftest_failure(workspace_problem);
+                }
+                host_logger.write(
+                    "Editor selftest: the workspace strip added, renamed and saved an arrangement, the Dope Sheet ran as an area and an area split and joined.");
+                this.scene_selftest_phase = 19;
+                return script_status.success;
+            }
             default:
                 return script_status.success;
         }
@@ -383,9 +405,9 @@ internal sealed unsafe partial class editor_host {
 
             // The binding row opens the catalogue: "No script" first, then one entry per definition.
             var picker = root.find("scene_script_picker_value");
-            if (picker == null) { problem = "the inspector has no script row"; }
-            if (problem == null) {
-                // The binding row opens the catalogue: "No script" first, then one entry per definition.
+            if (picker == null) {
+                problem = "the inspector has no script row";
+            } else {
                 press_scene_via_events(picker.rect.x + 20.0F, picker.rect.y + picker.rect.height * 0.5F);
                 if (scene_combo_target != "script" || scene_combo_items.Count < 2 ||
                     scene_combo_items[0].value.Length != 0) {
@@ -497,6 +519,9 @@ internal sealed unsafe partial class editor_host {
             scene_details_node = Guid.Empty;
             scene_details_scroll = 0.0F;
             var root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            // The environment section is the last one, so the panel has to reach its bottom to build it.
+            scene_details_scroll = MathF.Max(0.0F, scene_details_content - scene_details_window);
+            root = submit_scene_frame_for_test(1600.0F, 900.0F);
             if (root.find("scene_env_scene") is not { } scene_row) {
                 return "the inspector listed no scene map row";
             }
@@ -517,7 +542,7 @@ internal sealed unsafe partial class editor_host {
             }
             apply_environment_text(1, "environments/selftest.hdr");
             scene_details_node = Guid.Empty;
-            var lane_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            var lane_root = submit_scene_frame_scrolled_to_bottom(1600.0F, 900.0F);
             if (lane_root.find("scene_env_lane_1_name") == null) {
                 return "a lane the document carries had no row";
             }
@@ -525,17 +550,23 @@ internal sealed unsafe partial class editor_host {
                 return "the lane edit recorded no undo step";
             }
             scene_details_node = Guid.Empty;
-            var undone_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            var undone_root = submit_scene_frame_scrolled_to_bottom(1600.0F, 900.0F);
             if (undone_root.find("scene_env_lane_1_name") != null) {
                 return "undo left the lane row in the inspector";
             }
-            var object_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            var object_root = submit_scene_frame_scrolled_to_bottom(1600.0F, 900.0F);
             if (object_root.find("scene_env_object") is not { } object_row) {
                 return "the inspector listed no object map row";
             }
-            press_scene_via_events(object_row.rect.x + 40.0F, object_row.rect.y + object_row.rect.height * 0.5F);
+            // The row is the last one in the panel, so at the maximum scroll its bottom half sits at the
+            // panel edge: the press goes into the part that is really on screen, as a reader would click.
+            var panel_rect = object_root.find("details_panel")?.rect ?? new ui_rect(0.0F, 0.0F, 1600.0F, 900.0F);
+            float click_y = Math.Clamp(object_row.rect.y + object_row.rect.height * 0.5F,
+                                       panel_rect.y + 2.0F, panel_rect.y + panel_rect.height - 2.0F);
+            press_scene_via_events(object_row.rect.x + 40.0F, click_y);
             if (!scene_combo_open || scene_combo_items[0].value != environment_panel.scene_value) {
-                return "the object list did not start with the scene map";
+                return string.Create(CultureInfo.InvariantCulture,
+                                     $"the object list did not start with the scene map (open {scene_combo_open}, row y {object_row.rect.y:0.0}, click {click_y:0.0}, panel {panel_rect.y:0.0}+{panel_rect.height:0.0})");
             }
             handle_scene_key(new input_event(input_type.key, 0, true, (int)key_code.escape,
                                              0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0U));
@@ -932,6 +963,16 @@ internal sealed unsafe partial class editor_host {
         return root;
     }
 
+    /// <summary>
+    /// Submits a frame with the inspector scrolled to its last row, for checks that need the sections at
+    /// the bottom of a panel that is shorter than its content.
+    /// </summary>
+    private ui_element submit_scene_frame_scrolled_to_bottom(float width, float height) {
+        submit_scene_frame_for_test(width, height);
+        scene_details_scroll = MathF.Max(0.0F, scene_details_content - scene_details_window);
+        return submit_scene_frame_for_test(width, height);
+    }
+
     /// <summary>Pushes a left press through the registered input callback, as the window would.</summary>
     private void press_scene_via_events(float x, float y) {
         next_ui_events.Clear();
@@ -1053,82 +1094,99 @@ internal sealed unsafe partial class editor_host {
     }
 
     /// <summary>
-    /// The three dividers: a press starts a drag, a move resizes the panel it borders, the release ends
-    /// the drag and writes the sizes, and a drag past the limit clamps instead of swallowing the preview.
+    /// The area tree's dividers: a press starts a drag, a move edits that split's share, the release writes
+    /// the tree, a drag past the minimum clamps instead of hiding a panel, and the file round trips.
     /// </summary>
     private string? verify_scene_splitters() {
         if (next_ui == null) { return "the splitter check has no UI context"; }
-        var before_layout = scene_layout;
-        string before_path = scene_layout_path;
+        // The tree is edited in place, so the copy has to be a deep one: a reference would keep the
+        // shares this phase moves.
+        var before_root = scene_areas.root.clone();
+        string before_path = scene_area_path;
         string directory = Path.Combine(Environment.CurrentDirectory, "dynamic", "scene-layout-selftest");
-        string path = Path.Combine(directory, "editor-layout.json");
+        string path = Path.Combine(directory, "editor-areas.json");
         Directory.CreateDirectory(directory);
         if (File.Exists(path)) { File.Delete(path); }
-        scene_layout_path = path;
+        scene_area_path = path;
         try {
             var root = submit_scene_frame_for_test(1280.0F, 720.0F);
-            var outliner_split = root.find("split_outliner");
-            var details_split = root.find("split_details");
-            var browser_split = root.find("split_browser");
-            if (outliner_split == null || details_split == null || browser_split == null) {
-                return "the scene screen built fewer than three dividers";
+            // The default tree is three splits: preview beside sidebar, the dock under the preview and
+            // the outliner over the details.
+            var outer = scene_areas.root;
+            if (outer.children.Count != 2 || outer.children[0].children.Count != 2 ||
+                outer.children[1].children.Count != 2) {
+                return "the default area tree is not the three splits the screen expects";
             }
-            float start_outliner = scene_layout.scene_outliner_width;
-            press_scene_via_events(outliner_split.rect.x + outliner_split.rect.width * 0.5F,
-                                   outliner_split.rect.y + outliner_split.rect.height * 0.5F);
-            if (scene_split_gesture != scene_split.outliner) { return "a press on the left divider started no drag"; }
+            var preview_column = outer.children[0];
+            var sidebar_column = outer.children[1];
+            var divider = root.find("area_split_0_0");
+            if (divider == null) { return "the area tree built no divider between the preview and the sidebar"; }
+            float before_share = outer.shares[0];
+            press_scene_via_events(divider.rect.x + 2.0F, divider.rect.y + divider.rect.height * 0.5F);
+            if (scene_area_drag != "area_split_0_0") { return "a press on the divider started no drag"; }
             next_ui_events.Clear();
             on_next_ui_input(new input_event(input_type.mouse_move, 0, false, 0,
-                                             outliner_split.rect.x + 60.0F,
-                                             outliner_split.rect.y + 4.0F, 0.0F, 0.0F, 0.0F, 0U));
+                                             divider.rect.x - 60.0F, divider.rect.y + 4.0F,
+                                             0.0F, 0.0F, 0.0F, 0U));
             process_scene_input();
-            if (MathF.Abs(scene_layout.scene_outliner_width - (start_outliner + 60.0F)) > 1.0F) {
+            if (!(outer.shares[0] < before_share - 0.01F)) {
                 return string.Create(CultureInfo.InvariantCulture,
-                                     $"dragging the left divider gave {scene_layout.scene_outliner_width:0.0}");
+                                     $"dragging the divider left gave a share of {outer.shares[0]:0.000}");
             }
             next_ui_events.Clear();
             on_next_ui_input(new input_event(input_type.mouse_button, 0, false, 0,
-                                             outliner_split.rect.x + 60.0F,
-                                             outliner_split.rect.y + 4.0F, 0.0F, 0.0F, 0.0F, 0U));
+                                             divider.rect.x - 60.0F, divider.rect.y + 4.0F,
+                                             0.0F, 0.0F, 0.0F, 0U));
             process_scene_input();
-            if (scene_split_gesture != scene_split.none) { return "releasing the left divider left the drag running"; }
-            if (!File.Exists(path)) { return "the release did not write the layout file"; }
-            var written = workspace_layout.load(path);
-            if (MathF.Abs(written.scene_outliner_width - scene_layout.scene_outliner_width) > 0.5F) {
+            if (scene_area_drag.Length != 0) { return "releasing the divider left the drag running"; }
+            if (!File.Exists(path)) { return "the release did not write the area layout"; }
+            if (MathF.Abs(area_layout.load(path).root.shares[0] - outer.shares[0]) > 0.005F) {
+                return "the area layout file kept a different share than the tree";
+            }
+            // Past the limit the share clamps, so neither side can swallow the other.
+            if (!begin_area_drag("area_split_0_0", 0.0F, 0.0F)) { return "the divider handle was not known"; }
+            update_area_drag(-2000.0F, 0.0F);
+            float narrow = 1280.0F * outer.shares[0];
+            if (narrow < scene_viewport_min - 0.5F) {
                 return string.Create(CultureInfo.InvariantCulture,
-                                     $"the layout file kept {written.scene_outliner_width:0.0} instead of {scene_layout.scene_outliner_width:0.0}");
+                                     $"the clamp left the preview {narrow:0.0} wide");
             }
-            // The right divider moves the other way: dragging left widens the details panel.
-            float start_details = scene_layout.scene_details_width;
-            press_scene_via_events(details_split.rect.x + details_split.rect.width * 0.5F,
-                                   details_split.rect.y + details_split.rect.height * 0.5F);
-            if (scene_split_gesture != scene_split.details) { return "a press on the right divider started no drag"; }
-            update_scene_split(details_split.rect.x - 40.0F, details_split.rect.y);
-            if (scene_layout.scene_details_width <= start_details) {
-                return "dragging the right divider left did not widen the details panel";
+            update_area_drag(4000.0F, 0.0F);
+            if (1280.0F * (1.0F - outer.shares[0]) < area_layout.area_min_panel_width - 0.5F) {
+                return "the clamp let the divider swallow the sidebar";
             }
-            // Past the limit the divider clamps and the preview keeps its minimum width.
-            update_scene_split(1270.0F, details_split.rect.y);
-            float preview = 1280.0F - scene_layout.scene_outliner_width - scene_layout.scene_details_width -
-                            ui_controls.splitter_thickness * 2.0F;
-            if (preview < scene_viewport_min - 0.5F) {
-                return string.Create(CultureInfo.InvariantCulture, $"the clamp left the preview {preview:0.0} wide");
+            // The sidebar's own divider moves the boundary between the outliner and the details.
+            scene_area_drag = string.Empty;
+            var inner = root.find("area_split_2_0");
+            if (inner == null) { return "the sidebar built no divider between the outliner and the details"; }
+            press_scene_via_events(inner.rect.x + inner.rect.width * 0.5F, inner.rect.y + 2.0F);
+            if (scene_area_drag != "area_split_2_0") { return "a press on the sidebar divider started no drag"; }
+            float before_top = sidebar_column.shares[0];
+            update_area_drag(0.0F, inner.rect.y + 60.0F);
+            if (MathF.Abs(sidebar_column.shares[0] - before_top) < 0.01F) {
+                return string.Create(CultureInfo.InvariantCulture,
+                                     $"dragging the sidebar divider changed neither half ({before_top:0.000} -> {sidebar_column.shares[0]:0.000})");
             }
-            // The bottom divider grows the browser upwards.
-            scene_split_gesture = scene_split.browser;
-            float start_browser = scene_layout.scene_browser_height;
-            update_scene_split(0.0F, browser_split.rect.y - 50.0F);
-            if (scene_layout.scene_browser_height <= start_browser) {
-                return "dragging the bottom divider up did not grow the project panel";
+            // The dock's divider sets the preview's own split, so dragging it up grows the project panel.
+            scene_area_drag = string.Empty;
+            var dock = root.find("area_split_1_0");
+            if (dock == null) { return "the preview built no divider above the dock"; }
+            if (!begin_area_drag("area_split_1_0", dock.rect.x + 2.0F, dock.rect.y + 2.0F)) {
+                return "the dock divider handle was not known";
             }
-            scene_split_gesture = scene_split.none;
+            float before_dock = preview_column.shares[1];
+            update_area_drag(0.0F, dock.rect.y - 50.0F);
+            if (preview_column.shares[1] <= before_dock) {
+                return "dragging the dock divider up did not grow the project panel";
+            }
+            scene_area_drag = string.Empty;
             if (Path.GetDirectoryName(path) is { Length: > 0 } parent && Directory.Exists(parent)) {
                 File.Delete(path);
             }
         } finally {
-            scene_layout = before_layout;
-            scene_layout_path = before_path;
-            scene_split_gesture = scene_split.none;
+            scene_areas.root = before_root;
+            scene_area_path = before_path;
+            scene_area_drag = string.Empty;
             next_ui_events.Clear();
         }
         return null;
@@ -1353,7 +1411,7 @@ internal sealed unsafe partial class editor_host {
             if (scene_details_content <= scene_details_window) {
                 return $"the inspector needed {scene_details_content} px inside {scene_details_window} px and did not overflow";
             }
-            if (root.find("scene_property_value_animation_autoplay") != null || root.find("scene_section_animation") != null) {
+            if (root.find("scene_env_scene") != null || root.find("scene_section_environment") != null) {
                 return "the inspector built its last section at rest instead of only the visible rows";
             }
             var details = root.find("details_body");
@@ -1367,7 +1425,7 @@ internal sealed unsafe partial class editor_host {
                 return $"the wheel clamp stopped at {scene_details_scroll} instead of {limit}";
             }
             root = submit_scene_frame_for_test(1100.0F, 430.0F);
-            if (root.find("scene_section_animation") == null) {
+            if (root.find("scene_env_scene") == null) {
                 return "the scrolled inspector still hid the section at its bottom";
             }
             scroll_scene_ui(400.0F, details.rect.x + 20.0F, details.rect.y + 20.0F);
@@ -1398,13 +1456,13 @@ internal sealed unsafe partial class editor_host {
         bool before = playing.running;
         try {
             var root = submit_scene_frame_for_test(1100.0F, 900.0F);
-            var button = root.find("scene_play");
-            if (button == null) { return "the header has no play button"; }
+            var button = root.find("toolbar_play");
+            if (button == null) { return "the toolbar has no play button"; }
             press_scene_via_events(button.rect.x + button.rect.width * 0.5F,
                                    button.rect.y + button.rect.height * 0.5F);
             if (!playing.running) { return $"the play button started no session ({notice})"; }
             root = submit_scene_frame_for_test(1100.0F, 900.0F);
-            if (root.find("scene_play")?.text != "Stop") { return "the play button did not turn into Stop"; }
+            if (root.find("toolbar_play")?.text != "Stop") { return "the play button did not turn into Stop"; }
             press_scene_via_events(button.rect.x + button.rect.width * 0.5F,
                                    button.rect.y + button.rect.height * 0.5F);
             if (!playing.running && !playing.stopping) {
@@ -1417,6 +1475,230 @@ internal sealed unsafe partial class editor_host {
         }
         return null;
     }
+    /// <summary>
+    /// The area headers: every leaf names its editor type and carries a type cell plus a maximize cell.
+    /// The type cell opens the catalogue in the shared overlay, a pick switches that leaf's kind, and the
+    /// maximize cell swaps the tree for the one leaf and back.
+    /// </summary>
+    private string? verify_scene_area_header() {
+        if (next_ui == null) {
+            return "the area header check has no context";
+        }
+        var root = submit_scene_frame_for_test(1280.0F, 720.0F);
+        string viewport_path = string.Empty;
+        foreach (var entry in scene_area_leaves) {
+            if (entry.Value.kind == area_kind.viewport) {
+                viewport_path = entry.Key;
+                break;
+            }
+        }
+        if (viewport_path.Length == 0) {
+            return "the layout held no viewport area";
+        }
+        var type_cell = root.find("area_type_" + viewport_path);
+        if (type_cell == null) {
+            return $"the viewport area {viewport_path} carried no type cell";
+        }
+        var maximized_before = scene_area_maximized;
+        var tree_before = scene_areas.root.clone();
+        try {
+            press_scene_via_events(type_cell.rect.x + type_cell.rect.width * 0.5F,
+                                   type_cell.rect.y + type_cell.rect.height * 0.5F);
+            if (!scene_combo_open || scene_combo_target != "area_type|" + viewport_path) {
+                return $"the type cell opened no catalogue (target '{scene_combo_target}', open {scene_combo_open})";
+            }
+            if (scene_combo_items.Count != area_kinds.all.Length) {
+                return $"the catalogue listed {scene_combo_items.Count} of {area_kinds.all.Length} editor types";
+            }
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            if (next_ui.overlay_root?.find("scene_combo_item_0") == null) {
+                return "the open catalogue painted no item";
+            }
+            close_scene_combo();
+            // Switch the viewport to another editor and back: the header must name what the leaf became.
+            apply_scene_area_kind(viewport_path, area_kind.details);
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            if (root.find("area_type_" + viewport_path)?.text != "Details") {
+                return "the header did not name the editor type the menu picked";
+            }
+            apply_scene_area_kind(viewport_path, area_kind.viewport);
+            // Maximize: the tree gives way to the one leaf, whose own header then offers Restore.
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            var max_cell = root.find("area_max_" + viewport_path);
+            if (max_cell == null) {
+                return "the viewport area carried no maximize cell";
+            }
+            press_scene_via_events(max_cell.rect.x + max_cell.rect.width * 0.5F,
+                                   max_cell.rect.y + max_cell.rect.height * 0.5F);
+            if (scene_area_maximized == null) {
+                return "the maximize cell maximized no area";
+            }
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            if (root.find("area_split_0_0") != null) {
+                return "the maximized frame still showed the dividers";
+            }
+            if (root.find("viewport") == null) {
+                return "the maximized frame did not fill the window with the viewport";
+            }
+            var restore_cell = root.find("area_max_max");
+            if (restore_cell == null) {
+                return "the maximized area carried no restore cell";
+            }
+            press_scene_via_events(restore_cell.rect.x + restore_cell.rect.width * 0.5F,
+                                   restore_cell.rect.y + restore_cell.rect.height * 0.5F);
+            if (scene_area_maximized != null) {
+                return "a press on Restore left the area maximized";
+            }
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            if (root.find("area_split_0_0") == null) {
+                return "the restored frame had no dividers";
+            }
+        } finally {
+            scene_area_maximized = maximized_before;
+            scene_areas.root = tree_before;
+            save_scene_areas();
+            close_scene_combo();
+            notice = string.Empty;
+            next_ui_events.Clear();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The workspace strip and the two tree tools: adding, switching, renaming and closing a workspace
+    /// round-trips through the layout file, the Dope Sheet leaf paints its sheet and keeps a press out of
+    /// the scene selection, and a split divides one area while the join merges it back into its sibling.
+    /// </summary>
+    private string? verify_scene_workspaces() {
+        if (next_ui == null) {
+            return "the workspace check has no context";
+        }
+        var workspaces_before = new List<(string name, area_node tree)>();
+        foreach (var workspace in scene_areas.workspaces) {
+            workspaces_before.Add((workspace.name, workspace.root.clone()));
+        }
+        int active_before = scene_areas.active_index;
+        var maximized_before = scene_area_maximized;
+        string temp = Path.Combine(Path.GetTempPath(), "deren-area-selftest.json");
+        try {
+            var root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            if (root.find("workspace_strip") == null) { return "the frame had no workspace strip"; }
+            if (root.find("workspace_tab_0") == null) { return "the strip listed no workspace tab"; }
+            int count_before = scene_areas.workspaces.Count;
+            var new_button = root.find("workspace_new");
+            if (new_button == null) { return "the strip carried no new button"; }
+            press_scene_via_events(new_button.rect.x + new_button.rect.width * 0.5F,
+                                   new_button.rect.y + new_button.rect.height * 0.5F);
+            if (scene_areas.workspaces.Count != count_before + 1) {
+                return string.Create(CultureInfo.InvariantCulture,
+                                     $"the new button left {scene_areas.workspaces.Count} workspace(s), not {count_before + 1}");
+            }
+            if (scene_areas.active_index != count_before) { return "adding a workspace did not switch to it"; }
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            string tab_key = string.Create(CultureInfo.InvariantCulture, $"workspace_tab_{count_before}");
+            if (root.find(tab_key) == null) { return "the strip painted no tab for the added workspace"; }
+            // The rename runs through the real field: the press opens it with the name selected, one
+            // character replaces that selection, and Enter commits it.
+            var rename_button = root.find("workspace_rename");
+            if (rename_button == null) { return "the strip carried no rename button"; }
+            press_scene_via_events(rename_button.rect.x + rename_button.rect.width * 0.5F,
+                                   rename_button.rect.y + rename_button.rect.height * 0.5F);
+            if (!scene_workspace_renaming) { return "the rename button opened no field"; }
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            if (root.find("workspace_name_field") == null) { return "the open rename painted no field"; }
+            next_ui_events.Clear();
+            on_next_ui_input(new input_event(input_type.character, 0, true, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F,
+                                             (uint)'D'));
+            process_scene_input();
+            if (scene_workspace_edit.text != "D") {
+                return string.Create(CultureInfo.InvariantCulture,
+                                     $"the rename field took '{scene_workspace_edit.text}', not 'D'");
+            }
+            handle_scene_key(new input_event(input_type.key, 0, true, (int)key_code.enter, 0.0F, 0.0F, 0.0F,
+                                             0.0F, 0.0F, 0U));
+            if (scene_workspace_renaming) { return "Enter left the rename field open"; }
+            if (scene_areas.active != "D") {
+                return string.Create(CultureInfo.InvariantCulture,
+                                     $"the workspace kept the name '{scene_areas.active}', not 'D'");
+            }
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            if (root.find(tab_key)?.text != "D") { return "the tab did not paint the new name"; }
+            // The first tab switches back, and the layout file keeps both arrangements.
+            var first_tab = root.find("workspace_tab_0");
+            if (first_tab == null) { return "the strip lost its first tab"; }
+            press_scene_via_events(first_tab.rect.x + first_tab.rect.width * 0.5F,
+                                   first_tab.rect.y + first_tab.rect.height * 0.5F);
+            if (scene_areas.active_index != 0) { return "the first tab did not switch the workspace"; }
+            scene_areas.save(temp);
+            var loaded = area_layout.load(temp);
+            if (loaded.workspaces.Count != scene_areas.workspaces.Count) {
+                return string.Create(CultureInfo.InvariantCulture,
+                                     $"the file kept {loaded.workspaces.Count} of {scene_areas.workspaces.Count} workspace(s)");
+            }
+            if (loaded.active != workspaces_before[0].name) {
+                return string.Create(CultureInfo.InvariantCulture,
+                                     $"the file remembered '{loaded.active}' as active, not '{workspaces_before[0].name}'");
+            }
+            if (area_layout.leaves(loaded.root) != area_layout.leaves(scene_areas.root)) {
+                return "the reloaded workspace held a different area count";
+            }
+            // The Dope Sheet is an area type like any other: it paints its sheet and its press stays
+            // inside its own input bridge instead of reaching for a scene node.
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            string viewport_path = string.Empty;
+            foreach (var entry in scene_area_leaves) {
+                if (entry.Value.kind == area_kind.viewport) {
+                    viewport_path = entry.Key;
+                    break;
+                }
+            }
+            if (viewport_path.Length == 0) { return "the layout held no viewport area"; }
+            apply_scene_area_kind(viewport_path, area_kind.dope);
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            var dope = root.find("dope_panel");
+            if (dope == null) { return "the Dope Sheet area painted no sheet"; }
+            if (root.find("ruler_track") == null) { return "the Dope Sheet area painted no ruler"; }
+            var primary_before = selection_state?.primary ?? Guid.Empty;
+            press_scene_dope(dope.rect.x + 30.0F, dope.rect.y + 60.0F);
+            if (selection_state != null && selection_state.primary != primary_before) {
+                return "a press in the Dope Sheet area changed the scene selection";
+            }
+            // Split the preview and join it back: one more leaf, then the same count as before.
+            apply_scene_area_kind(viewport_path, area_kind.viewport);
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            int leaves_before = area_layout.leaves(scene_areas.root);
+            var divide_cell = root.find("area_divide_" + viewport_path);
+            if (divide_cell == null) { return "the viewport header carried no split cell"; }
+            press_scene_via_events(divide_cell.rect.x + divide_cell.rect.width * 0.5F,
+                                   divide_cell.rect.y + divide_cell.rect.height * 0.5F);
+            if (area_layout.leaves(scene_areas.root) != leaves_before + 1) {
+                return "the split cell did not add an area";
+            }
+            root = submit_scene_frame_for_test(1280.0F, 720.0F);
+            string child = viewport_path + ".0";
+            var join_cell = root.find("area_join_" + child);
+            if (join_cell == null) { return "the split area carried no join cell"; }
+            press_scene_via_events(join_cell.rect.x + join_cell.rect.width * 0.5F,
+                                   join_cell.rect.y + join_cell.rect.height * 0.5F);
+            if (area_layout.leaves(scene_areas.root) != leaves_before) {
+                return "the join cell did not merge the area back";
+            }
+        } finally {
+            scene_area_maximized = maximized_before;
+            scene_areas.workspaces.Clear();
+            foreach (var (name, tree) in workspaces_before) {
+                scene_areas.workspaces.Add(new area_workspace(name, tree));
+            }
+            scene_areas.active_index = active_before;
+            save_scene_areas();
+            cancel_scene_workspace_rename();
+            notice = string.Empty;
+            next_ui_events.Clear();
+            try { File.Delete(temp); } catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+        return null;
+    }
+
     /// <summary>Every node of a tree, parents before children.</summary>
     private static void collect_scene_nodes(IReadOnlyList<document_node> roots, List<document_node> nodes) {
         foreach (var node in roots) {
