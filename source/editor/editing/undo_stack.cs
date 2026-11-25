@@ -37,6 +37,11 @@ internal sealed class undo_stack
     internal string? next_undo_label => this.undo_entries.Count > 0 ? this.undo_entries[^1].label : null;
 
     /// <summary>
+    /// How many steps can still be undone; the selftest uses it to prove that a gesture pushed one step.
+    /// </summary>
+    internal int depth => this.undo_entries.Count;
+
+    /// <summary>
     /// Records one finished edit. The oldest command is dropped once the history is full.
     /// </summary>
     internal void push(i_undo_command command)

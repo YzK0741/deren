@@ -458,6 +458,36 @@ alone, for example `animation_player.try_seek(self, 21f)`. The no-argument
 overloads of `animation_player` address the scene's first player, which is what
 scenes saved before version 13 relied on.
 
+## Animation editor
+
+**Animation** in the toolbar switches the editor into the isolated animation
+editor. The open project scene is put aside untouched and the preview scene
+opens **empty**: no nodes, no selection, only the environment. Switch back with
+the same button (now **Scene**) and the project scene, its selection and its
+unsaved edits return. The preview is in memory only: it has no path, **Save**
+refuses it, and **Play** refuses it, so nothing the animation editor does can
+reach a saved scene or start a game.
+
+The author brings content in with **Open Asset** in the Timeline header, which
+places the asset the Content Browser highlights into the empty preview. The
+preview opens paused at 0.00 s. The timeline strip under the viewport shows the
+current clip and its time, **Play** and **Pause** drive that placement's own
+player, **Restart** rewinds and plays, and dragging the scrub bar seeks.
+Playback state updates from the placement's player, so the strip stays truthful
+when a script or a clip change moves the clock.
+
+The strip is the playback control for the preview placement. The **Timeline**
+tab in the bottom dock reads the clip the asset points at (its `motion.gltf`)
+in managed code and lists one row per animated channel: the target node, the
+animated path, the key count and the key time range. Clicking a row selects that
+channel and seeks the preview to its first key. The header names the clip, its
+channel count, its total key count and its duration. The tab only exists while
+the animation editor is open, and closing the mode drops the loaded clip.
+
+The Timeline is the basis for the next slice: key time and value editing, then
+writing the edited keys back into the `motion.gltf` buffer. Right now it reads
+and previews the clips the asset already ships; editing writes nothing.
+
 ## Document format
 
 `document_io` owns a strict subset of TOML. Reading rejects an unknown or duplicated key, a duplicate

@@ -28,6 +28,31 @@ input[type="text"]:placeholder-shown { color: #9a9fa5; }
 .toolbar_separator { width: 1dp; height: 24dp; margin: 0 12dp 0 6dp; background-color: #424242; }
 #rename_field { box-sizing: border-box; width: 200dp; height: 29dp; margin-right: 6dp; padding: 6dp 9dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; font-size: 13dp; }
 #toolbar_note { flex-grow: 1; text-align: right; font-size: 11dp; color: #787878; }
+#toolbar #btn_animation { background-color: #2b3d5c; border-color: #3f5a86; color: #d8e6ff; }
+#toolbar #btn_animation:hover { background-color: #37507a; }
+#animation_strip { display: none; flex-direction: column; flex-shrink: 0; box-sizing: border-box; padding: 6dp 10dp 10dp 10dp; background-color: #1d1d1d; border-top: 1dp #101010; }
+#animation_bar { display: flex; flex-direction: row; align-items: center; height: 28dp; }
+#animation_bar button { box-sizing: border-box; height: 24dp; line-height: 22dp; margin-right: 4dp; padding: 0 12dp; background-color: #303030; border: 1dp #414141; border-radius: 3dp; color: #d0d0d0; font-size: 12dp; text-align: center; }
+#animation_bar button:hover { background-color: #454545; border-color: #606060; color: #ffffff; }
+#animation_clip { flex-grow: 1; margin-left: 8dp; font-size: 12dp; color: #d0d0d0; white-space: nowrap; overflow: hidden; }
+#animation_time { font-size: 12dp; color: #9a9fa5; }
+#animation_scrub { position: relative; box-sizing: border-box; height: 20dp; margin-top: 6dp; background-color: #0f0f0f; border: 1dp #383838; border-radius: 3dp; cursor: pointer; }
+#animation_fill { position: absolute; top: 0; left: 0; width: 0%; height: 100%; background-color: #0070e0; pointer-events: none; }
+#animation_playhead { position: absolute; top: 0; left: 0; width: 2dp; height: 100%; background-color: #ffffff; pointer-events: none; }
+#tab_timeline { display: none; }
+#timeline_body { display: none; flex-direction: column; height: 100%; }
+#timeline_header { display: flex; flex-direction: row; align-items: center; height: 26dp; flex-shrink: 0; margin-bottom: 6dp; font-size: 12dp; }
+#timeline_summary { flex-grow: 1; color: #cdcdcd; }
+#timeline_header button { height: 20dp; margin-right: 8dp; padding: 0 8dp; font-size: 12dp; }
+#timeline_source { color: #8c8c8c; }
+#timeline_rows { flex-grow: 1; flex-basis: 0; min-height: 0; overflow: auto; background-color: #1a1a1a; border: 1dp #383838; }
+.timeline_row { display: flex; flex-direction: row; align-items: center; box-sizing: border-box; height: 24dp; padding: 0 8dp; border-bottom: 1dp #262626; font-size: 12dp; color: #c8c8c8; }
+.timeline_row:hover { background-color: #2c2c2c; }
+.timeline_row.selected { background-color: #224c78; color: #ffffff; }
+.timeline_node { width: 250dp; white-space: nowrap; overflow: hidden; }
+.timeline_path { width: 84dp; color: #a9bed1; }
+.timeline_keys { width: 86dp; text-align: right; color: #9a9fa5; }
+.timeline_span { flex-grow: 1; text-align: right; color: #8c8c8c; }
 #main { display: flex; flex-direction: row; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-height: 0; }
 #left_area { display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; flex-basis: 0; height: 100%; min-width: 0; }
 #viewport_panel { display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-height: 0; }
@@ -279,6 +304,7 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
 <button id="btn_undo">Undo</button>
 <button id="btn_redo">Redo</button>
 <button id="btn_play">Play</button>
+<button id="btn_animation">Animation</button>
 <div class="toolbar_separator"></div>
 <input id="rename_field" type="text" placeholder="Node name"/>
 <button id="btn_rename">Rename</button>
@@ -303,11 +329,21 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
     <div id="gizmo_y" class="gizmo_axis"><div class="gizmo_tip"></div></div>
     <div id="gizmo_z" class="gizmo_axis"><div class="gizmo_tip"></div></div>
 </div>
+<div id="animation_strip">
+    <div id="animation_bar">
+        <button id="animation_play">Play</button>
+        <button id="animation_restart">Restart</button>
+        <div id="animation_clip">No clip</div>
+        <div id="animation_time">0.00 / 0.00 s</div>
+    </div>
+    <div id="animation_scrub"><div id="animation_fill"></div><div id="animation_playhead"></div></div>
+</div>
 </div>
 <div id="split_bottom" class="split_h"></div>
 <div id="bottom_dock">
 <div id="dock_tabs">
 <div id="tab_content" class="dock_tab active">Content Browser</div>
+<div id="tab_timeline" class="dock_tab">Timeline</div>
 <div id="tab_log" class="dock_tab">Output Log</div>
 </div>
 <div id="dock_body">
@@ -337,6 +373,14 @@ select.project_look_field option:hover { background-color: #32658e; color: #ffff
     <div id="output_header"><button id="output_clear">Clear</button></div>
     <div id="output_empty" class="dock_note">Play output will appear here.</div>
     <div id="output_lines"></div>
+</div>
+<div id="timeline_body">
+    <div id="timeline_header">
+        <button id="timeline_open">Open Asset</button>
+        <div id="timeline_summary">No motion clip</div>
+        <div id="timeline_source"></div>
+    </div>
+    <div id="timeline_rows"></div>
 </div>
 </div>
 </div>

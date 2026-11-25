@@ -120,6 +120,67 @@ directory launches, enters and leaves the second room (`Helmet demo: entered
 Workshop` / `left Workshop`) and renders the helmet and both doors
 (`build/release-check-screenshot.png`).
 
+## 6. Animation editor
+
+Edit an asset's motion clips inside the editor instead of converting them
+offline. The animation editor is isolated: switching into it puts the project
+scene aside and opens an empty preview scene, and the author places the asset to
+animate into it, so authoring motion never edits a saved scene and a scene's undo
+history is never shared with a clip's. Back the timeline with real keyframe data, let the author
+change key times and values, and write the result back to the asset's
+`motion.gltf` so Play, the standalone game and the exporter all see it. C# owns
+the authoring logic; the engine keeps sampling clips as it does today.
+
+**Acceptance.** An author opens the animation editor on a character, changes a
+key's time and value, and the preview shows the edit immediately. Saving updates
+the asset's motion file, reopening the editor and starting Play show the edited
+motion, and the unchanged project scene still opens and saves as before.
+
+**Status.** The mode, the isolated preview scene and the transport are in.
+`source/editor/editor_host.animation_mode.cs` swaps the project document for an
+empty in-memory preview document (`name = "Animation Preview"`, no roots, no
+path) and restores the project document, its selection and its path on exit. The
+author fills it with **Open Asset** in the Timeline header, which creates one
+placement of the asset the Content Browser highlights, frames the camera on it and
+selects it, so entering the mode itself never depends on what was selected. The
+empty preview uses a fixed pose; once the placement's player reports a clip (the
+asset import trails node creation) the mode focuses the real mesh bounds and the
+strip rewinds to 0.00 s. The **Animation** button
+toggles the mode, the toolbar note reads `ANIMATION EDITOR` while it is active,
+**Save** and **Play** refuse the preview, and the timeline strip under the
+viewport shows the clip name, the time and a scrub bar with **Play**/**Pause**
+and **Restart**; the strip drives the placement's own ABI 46 player, so it reads
+back the real clock. Evidence: `deren.exe run <project> --editor-animation-toggle 1`
+captures the empty preview (`build/editor-animation-demo/screenshot_20261124_114234.png`:
+`nodes: 0`, the Timeline reads "Empty preview: open an asset to animate"), and
+`--editor-animation` opens `laevatain` through **Open Asset** and captures
+`build/editor-animation-demo/screenshot_20261124_114525.png` (strip at
+`0.00 / 42.93 s` showing "Bibideba", Timeline listing the 52 channels), while
+`--editor-selftest-animation-mode` covers the isolated document,
+the preview player appearing after the asset import, seek, the strip's Play and
+Restart buttons, the save guard, and restoring the project document unchanged.
+Next slices: keyframe rows read from the clip (read-only), then key time/value
+editing with undo, then the `motion.gltf` writer with a reload of the placement's
+player.
+
+The first of those slices is in: the bottom dock's **Timeline** tab reads the
+preview asset's `motion.gltf` from C# (`source/editor/editing/motion_document.cs`
+and `source/editor/editor_host.timeline.cs`) instead of growing the scripting
+ABI, lists one row per animated channel with its node, path, key count and key
+range, and seeks the preview to a channel's first key when its row is clicked.
+The tab only exists while the animation editor is open and the clip is dropped
+when it closes. `--editor-selftest-animation-mode` checks the loaded channel
+count, the key counts and the row selection. Remaining: key time/value editing
+with undo, then the writer that patches edited keys back into the glTF buffer
+and reloads the placement's player.
+
+Switching modes rebuilds the scene's placements, and each animated placement
+holds a slice of the shared skin and morph buffers. The slice is now returned
+when its placement is destroyed and reused by the next one, so switching back and
+forth no longer fills the buffer (a tenth switch still allocates blocks 4, 440
+and 876 for `laevatain`, and a placement that cannot get a slice falls back to
+the rest pose instead of reading another character's joints).
+
 ## Release checks
 
 Verify new authoring features through edit, undo and redo, save and reopen,

@@ -128,6 +128,10 @@ endif()
 set(game_project "${CMAKE_CURRENT_SOURCE_DIR}/test_game/Game.csproj")
 set(game_output "${CMAKE_CURRENT_BINARY_DIR}/test_game")
 set(game_assembly "${game_output}/Game.dll")
+# The demo's sources are globbed, not listed: a new demo file that is missing from DEPENDS would make
+# ninja skip the dotnet build, and the run would silently execute the previous assembly.
+file(GLOB_RECURSE game_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test_game/*.cs")
+list(FILTER game_sources EXCLUDE REGEX "[/\\\\](obj|bin)[/\\\\]")
 # The BUILD tree holds the generated manifest only: the demo's scene, lighting profile and character
 # rig stay in source/scripting/test_game and are read from there (main_scene is absolute, and the
 # profile/rig resolve next to it). Nothing authored is ever copied into or overwritten in the build
@@ -139,10 +143,7 @@ add_custom_command(OUTPUT "${game_assembly}"
     COMMAND "${DOTNET_EXECUTABLE}" build "${game_project}"
         --configuration Release --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet"
         --output "${game_output}"
-    DEPENDS "${game_project}" test_game/game_host.cs test_game/demo_debug_windows.cs test_game/rotate_behaviour.cs
-        test_game/helmet_controls.cs test_game/audio_selftest.cs test_game/demo_audio_panel.cs test_game/rml_selftest.cs
-        test_game/toon_selftest.cs test_game/node_name_selftest.cs test_game/aspect_selftest.cs
-        test_game/rml_layout_selftest.cs ${bridge_files}
+    DEPENDS "${game_project}" ${game_sources} ${bridge_files}
     VERBATIM)
 # Package the managed UI assets beside Game.dll; authored scene TOMLs stay in the source tree.
 add_custom_target(deren_managed_ui_assets

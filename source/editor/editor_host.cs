@@ -29,6 +29,12 @@ namespace deren.editor {
         private static string? requested_play;
         private static string? requested_game_scene;
         private static bool requested_editor;
+        /// <summary>True when the own-UI frontend shows the scene editor instead of the Dope Sheet.</summary>
+        private static bool requested_scene_screen;
+        /// <summary>`--editor` asked for the editor without naming a frontend: resolve it after the loop.</summary>
+        private static bool requested_editor_screen_default;
+        /// <summary>`--editor-ui=classic` was given, so the RmlUi shell keeps the run whatever the order.</summary>
+        private static bool requested_classic_ui;
         private static IReadOnlyDictionary<string, int> runtime_actions = new Dictionary<string, int>();
         private scene_runtime? runtime;
         private script_catalog? editable_scripts;
@@ -143,6 +149,9 @@ namespace deren.editor {
                 switch (name) {
                     case "--editor":
                         requested_editor = true;
+                        // The scene editor on the own UI library is the default frontend now; the choice
+                        // is resolved after the loop so --editor-ui=classic wins whatever its position.
+                        requested_editor_screen_default = true;
                         break;
                     case "--scene":
                         requested_scene = inline_value ?? take_value(args, ref i);
@@ -213,6 +222,94 @@ namespace deren.editor {
                         requested_validation_selftest = true;
                         options->capture_frames = 8;
                         break;
+                    case "--editor-selftest-animation-mode":
+                        requested_editor = true;
+                        requested_animation_mode_selftest = true;
+                        options->capture_frames = 90;
+                        break;
+                    case "--editor-ui": {
+                        // The documented opt-in form: --editor-ui=next runs the editor on its own UI
+                        // library, --editor-ui=classic keeps RmlUi. The demo/selftest flags below are
+                        // shortcuts that imply "next". "next" opens the scene screen; "animation" opens
+                        // the Dope Sheet on the same library, and "scene" is its explicit spelling.
+                        var choice = (inline_value ?? take_value(args, ref i) ?? string.Empty).Trim();
+                        if (choice.Equals("next", StringComparison.OrdinalIgnoreCase) ||
+                            choice.Equals("scene", StringComparison.OrdinalIgnoreCase)) {
+                            requested_editor = true;
+                            requested_ui_demo = true;
+                            requested_scene_screen = true;
+                            options->editor_ui = 1;
+                        } else if (choice.Equals("animation", StringComparison.OrdinalIgnoreCase)) {
+                            requested_editor = true;
+                            requested_ui_demo = true;
+                            options->editor_ui = 1;
+                        } else if (choice.Equals("classic", StringComparison.OrdinalIgnoreCase)) {
+                            // The RmlUi shell stays reachable until its code is removed, and this flag
+                            // outranks the default so the order of the arguments cannot change the frontend.
+                            requested_classic_ui = true;
+                            requested_ui_demo = false;
+                            requested_scene_screen = false;
+                            options->editor_ui = 0;
+                        } else {
+                            host_logger.write(
+                                $"Editor: unknown UI frontend '{choice}'; expected classic, next or animation");
+                        }
+                        break;
+                    }
+                    case "--editor-ui-demo":
+                        // Runs the animation editor's Dope Sheet on the editor's own UI library: the
+                        // renderer picks the new overlay instead of RmlUi and the classic shell never
+                        // opens, so the two frontends stay comparable side by side. An interactive run
+                        // stays open: only an explicit --capture-frames bounds it.
+                        requested_editor = true;
+                        requested_ui_demo = true;
+                        options->editor_ui = 1;
+                        break;
+                    case "--editor-ui-scale": {
+                        // Pins the editor UI scale instead of following the window's display density,
+                        // so the 100%/150% acceptance pass is one flag away. Percent, e.g. 150.
+                        var percent = inline_value ?? take_value(args, ref i) ?? string.Empty;
+                        if (float.TryParse(percent, NumberStyles.Float, CultureInfo.InvariantCulture,
+                                           out var scale_percent) && scale_percent > 0.0F) {
+                            options->ui_scale = scale_percent / 100.0F;
+                        }
+                        break;
+                    }
+                    case "--editor-ui-selftest":
+                        // Same screen, driven by the real pointer handlers on a copy of the motion files.
+                        requested_editor = true;
+                        requested_ui_demo = true;
+                        requested_ui_selftest = true;
+                        options->editor_ui = 1;
+                        options->capture_frames = 120;
+                        break;
+                    case "--editor-ui-scene-selftest":
+                        // The scene screen's own phases: rows, details, menus and the pointer claim.
+                        requested_editor = true;
+                        requested_ui_demo = true;
+                        requested_scene_screen = true;
+                        requested_ui_selftest = true;
+                        options->editor_ui = 1;
+                        options->capture_frames = 60;
+                        break;
+                    case "--editor-animation":
+                        requested_editor = true;
+                        requested_animation_mode = true;
+                        options->capture_frames = Math.Max(options->capture_frames, 30);
+                        break;
+                    case "--editor-animation-toggle": {
+                        // Diagnostic: rebuild the placements by switching modes N times and capture the
+                        // result. Each switch destroys and recreates every placement, which is what
+                        // exhausted the scene skin buffer before it recycled regions.
+                        requested_editor = true;
+                        var count = inline_value ?? take_value(args, ref i) ?? string.Empty;
+                        if (!int.TryParse(count, out requested_animation_toggle) ||
+                            requested_animation_toggle <= 0) {
+                            requested_animation_toggle = 10;
+                        }
+                        options->capture_frames = requested_animation_toggle * 6 + 20;
+                        break;
+                    }
                     case "--editor-selftest-relocation":
                         requested_relocation_selftest = true;
                         requested_editor = true;
@@ -246,6 +343,14 @@ namespace deren.editor {
                         break;
                     }
                 }
+            }
+            // `--editor` named no frontend: the scene screen is the default now. `--editor-ui=classic`
+            // opts back into RmlUi, and every other `--editor-ui` form already chose a frontend, so this
+            // only fills the gap. Resolving here keeps the choice independent of the argument order.
+            if (requested_editor_screen_default && !requested_classic_ui && !requested_ui_demo) {
+                requested_ui_demo = true;
+                requested_scene_screen = true;
+                options->editor_ui = 1;
             }
             // The selftest runs over several frames: one per asset phase, then the layout shots the
             // Window-menu check needs (a display change only reaches the boxes on the next pass).
@@ -375,6 +480,26 @@ namespace deren.editor {
             }
 
             string shell_ui = Path.Combine(managed_bootstrap.assembly_directory, "ui");
+            string project_root = managed_bootstrap.project_directory;
+            string workspace = string.Equals(project_root, managed_bootstrap.assembly_directory, StringComparison.OrdinalIgnoreCase)
+                ? project_root : Path.Combine(project_root, ".deren");
+            if (requested_ui_demo) {
+                // No classic shell at all: the Dope Sheet is painted by the editor's own UI library and
+                // submitted through the overlay the renderer installed instead of RmlUi. Only the state
+                // the screens read is created here; the panels and the classic document stay null.
+                next_ui = new ui_context();
+                selection_state = new node_selection();
+                undo_history = new undo_stack();
+                // Play is a separate process, so the session and its workspace belong to this frontend too:
+                // without them the scene screen's Play button would have nothing to start.
+                play_session.sweep_stale_workspaces(workspace);
+                playing = new play_session(project_root, workspace);
+                thumbnails = new asset_thumbnail_cache(project_root, workspace);
+                instance = this;
+                scripts->update = &update;
+                scripts->stop = &stop;
+                return script_status.success;
+            }
             if (!rml_document.try_open(Path.Combine(shell_ui, "editor.rml"), Path.Combine(shell_ui, "LatoLatin-Regular.ttf"),
                                        out var opened_document, out var ui_status) || opened_document == null) {
                 host_logger.write($"Editor: cannot open ui/editor.rml ({ui_status})");
@@ -382,9 +507,6 @@ namespace deren.editor {
                 return script_status.script_failure;
             }
             ui = opened_document;
-            string project_root = managed_bootstrap.project_directory;
-            string workspace = string.Equals(project_root, managed_bootstrap.assembly_directory, StringComparison.OrdinalIgnoreCase)
-                ? project_root : Path.Combine(project_root, ".deren");
             if (!requested_selftest) {
                 Directory.CreateDirectory(workspace);
                 layout_path = Path.Combine(workspace, "editor-layout.json");
@@ -508,8 +630,32 @@ namespace deren.editor {
                     return validation_status;
                 }
             }
-            if (requested_relocation_selftest) {
-                var relocation_status = run_relocation_selftest();
+            if (requested_animation_mode) {
+                // The mode opens empty, so the command line records the animated placement first and
+                // then opens it in the preview the way the Timeline's Open button does.
+                string? preview_asset = null;
+                var preview_clip = 0;
+                if (select_first_animatable() &&
+                    document?.find(selection_state?.primary ?? Guid.Empty) is { asset: { Length: > 0 } animated } placed) {
+                    preview_asset = animated;
+                    preview_clip = Math.Max(0, placed.animation_clip);
+                }
+                if (enter_animation_mode() is { } animation_error) {
+                    notice = animation_error;
+                    host_logger.write($"Editor: cannot open the animation editor: {animation_error}");
+                } else if (preview_asset != null && open_animation_asset(preview_asset, preview_clip) is { } open_error) {
+                    notice = open_error;
+                    host_logger.write($"Editor: cannot open the animation preview asset: {open_error}");
+                }
+            }
+            if (requested_animation_mode_selftest) {
+                var animation_mode_status = animation_mode_selftest_begin();
+                if (animation_mode_status != script_status.success) {
+                    cleanup();
+                    return animation_mode_status;
+                }
+            }
+            if (requested_relocation_selftest) {                var relocation_status = run_relocation_selftest();
                 if (relocation_status != script_status.success) {
                     cleanup();
                     return relocation_status;
@@ -583,6 +729,12 @@ namespace deren.editor {
                 if (current.runtime != null) {
                     return current.runtime.update(frame);
                 }
+                if (current.next_ui != null) {
+                    // One own-UI frontend, two screens: the scene editor or the Dope Sheet.
+                    return requested_scene_screen
+                        ? current.run_scene_ui_frame()
+                        : current.run_next_ui_frame();
+                }
                 if (current.playing?.poll(current.output_log.add, out var play_result, out var play_failed) == true) {
                     current.notice = play_result;
                     current.ui?.set_text("btn_play", "Play");
@@ -613,6 +765,12 @@ namespace deren.editor {
                     current.output_log.refresh(current.ui);
                 }
                 current.refresh_panels();
+                current.update_animation_strip();
+            current.animation_mode_toggle_tick();
+                {
+                    var animation_mode_status = current.animation_mode_selftest_tick();
+                    if (animation_mode_status != script_status.success) { return animation_mode_status; }
+                }
                 current.sync_environment_lanes();
                 current.sync_point_lights();
                 current.update_viewport_aspect();
@@ -724,7 +882,8 @@ namespace deren.editor {
                     }
                     continue;
                 }
-                if (handle_outliner_pointer(input) || handle_asset_drag(input) || handle_gizmo(input)) {
+                if (handle_outliner_pointer(input) || handle_asset_drag(input) || handle_gizmo(input) ||
+                    handle_animation_strip(input) || handle_timeline_pointer(input)) {
                     continue;
                 }
                 handle_viewport_selection(input);
@@ -800,6 +959,9 @@ namespace deren.editor {
                     case "btn_play":
                         toggle_play();
                         break;
+                    case "btn_animation":
+                        toggle_animation_mode();
+                        break;
                     case "btn_save":
                         save_document();
                         break;
@@ -868,6 +1030,7 @@ namespace deren.editor {
                         break;
                     case "tab_content":
                     case "tab_log":
+                    case "tab_timeline":
                         set_dock_tab(input.id);
                         break;
                     case "vp_space":
@@ -1411,6 +1574,10 @@ namespace deren.editor {
             if (document == null) {
                 return false;
             }
+            if (animation_mode) {
+                notice = "The animation preview scene is not saved; leave the animation editor first.";
+                return false;
+            }
             var path = destination ?? document.path ??
                 Path.Combine(managed_bootstrap.project_directory, "scenes", default_scene_file);
             try {
@@ -1908,19 +2075,33 @@ namespace deren.editor {
             };
         }
 
-        /// <summary>Switches the bottom dock between the Content Browser and the Output Log.</summary>
+        /// <summary>
+        /// Switches the bottom dock between the Content Browser, the Output Log and the animation
+        /// editor's Timeline. The Timeline tab only exists while the animation editor is open.
+        /// </summary>
         private void set_dock_tab(string tab) {
-            if (ui == null || (tab != "tab_content" && tab != "tab_log") || tab == active_dock_tab) {
+            if (ui == null || tab == active_dock_tab) {
+                return;
+            }
+            if (tab is not ("tab_content" or "tab_log" or "tab_timeline")) {
+                return;
+            }
+            if (tab == "tab_timeline" && !animation_mode) {
                 return;
             }
             active_dock_tab = tab;
             var browser = tab == "tab_content";
+            var log = tab == "tab_log";
+            var timeline = tab == "tab_timeline";
             ui.set_visible("browser_body", browser);
-            ui.set_visible("log_body", !browser);
+            ui.set_visible("log_body", log);
+            ui.set_visible("timeline_body", timeline);
             ui.try_set_element_style("browser_body", "display", browser ? "flex" : "none");
-            ui.try_set_element_style("log_body", "display", browser ? "none" : "flex");
+            ui.try_set_element_style("log_body", "display", log ? "flex" : "none");
+            ui.try_set_element_style("timeline_body", "display", timeline ? "flex" : "none");
             apply_tab_style("tab_content", browser);
-            apply_tab_style("tab_log", !browser);
+            apply_tab_style("tab_log", log);
+            apply_tab_style("tab_timeline", timeline);
         }
 
         private void apply_tab_style(string id, bool active) {
@@ -2398,6 +2579,11 @@ namespace deren.editor {
 
         private void toggle_play() {
             if (playing == null || ui == null || document == null) {
+                return;
+            }
+            if (animation_mode) {
+                notice = "The animation editor previews in place; switch back to the scene to start Play.";
+                refresh_panels();
                 return;
             }
             if (playing.running) {

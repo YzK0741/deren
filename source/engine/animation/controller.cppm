@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.engine.animation
-// module version: 1.0.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Keyframe playback / skinning / morph targets, format-neutral and runtime-agnostic:
 // driven through an injected `backend` surface and structural `source` concepts -
@@ -750,6 +750,15 @@ namespace deren::engine::animation {
         [[nodiscard]] std::uint32_t skin_block_count() const noexcept;
         /** @brief morph-buffer floats this controller allocated in its region */
         [[nodiscard]] std::size_t morph_float_count() const noexcept;
+        /**
+         * @brief takes back the skin and morph slices this controller stamped into its meshes
+         *
+         * Called when the host cannot give the placement a buffer slice: the imported meshes fall
+         * back to the identity block and the rest pose instead of reading joints out of a region
+         * that belongs to another character (which is what produced exploded meshes when a scene
+         * ran out of skin blocks).
+         */
+        void detach_buffers() noexcept;
 
         /** @brief re-address every animated scene node after a structural tree edit
          *         (another placement was imported or removed, so the node containers may have
