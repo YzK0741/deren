@@ -245,16 +245,20 @@ export namespace deren::app {
         bool (*write_radiance_cube)(void* context, std::string_view path, std::uint32_t size, float const* pixels,
                                     std::uint32_t float_count) = nullptr;
         /**
-         * @brief ABI 35: the character animation player.
+         * @brief ABI 35/46: the character animation player of one placement.
          *
-         * animation_state publishes a snapshot taken once per frame, which every query reads; the
-         * other two queue work for the frame that runs before the frame is recorded. All of them
-         * return false when no player exists, which the managed side reports as not_ready.
+         * ABI 46 addresses the player by its PLACEMENT node (@p node): a placement of an animated
+         * asset owns its own clock, clip and skin block, so two characters of the same asset answer
+         * independently. animation_state publishes a snapshot taken once per frame, which every query
+         * reads; the other two queue work for the frame that runs before the frame is recorded. All of
+         * them return false for a node that owns no animated placement, which the managed side
+         * reports as scene_not_found.
          */
-        bool (*animation_state)(void* context, scripting::animation_state& out) = nullptr;
-        bool (*animation_playable_name)(void* context, std::uint32_t index, std::string_view& name) = nullptr;
-        bool (*animation_command)(void* context, animation_command_kind kind, std::uint32_t index,
-                                  float value) = nullptr;
+        bool (*animation_state)(void* context, scripting::node_handle node, scripting::animation_state& out) = nullptr;
+        bool (*animation_playable_name)(void* context, scripting::node_handle node, std::uint32_t index,
+                                        std::string_view& name) = nullptr;
+        bool (*animation_command)(void* context, scripting::node_handle node, animation_command_kind kind,
+                                  std::uint32_t index, float value) = nullptr;
         /**
          * @brief ABI 37: a managed fault the process cannot continue from.
          *
@@ -522,17 +526,24 @@ export namespace deren::app {
         static scripting::script_status reset_temporal_history();
         static scripting::script_status write_radiance_cube(scripting::utf8_view path, std::uint32_t size,
                                                             float const* pixels, std::uint32_t float_count);
-        /** ABI 35: the animation player's per-frame snapshot; see managed_scene_host::animation_state. */
-        static scripting::script_status get_animation_state(scripting::animation_state* value);
-        /** ABI 35: how many clips the player holds, from the same snapshot. */
-        static scripting::script_status animation_playable_count(std::uint32_t* count);
-        /** ABI 35: one clip's name, borrowed from the player; see managed_scene_host::animation_playable_name. */
-        static scripting::script_status animation_playable_name(std::uint32_t index, scripting::utf8_view* name);
-        /** ABI 35: the four player commands; see managed_scene_host::animation_command. */
-        static scripting::script_status animation_select(std::uint32_t index);
-        static scripting::script_status animation_set_playing(std::uint8_t playing);
-        static scripting::script_status animation_set_speed(float speed);
-        static scripting::script_status animation_set_time(float seconds);
+        /** ABI 35/46: the placement node's animation player; see managed_scene_host::animation_state. */
+        static scripting::script_status get_animation_state(std::uint64_t tree, scripting::node_handle node,
+                                                            scripting::animation_state* value);
+        /** ABI 35/46: how many clips the placement's player holds, from the same snapshot. */
+        static scripting::script_status animation_playable_count(std::uint64_t tree, scripting::node_handle node,
+                                                                 std::uint32_t* count);
+        /** ABI 35/46: one clip's name, borrowed from the player; see managed_scene_host::animation_playable_name. */
+        static scripting::script_status animation_playable_name(std::uint64_t tree, scripting::node_handle node,
+                                                                std::uint32_t index, scripting::utf8_view* name);
+        /** ABI 35/46: the four player commands; see managed_scene_host::animation_command. */
+        static scripting::script_status animation_select(std::uint64_t tree, scripting::node_handle node,
+                                                         std::uint32_t index);
+        static scripting::script_status animation_set_playing(std::uint64_t tree, scripting::node_handle node,
+                                                              std::uint8_t playing);
+        static scripting::script_status animation_set_speed(std::uint64_t tree, scripting::node_handle node,
+                                                            float speed);
+        static scripting::script_status animation_set_time(std::uint64_t tree, scripting::node_handle node,
+                                                           float seconds);
         /**
          * ABI 37: reports a managed fault; see managed_scene_host::panic.
          *
@@ -544,8 +555,8 @@ export namespace deren::app {
                                                      std::uint32_t line, scripting::utf8_view managed_stack);
         /** The scene whose host answers the global (tree-less) setters: the starting scene, else the newest. */
         static script_scene* current_owner();
-        /** The scene that answers the animation entries, or nullptr when no host provides them. */
-        static script_scene* animation_owner();
+        /** The tree's host when it provides animation players, else nullptr; see the ABI 35/46 block. */
+        static script_scene* animation_host(std::uint64_t tree);
 
         // ABI 31: the debug panel. Each call is one widget in the frame the managed game is drawing; the
         // managed side pairs begin_panel with end_panel and owns the storage the controls write into.

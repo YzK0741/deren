@@ -80,6 +80,7 @@ namespace deren.editor {
                 return;
             }
             if (input.id == "project_scene_close") { close_project_panel(); return; }
+            if (input.id == "project_scene_check") { check_project_from_editor(); return; }
             if (selected_project_scene is not { } path) { return; }
             if (pick_scene_instance) {
                 if (input.id != "project_scene_open") { return; }

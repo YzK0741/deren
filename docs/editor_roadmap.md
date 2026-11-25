@@ -69,6 +69,19 @@ cleanup.
 or use different clips. Editing or removing one leaves the other correctly
 animated in Play and standalone.
 
+**Status.** ABI 46 makes the animation player per placement: the scene API takes
+the placement node, the host keeps one controller, clock and skin-matrix slice
+per placement, and a removal drops only the players of the subtree that goes
+away. Details gained an **Animation** group with **Initial Clip** and **Auto
+Play**, stored as `animation_clip` and `animation_autoplay` from document
+version 13. The `build/editor-animation-demo` project holds two `laevatain`
+placements in `scenes/two-character.scene.toml`; one autoplays from t=0 while a
+behaviour seeks the other to t=21 s, and `screenshot_20261124_061727.png`
+(Play) shows the two poses in one frame. `deren.exe run <project>
+--editor-selftest-animation` covers the rows, the version and placement gates,
+undo and redo, per-placement select and seek, and deleting one placement while
+the neighbour keeps its player.
+
 ## 5. Project validation and export
 
 Add a project check that reports broken scene, asset, script, and audio
@@ -80,6 +93,32 @@ scripts.
 **Acceptance.** A broken reference produces a targeted error. After repairing
 it, a clean Windows export launches from a different directory and completes
 the sample interaction using the packaged content.
+
+**Status.** The check is `source/editor/editing/project_validator.cs`, shared by
+the editor and the exporter: `deren.exe run <project> --check-project` prints one
+`file: node 'Name': message` line per problem plus a
+`Project check passed: N scene(s), M reference(s).` summary and fails the
+process, **Check Project** in the project scene panel runs the same code and
+shows the first problem, and a project whose startup scene cannot be built still
+opens for a command-line check so the problems can be reported. It covers the
+manifest's startup scenes, every scene under `scenes/`, asset library ids, scene
+instances (recursively, depth cap and loop detection), behaviour bindings,
+audio files, environment maps, and the `[export] include` list that names
+content loaded dynamically by scripts. `scripts/tools/export_windows_game.py`
+runs the check before staging and refuses to write a package when it fails, and
+it copies the `[export] include` entries into `project/`. Evidence:
+`build/editor-validation-demo` (missing asset, behaviour, audio file and include
+entry) reports all four problems and the exporter refuses it with the same
+text, while `build/editor-animation-demo` checks clean, exports, and the moved
+package `build/_export-moved` launches and shows the two animated characters
+(`screenshot_20261124_092747.png`). `--editor-selftest-validation` covers the
+clean pass and each problem class. The release check also ran from a fresh
+project: `python scripts/tools/new_editor_project.py build/_release-check --demo`
+passes `--check-project` and `--editor-selftest`, exports with
+`scripts/tools/export_windows_game.py`, and the package moved to another
+directory launches, enters and leaves the second room (`Helmet demo: entered
+Workshop` / `left Workshop`) and renders the helmet and both doors
+(`build/release-check-screenshot.png`).
 
 ## Release checks
 

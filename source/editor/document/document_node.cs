@@ -35,6 +35,32 @@ internal sealed class document_node
     internal IReadOnlyDictionary<Guid, Guid>? instance_node_ids;
 
     /// <summary>
+    /// The uid this node has in the source scene that expanded it, or null when the node is not
+    /// part of a scene instance. Overrides are keyed by this value, so they survive a reload.
+    /// </summary>
+    internal Guid? source_uid {
+        get {
+            if (instance_node_ids == null) { return null; }
+            foreach (var (source, expanded) in instance_node_ids) {
+                if (expanded == uid) { return source; }
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Parameter values this placement applies on top of the source scene, keyed by the source
+    /// node uid and then by the parameter name. Only scene instance nodes carry overrides.
+    /// </summary>
+    internal SortedDictionary<Guid, SortedDictionary<string, string>>? instance_overrides;
+
+    /// <summary>
+    /// On a node expanded from a scene instance, the parameters the source scene authored, so the
+    /// editor can show where a value comes from and restore it when an override is removed.
+    /// </summary>
+    internal SortedDictionary<string, string>? source_script_parameters;
+
+    /// <summary>
     /// The renderer pipeline applied to this node, or null when the asset default applies.
     /// </summary>
     internal string? pipeline;
@@ -82,6 +108,19 @@ internal sealed class document_node
     internal bool main_camera;
     internal float camera_fov = scene_cameras.default_fov;
     internal instance_material? material;
+
+    /// <summary>
+    /// Which clip this placement's animation player opens, as an index into the asset's clip list, or
+    /// -1 for the asset's own default (its first clip). Authored per PLACEMENT so two characters of
+    /// one asset can start on different clips; importing an asset never applies it, only Play does.
+    /// </summary>
+    internal int animation_clip = -1;
+
+    /// <summary>
+    /// True when Play starts this placement's clip immediately instead of leaving it paused at the
+    /// authored clip's first frame.
+    /// </summary>
+    internal bool animation_autoplay;
 
     /// <summary>
     /// The child nodes; the list order is the outliner order and the runtime creation order.

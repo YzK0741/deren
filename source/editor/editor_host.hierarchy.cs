@@ -334,6 +334,8 @@ namespace deren.editor {
                 light = source.light,
                 audio_source = source.audio_source,
                 collision_box = source.collision_box,
+                animation_clip = source.animation_clip,
+                animation_autoplay = source.animation_autoplay,
                 box_trigger = source.box_trigger,
                 trigger_target = source.trigger_target,
                 camera = source.camera,

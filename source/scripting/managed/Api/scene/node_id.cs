@@ -12,6 +12,13 @@ namespace deren {
         }
 
         /// <summary>
+        /// The scene tree this node belongs to, or 0 when the handle came from somewhere that does
+        /// not know it (a plain scene_api handle). The animation entries use it to address a
+        /// placement's player, and treat 0 as "the scene that owns the players".
+        /// </summary>
+        internal ulong tree_handle => owner is null ? 0UL : owner.scene_id;
+
+        /// <summary>
         /// True when this handle names a scene node. A syntactically valid handle can still be
         /// stale; use <see cref="is_alive()"/> for a liveness check.
         /// </summary>

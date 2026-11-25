@@ -159,13 +159,13 @@ namespace deren.scripting {
         private static delegate* unmanaged<script_status> reset_temporal_history;
         private static delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
         // Optional too: the animation player arrived with ABI 36.
-        private static delegate* unmanaged<animation_state*, script_status> get_animation_state;
-        private static delegate* unmanaged<uint*, script_status> animation_playable_count;
-        private static delegate* unmanaged<uint, utf8_view*, script_status> animation_playable_name;
-        private static delegate* unmanaged<uint, script_status> select_animation;
-        private static delegate* unmanaged<byte, script_status> set_animation_playing;
-        private static delegate* unmanaged<float, script_status> set_animation_speed;
-        private static delegate* unmanaged<float, script_status> set_animation_time;
+        private static delegate* unmanaged<ulong, node_handle, animation_state*, script_status> get_animation_state;
+        private static delegate* unmanaged<ulong, node_handle, uint*, script_status> animation_playable_count;
+        private static delegate* unmanaged<ulong, node_handle, uint, utf8_view*, script_status> animation_playable_name;
+        private static delegate* unmanaged<ulong, node_handle, uint, script_status> select_animation;
+        private static delegate* unmanaged<ulong, node_handle, byte, script_status> set_animation_playing;
+        private static delegate* unmanaged<ulong, node_handle, float, script_status> set_animation_speed;
+        private static delegate* unmanaged<ulong, node_handle, float, script_status> set_animation_time;
         // Optional too: the scene-graph/screen/diagnostics batch arrived with ABI 38.
         private static delegate* unmanaged<ulong, node_handle, uint*, script_status> node_child_count;
         private static delegate* unmanaged<ulong, node_handle, uint, node_handle*, script_status> node_child;
@@ -641,45 +641,46 @@ namespace deren.scripting {
                 : script_status.module_unavailable;
         }
 
-        internal static script_status query_animation_state(animation_state* value) {
+        internal static script_status query_animation_state(ulong tree, node_handle node, animation_state* value) {
             return is_ready() && get_animation_state != null
-                ? get_animation_state(value)
+                ? get_animation_state(tree, node, value)
                 : script_status.module_unavailable;
         }
 
-        internal static script_status query_animation_playable_count(uint* count) {
+        internal static script_status query_animation_playable_count(ulong tree, node_handle node, uint* count) {
             return is_ready() && animation_playable_count != null
-                ? animation_playable_count(count)
+                ? animation_playable_count(tree, node, count)
                 : script_status.module_unavailable;
         }
 
-        internal static script_status query_animation_playable_name(uint index, utf8_view* name) {
+        internal static script_status query_animation_playable_name(ulong tree, node_handle node, uint index,
+            utf8_view* name) {
             return is_ready() && animation_playable_name != null
-                ? animation_playable_name(index, name)
+                ? animation_playable_name(tree, node, index, name)
                 : script_status.module_unavailable;
         }
 
-        internal static script_status assign_animation_select(uint index) {
+        internal static script_status assign_animation_select(ulong tree, node_handle node, uint index) {
             return is_ready() && select_animation != null
-                ? select_animation(index)
+                ? select_animation(tree, node, index)
                 : script_status.module_unavailable;
         }
 
-        internal static script_status assign_animation_playing(byte playing) {
+        internal static script_status assign_animation_playing(ulong tree, node_handle node, byte playing) {
             return is_ready() && set_animation_playing != null
-                ? set_animation_playing(playing)
+                ? set_animation_playing(tree, node, playing)
                 : script_status.module_unavailable;
         }
 
-        internal static script_status assign_animation_speed(float speed) {
+        internal static script_status assign_animation_speed(ulong tree, node_handle node, float speed) {
             return is_ready() && set_animation_speed != null
-                ? set_animation_speed(speed)
+                ? set_animation_speed(tree, node, speed)
                 : script_status.module_unavailable;
         }
 
-        internal static script_status assign_animation_time(float seconds) {
+        internal static script_status assign_animation_time(ulong tree, node_handle node, float seconds) {
             return is_ready() && set_animation_time != null
-                ? set_animation_time(seconds)
+                ? set_animation_time(tree, node, seconds)
                 : script_status.module_unavailable;
         }
 
@@ -872,15 +873,16 @@ namespace deren.scripting {
         public delegate* unmanaged<uint*, uint*, float*, uint, script_status> acquire_radiance_image;
         public delegate* unmanaged<script_status> reset_temporal_history;
         public delegate* unmanaged<utf8_view, uint, float*, uint, script_status> write_radiance_cube;
-        // ABI 36: the host's character animation player. The three queries read the per-frame
+        // ABI 36/46: the host's character animation player. ABI 46 addresses a PLAYER by its scene tree
+        // and its placement node (0 for either means "the scene's first player"). The three queries read the per-frame
         // snapshot; the commands only queue work for the frame thread.
-        public delegate* unmanaged<animation_state*, script_status> get_animation_state;
-        public delegate* unmanaged<uint*, script_status> animation_playable_count;
-        public delegate* unmanaged<uint, utf8_view*, script_status> animation_playable_name;
-        public delegate* unmanaged<uint, script_status> select_animation;
-        public delegate* unmanaged<byte, script_status> set_animation_playing;
-        public delegate* unmanaged<float, script_status> set_animation_speed;
-        public delegate* unmanaged<float, script_status> set_animation_time;
+        public delegate* unmanaged<ulong, node_handle, animation_state*, script_status> get_animation_state;
+        public delegate* unmanaged<ulong, node_handle, uint*, script_status> animation_playable_count;
+        public delegate* unmanaged<ulong, node_handle, uint, utf8_view*, script_status> animation_playable_name;
+        public delegate* unmanaged<ulong, node_handle, uint, script_status> select_animation;
+        public delegate* unmanaged<ulong, node_handle, byte, script_status> set_animation_playing;
+        public delegate* unmanaged<ulong, node_handle, float, script_status> set_animation_speed;
+        public delegate* unmanaged<ulong, node_handle, float, script_status> set_animation_time;
         // ABI 38: scene-graph queries, world/screen conversion, and diagnostics. Optional like the
         // entries above: a host that predates them leaves the pointers null and every wrapper reports
         // module_unavailable instead of calling through one.

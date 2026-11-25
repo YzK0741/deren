@@ -41,22 +41,39 @@ namespace deren.editor {
                 return;
             }
 
+            var instance = node.instance_root;
+            Guid? source = node.source_uid;
+            var overrides = instance?.instance_overrides;
+            SortedDictionary<string, string>? instance_values = null;
+            if (overrides != null && source is { } key) { overrides.TryGetValue(key, out instance_values); }
+
             var markup = new StringBuilder();
-            markup.Append("""<div class="detail_header">Script</div><div class="detail_row"><select id="script_picker" class="script_select">""");
-            option(markup, "", "No script");
-            if (node.script != null && !catalog.try_get(node.script, out _)) {
-                option(markup, node.script, $"Missing: {node.script}");
+            if (instance != null) {
+                markup.Append("""<div class="detail_header">Script</div>""");
+                markup.Append("""<div class="detail_row"><div class="detail_label">Source scene</div><div class="detail_value">""")
+                    .Append(WebUtility.HtmlEncode(instance.subscene ?? instance.name)).Append("</div></div>");
+                markup.Append("""<div class="detail_row"><div class="detail_label">Script</div><div class="detail_value">""")
+                    .Append(WebUtility.HtmlEncode(node.script ?? "No script")).Append("</div></div>");
+                markup.Append("""<div class="detail_row"><div class="detail_label">Overrides</div><div class="detail_value">""")
+                    .Append((instance_values?.Count ?? 0).ToString(CultureInfo.InvariantCulture)).Append("</div></div>");
+            } else {
+                markup.Append("""<div class="detail_header">Script</div><div class="detail_row"><select id="script_picker" class="script_select">""");
+                option(markup, "", "No script");
+                if (node.script != null && !catalog.try_get(node.script, out _)) {
+                    option(markup, node.script, $"Missing: {node.script}");
+                }
+                foreach (var definition in catalog.entries) {
+                    option(markup, definition.binding, definition.type.FullName ?? definition.binding);
+                }
+                markup.Append("""</select><button id="script_refresh">Refresh</button></div>""");
             }
-            foreach (var definition in catalog.entries) {
-                option(markup, definition.binding, definition.type.FullName ?? definition.binding);
-            }
-            markup.Append("""</select><button id="script_refresh">Refresh</button></div>""");
 
             if (node.script != null && catalog.try_get(node.script, out var script) && script != null) {
                 int index = 0;
                 foreach (var field in script.parameters) {
                     string id = $"script_param_{index++}";
                     fields.Add(id, field);
+                    bool overridden = instance_values?.ContainsKey(field.name) == true;
                     markup.Append($"""<div class="detail_row"><div class="detail_label">{WebUtility.HtmlEncode(field.label)}</div>""");
                     if (field.kind is parameter_kind.boolean or parameter_kind.node or parameter_kind.asset) {
                         markup.Append($"""<select id="{id}" class="script_select">""");
@@ -81,6 +98,11 @@ namespace deren.editor {
                         string placeholder = field.kind == parameter_kind.vector ? "Default or X, Y, Z" : "Default";
                         drafts[id] = node.script_parameters.GetValueOrDefault(field.name, "");
                         markup.Append($"""<input id="{id}" type="text" placeholder="{placeholder}"/><button id="apply_{id}" class="script_apply">Apply</button>""");
+                    }
+                    if (instance != null) {
+                        markup.Append(overridden
+                            ? $"""<span class="detail_value">Instance override</span><button id="restore_{id}" class="script_apply">Restore source</button>"""
+                            : """<span class="detail_value">From source</span>""");
                     }
                     markup.Append("</div>");
                 }

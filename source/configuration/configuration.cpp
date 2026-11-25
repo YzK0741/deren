@@ -138,7 +138,10 @@ namespace deren::app_config {
         }
 
         void collect_unknown_project_keys(toml::table const& manifest, std::vector<std::string>& unknown) {
-            append_unknown_keys(manifest, "", {"project", "paths", "scripts", "input", "editor", "game"}, unknown);
+            append_unknown_keys(manifest, "", {"project", "paths", "scripts", "input", "editor", "game", "export"}, unknown);
+            if (auto const* exported = manifest.get_as<toml::table>("export")) {
+                append_unknown_keys(*exported, "export", {"include"}, unknown);
+            }
             if (auto const* game = manifest.get_as<toml::table>("game")) {
                 append_unknown_keys(*game, "game", {"scene"}, unknown);
             }

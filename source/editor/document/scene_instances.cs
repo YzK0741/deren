@@ -57,7 +57,9 @@ internal static class scene_instances {
                 if (!document_io.try_load(path, out var linked, out error) || linked == null) { return false; }
                 var remap = new Dictionary<Guid, Guid>();
                 remap_nodes(linked.roots, node, remap);
+                node.instance_node_ids = remap;
                 if (!expand(project, linked.roots, stack, out error)) { return false; }
+                apply_overrides(node, linked.roots, remap);
                 node.children.AddRange(linked.roots);
             } finally {
                 stack.Remove(path);
@@ -82,6 +84,33 @@ internal static class scene_instances {
         }
         path = resolved;
         return true;
+    }
+
+    /// <summary>
+    /// Applies the placement's parameter overrides to the freshly expanded nodes and keeps the
+    /// source value on every node so the editor can show where a value comes from and restore it.
+    /// The override keys are source scene uids, which survive a source edit and a reload.
+    /// </summary>
+    private static void apply_overrides(document_node instance, IReadOnlyList<document_node> nodes,
+                                        IReadOnlyDictionary<Guid, Guid> remap) {
+        var overrides = instance.instance_overrides;
+        var sources = new Dictionary<Guid, Guid>();
+        foreach (var (source, expanded) in remap) { sources[expanded] = source; }
+        apply(nodes, sources, overrides);
+    }
+
+    private static void apply(IReadOnlyList<document_node> nodes, IReadOnlyDictionary<Guid, Guid> sources,
+                              SortedDictionary<Guid, SortedDictionary<string, string>>? overrides) {
+        foreach (var node in nodes) {
+            if (sources.TryGetValue(node.uid, out var source)) {
+                node.source_script_parameters = new SortedDictionary<string, string>(node.script_parameters,
+                    StringComparer.Ordinal);
+                if (overrides != null && overrides.TryGetValue(source, out var values)) {
+                    foreach (var (name, value) in values) { node.script_parameters[name] = value; }
+                }
+            }
+            apply(node.children, sources, overrides);
+        }
     }
 
     private static void remap_nodes(IReadOnlyList<document_node> nodes, document_node instance,

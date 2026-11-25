@@ -47,8 +47,8 @@ namespace deren.editor {
                 // still claim the old version, or an old build accepts it and drops the keys on its
                 // next save.
                 if (!document_io.try_serialize(document, out var header, out _) ||
-                    !header.Contains("version = 11", StringComparison.Ordinal)) {
-                    return selftest_failure("the writer did not publish the moving-solid document version");
+                    !header.Contains("version = 13", StringComparison.Ordinal)) {
+                    return selftest_failure("the writer did not publish the animation-placement document version");
                 }
 
                 // THE SCENE ENVIRONMENT travels with the document: a lane and a node's lane index must
@@ -209,7 +209,7 @@ namespace deren.editor {
                     Array.Exists(older.environment_slots, slot => slot != null)) {
                     return selftest_failure("a version 3 document did not load as written");
                 }
-                File.WriteAllText(legacy_path, "[document]\n    version = 12\n    name = \"future\"\n");
+                File.WriteAllText(legacy_path, "[document]\n    version = 14\n    name = \"future\"\n");
                 if (document_io.try_load(legacy_path, out _, out _)) {
                     return selftest_failure("a document from a future version was accepted");
                 }
@@ -1040,6 +1040,62 @@ namespace deren.editor {
                 !replace_scene(loaded)) {
                 return selftest_failure($"reopening did not pick up the shared source update: {error}");
             }
+            if (document.find(first.uid) is not { } placed ||
+                document.find(second.uid) is not { } other ||
+                placed.children[0] is not { } door_a || other.children[0] is not { } door_b) {
+                return selftest_failure("the reopened instances lost their expanded nodes");
+            }
+            prop.script = "demo.dll:Door";
+            prop.script_parameters["target"] = "north";
+            if (!document_io.try_save(source, source_path, out error) ||
+                !scene_instances.try_load(project, target_path, out loaded, out error) || loaded == null ||
+                !replace_scene(loaded) ||
+                document.find(first.uid)?.children[0].script_parameters.GetValueOrDefault("target") != "north" ||
+                document.find(second.uid)?.children[0].script_parameters.GetValueOrDefault("target") != "north" ||
+                document.find(first.uid)?.children[0].source_script_parameters?.GetValueOrDefault("target") != "north" ||
+                document.find(first.uid)?.children[0].source_uid == null) {
+                return selftest_failure($"a source script parameter did not reach both instances: {error}");
+            }
+            var instance_a = document.find(first.uid)!;
+            var instance_b = document.find(second.uid)!;
+            set_instance_override(instance_a, instance_a.children[0].source_uid!.Value, "target", "east", "Set target");
+            set_instance_override(instance_b, instance_b.children[0].source_uid!.Value, "target", "west", "Set target");
+            if (instance_a.children[0].script_parameters.GetValueOrDefault("target") != "east" ||
+                instance_b.children[0].script_parameters.GetValueOrDefault("target") != "west" ||
+                instance_a.children[0].source_script_parameters?.GetValueOrDefault("target") != "north") {
+                return selftest_failure("a placement override did not stay local to its instance");
+            }
+            if (!document_io.try_save(document, target_path, out error) ||
+                !File.ReadAllText(target_path).Contains("instance_parameter.", StringComparison.Ordinal) ||
+                !scene_instances.try_load(project, target_path, out loaded, out error) || loaded == null ||
+                loaded.find(first.uid)?.children[0].script_parameters.GetValueOrDefault("target") != "east" ||
+                loaded.find(second.uid)?.children[0].script_parameters.GetValueOrDefault("target") != "west" ||
+                loaded.find(first.uid)?.children[0].source_script_parameters?.GetValueOrDefault("target") != "north" ||
+                !replace_scene(loaded)) {
+                return selftest_failure($"a placement override did not survive saving and reopening: {error}");
+            }
+            prop.script_parameters["target"] = "south";
+            prop.script_parameters["label"] = "front";
+            if (!document_io.try_save(source, source_path, out error) ||
+                !scene_instances.try_load(project, target_path, out loaded, out error) || loaded == null ||
+                loaded.find(first.uid)?.children[0] is not { } updated_a ||
+                loaded.find(second.uid)?.children[0] is not { } updated_b ||
+                updated_a.script_parameters.GetValueOrDefault("label") != "front" ||
+                updated_b.script_parameters.GetValueOrDefault("label") != "front" ||
+                updated_a.script_parameters.GetValueOrDefault("target") != "east" ||
+                updated_b.script_parameters.GetValueOrDefault("target") != "west" ||
+                updated_a.source_script_parameters?.GetValueOrDefault("target") != "south" ||
+                updated_b.source_script_parameters?.GetValueOrDefault("target") != "south" ||
+                !replace_scene(loaded)) {
+                return selftest_failure($"a source edit did not reach both instances or lost an override: {error}");
+            }
+            var restored = document.find(first.uid)!;
+            set_instance_override(restored, restored.children[0].source_uid!.Value, "target", null, "Restore target");
+            if (document.find(first.uid)?.children[0].script_parameters.GetValueOrDefault("target") != "south" ||
+                document.find(second.uid)?.children[0].script_parameters.GetValueOrDefault("target") != "west" ||
+                document.find(first.uid)?.instance_overrides != null) {
+                return selftest_failure("restoring an override did not return the source value");
+            }
             var cyclic = new scene_document { name = "Cycle" };
             string cycle_name = $"cyclic-{Guid.NewGuid():N}.scene.toml";
             cyclic.add_root(new document_node { name = "Self", subscene = $"scenes/{cycle_name}" });
@@ -1053,9 +1109,257 @@ namespace deren.editor {
             } finally {
                 File.Delete(cycle_path);
             }
-            host_logger.write("Editor selftest: scene instance picker, independent transforms, source updates and cycle checks passed");
+            host_logger.write("Editor selftest: scene instance picker, independent transforms, source updates, per-instance parameter overrides and cycle checks passed");
             return script_status.success;
         }
+
+        private static bool requested_animation_selftest;
+
+        /// <summary>
+        /// Proves the animation authoring path of milestone 4: the two per-placement fields survive a
+        /// save and a reload, the document gates refuse bad values, the Details rows drive the
+        /// selected placement through Undo and Redo, and every placement of one animated asset answers
+        /// its OWN player instead of a single scene-wide one.
+        /// </summary>
+        private script_status run_animation_selftest() {
+            if (document == null || selection_state == null || undo_history == null) {
+                return selftest_failure("the animation fixture is unavailable");
+            }
+            string project = managed_bootstrap.project_directory;
+            var path = Path.Combine(project, "scenes", $"animation-selftest-{Guid.NewGuid():N}.scene.toml");
+            const string animated = "laevatain";
+            var original = document;
+            var scene = new scene_document { name = "Animation Selftest" };
+            var authored = new document_node {
+                name = "Authored",
+                asset = animated,
+                animation_clip = 0,
+                animation_autoplay = true,
+            };
+            var plain = new document_node { name = "Plain", asset = animated };
+            scene.add_root(authored);
+            scene.add_root(plain);
+            try {
+                if (!document_io.try_save(scene, path, out var error) || !document_io.try_load(path, out var loaded, out error) || loaded == null) {
+                    return selftest_failure($"the animation placement fields did not save: {error}");
+                }
+                if (loaded.find(authored.uid) is not { animation_clip: 0, animation_autoplay: true } reloaded_authored ||
+                    loaded.find(plain.uid) is not { animation_clip: -1, animation_autoplay: false }) {
+                    return selftest_failure("the animation placement fields did not survive saving and reloading");
+                }
+                var text = File.ReadAllText(path);
+                if (!text.Contains("animation_clip = 0", StringComparison.Ordinal) ||
+                    !text.Contains("animation_autoplay = true", StringComparison.Ordinal)) {
+                    return selftest_failure("the writer did not publish the animation placement fields");
+                }
+                // The version gate: the rows are document version 13, so an older document must refuse
+                // them instead of silently dropping a placement's playback.
+                File.WriteAllText(path, text.Replace("version = 13", "version = 12", StringComparison.Ordinal));
+                if (document_io.try_load(path, out _, out var older_error) ||
+                    older_error?.Contains("animation placement settings need document version 13", StringComparison.Ordinal) != true) {
+                    return selftest_failure($"a version 12 document with animation placement settings was not refused: {older_error}");
+                }
+                // A negative index and animation rows without a placement are authoring mistakes.
+                File.WriteAllText(path, text.Replace("animation_clip = 0", "animation_clip = -1", StringComparison.Ordinal));
+                if (document_io.try_load(path, out _, out var negative_error) ||
+                    negative_error?.Contains("animation_clip must be zero or greater", StringComparison.Ordinal) != true) {
+                    return selftest_failure($"a negative animation clip was not diagnosed: {negative_error}");
+                }
+                File.WriteAllText(path, text);
+                var loose = new document_node { name = "Loose", animation_autoplay = true };
+                scene.add_root(loose);
+                bool refused_loose = !document_io.try_save(scene, path, out var loose_error) &&
+                                     loose_error?.Contains("has animation settings but no asset placement", StringComparison.Ordinal) == true;
+                scene.remove_root(loose);
+                if (!refused_loose) {
+                    return selftest_failure("animation settings on a node without a placement were not refused");
+                }
+                authored.animation_clip = -2;
+                bool refused_negative = !document_io.try_save(scene, path, out var clip_error) &&
+                                        clip_error?.Contains("invalid initial animation clip", StringComparison.Ordinal) == true;
+                authored.animation_clip = 0;
+                if (!refused_negative) {
+                    return selftest_failure("an invalid initial animation clip was not refused");
+                }
+                // The Details rows write the selected placement and record Undo.
+                if (!replace_scene(loaded) || document.find(authored.uid) is not { animation_autoplay: true } placement) {
+                    return selftest_failure("the animation scene did not open");
+                }
+                selection_state.select(placement.uid);
+                toggle_animation_autoplay();
+                if (placement.animation_autoplay) {
+                    return selftest_failure("the Auto Play row did not flip the placement");
+                }
+                if (!undo_history.try_undo() || !placement.animation_autoplay ||
+                    !undo_history.try_redo() || placement.animation_autoplay) {
+                    return selftest_failure("the Auto Play row did not participate in Undo and Redo");
+                }
+                apply_animation_clip("-1");
+                if (placement.animation_clip != -1 || !undo_history.try_undo() || placement.animation_clip != 0) {
+                    return selftest_failure("the Initial Clip row did not participate in Undo");
+                }
+                // Per-placement players: the editor tree binds each placement's asset, so both must
+                // report their own clip list and accept their own select/seek.
+                string[] clips = placement.runtime.is_valid ? animation_player.get_clip_names(placement.runtime) : [];
+                if (clips.Length > 0) {
+                    if (document.find(plain.uid) is not { } other ||
+                        !animation_player.try_select(placement.runtime, 0) ||
+                        !animation_player.try_select(other.runtime, 0) ||
+                        !animation_player.try_seek(placement.runtime, 5.0f) ||
+                        !animation_player.try_seek(other.runtime, 20.0f)) {
+                        return selftest_failure("two placements of one animated asset did not answer their own players");
+                    }
+                    // Deleting one character must not stop the other one's animation: its own player
+                    // survives, and only the removed placement answers scene_not_found.
+                    selection_state.select(placement.uid);
+                    delete_selected();
+                    bool removed_dropped = !animation_player.try_get_info(placement.runtime, out _);
+                    bool survivor_kept = animation_player.try_get_info(other.runtime, out var survivor) &&
+                                         survivor.available && survivor.clip_count > 0;
+                    if (!removed_dropped || !survivor_kept) {
+                        return selftest_failure("deleting one animated placement disturbed its neighbour or left a stale player");
+                    }
+                    if (!undo_history.try_undo() ||
+                        document.find(authored.uid) is not { } back_node ||
+                        !animation_player.try_get_info(back_node.runtime, out var back) ||
+                        !back.available) {
+                        return selftest_failure("Undoing the deletion did not restore the character's player");
+                    }
+                } else {
+                    host_logger.write($"Editor selftest: the project has no animated placement for '{animated}', player addressing skipped");
+                }
+                host_logger.write("Editor selftest: animation placement clip, auto play, version gate, Undo and per-placement players passed");
+                return script_status.success;
+            } finally {
+                File.Delete(path);
+            }
+        }
+
+        private static bool requested_validation_selftest;
+
+        /// <summary>Checks the project validator itself against a scratch project: one clean build, then one
+        /// broken copy per problem class, so the gate the exporter relies on has its own coverage.</summary>
+        private script_status run_validation_selftest() {
+            string root = Path.Combine(managed_bootstrap.project_directory, $"validation-selftest-{Guid.NewGuid():N}");
+            string manifest = Path.Combine(root, "deren.toml");
+            string scene = Path.Combine(root, "scenes", "main.scene.toml");
+            string voice = Path.Combine(root, "audio", "voice.ogg");
+            try {
+                Directory.CreateDirectory(Path.Combine(root, "scenes"));
+                Directory.CreateDirectory(Path.Combine(root, "scripts"));
+                Directory.CreateDirectory(Path.Combine(root, "asset"));
+                Directory.CreateDirectory(Path.Combine(root, "audio"));
+                File.WriteAllBytes(Path.Combine(root, "scripts", "Game.dll"), [0]);
+                File.WriteAllBytes(voice, [0]);
+                File.WriteAllText(Path.Combine(root, "render.toml"), "[render]\n    window_title = \"Validation Selftest\"\n");
+
+                asset_authoring.try_open(out var authoring);
+                asset_authoring? library = authoring.asset_directory != null ? authoring : (asset_authoring?)null;
+                File.WriteAllText(scene, camera_scene("Validation Main"));
+                File.WriteAllText(manifest, validation_manifest("scenes/main.scene.toml", "[\"audio/voice.ogg\"]"));
+                var report = project_validator.validate(root, library, null);
+                if (!report.ok || report.scene_count != 1 || report.checked_references != 1) {
+                    return selftest_failure($"the clean scratch project did not check clean ({report.summary()} {first_problem(report)})");
+                }
+
+                File.Delete(voice);
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "'audio/voice.ogg' does not exist")) {
+                    return selftest_failure("a missing [export] include entry was not reported");
+                }
+                File.WriteAllBytes(voice, [0]);
+
+                File.WriteAllText(manifest, validation_manifest("scenes/main.scene.toml", "[\"audio/voice.ogg\"]")
+                                                .Replace("    scene = \"scenes/main.scene.toml\"\n", string.Empty, StringComparison.Ordinal));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "no startup scene is configured")) {
+                    return selftest_failure("a project without a [game] scene was not reported");
+                }
+                File.WriteAllText(manifest, validation_manifest("scenes/main.scene.toml", "[\"audio/voice.ogg\"]"));
+
+                File.WriteAllText(scene, camera_scene("Validation Main", "    asset = \"definitely-missing\"\n"));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "asset 'definitely-missing' is not in the asset library")) {
+                    return selftest_failure("an unresolvable asset id was not reported");
+                }
+
+                File.WriteAllText(scene, camera_scene("Validation Main", "    script = \"Missing.dll:demo.Nothing\"\n"));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "behaviour assembly 'Missing.dll' is not in scripts/")) {
+                    return selftest_failure("a behaviour whose assembly is missing was not reported");
+                }
+
+                File.WriteAllText(scene, camera_scene("Validation Main", "    subscene = \"scenes/absent.scene.toml\"\n"));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "scene instance 'scenes/absent.scene.toml' does not exist")) {
+                    return selftest_failure("a missing scene instance was not reported");
+                }
+
+                File.WriteAllText(scene, camera_scene("Validation Main", "    audio_file = \"audio/absent.ogg\"\n"));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "audio file 'audio/absent.ogg' does not exist")) {
+                    return selftest_failure("a missing audio file was not reported");
+                }
+
+                File.WriteAllText(scene, camera_scene("Validation Main").Replace("[[node]]", "[environment]\n    slot_1 = \"asset:sky.hdr\"\n\n[[node]]", StringComparison.Ordinal));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "environment maps are project files, not asset library ids")) {
+                    return selftest_failure("an asset-id environment map was not reported");
+                }
+
+                File.WriteAllText(scene, camera_scene("Validation Main").Replace("[[node]]", "[environment]\n    slot_1 = \"environment/absent.hdr\"\n\n[[node]]", StringComparison.Ordinal));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "environment map 'environment/absent.hdr' does not exist")) {
+                    return selftest_failure("a missing environment map was not reported");
+                }
+
+                File.WriteAllText(scene, camera_scene("Validation Loop", "    subscene = \"scenes/loop.scene.toml\"\n"));
+                File.WriteAllText(Path.Combine(root, "scenes", "loop.scene.toml"),
+                                  camera_scene("Validation Loop", "    subscene = \"scenes/main.scene.toml\"\n"));
+                report = project_validator.validate(root, library, null);
+                if (report.ok || !has_problem(report, "the scene instance chain loops back to this file")) {
+                    return selftest_failure("a looping scene instance chain was not reported");
+                }
+
+                show_project_scenes();
+                handle_project_scenes(new(rml_event_type.click, "project_scene_check", string.Empty));
+                if (notice == null || !notice.Contains("Project check", StringComparison.Ordinal)) {
+                    return selftest_failure("the project scene panel did not run the project check");
+                }
+                close_project_panel();
+
+                host_logger.write("Editor selftest: project validation passes a clean project and reports every broken reference class passed");
+                return script_status.success;
+            } catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) {
+                return selftest_failure($"the validation selftest could not write its scratch project: {failure.Message}");
+            } finally {
+                try {
+                    if (Directory.Exists(root)) { Directory.Delete(root, true); }
+                } catch (Exception failure) when (failure is IOException or UnauthorizedAccessException) {
+                    host_logger.write($"Editor selftest: could not remove '{root}': {failure.Message}");
+                }
+            }
+        }
+
+        private static string camera_scene(string name, string extra = "") =>
+            $"[document]\n    version = 13\n    name = \"{name}\"\n\n" +
+            (extra.Length == 0 ? string.Empty : string.Empty) +
+            $"[[node]]\n    uid = \"4b1c2d3e-4f50-4a61-8b72-9c8d0e1f2a3b\"\n    name = \"Camera\"\n" +
+            $"    camera = \"main\"\n{extra}";
+
+        private static string validation_manifest(string scene, string include) =>
+            "[project]\n    name = \"Validation Selftest\"\n    main_scene = \"render.toml\"\n\n" +
+            "[paths]\n    asset_library = \"asset\"\n\n" +
+            "[scripts]\n    assembly = \"scripts/Game.dll\"\n\n" +
+            $"[editor]\n    scene = \"{scene}\"\n\n" +
+            $"[game]\n    scene = \"{scene}\"\n\n" +
+            $"[export]\n    include = {include}\n";
+
+        private static bool has_problem(project_report report, string fragment) =>
+            report.problems.Exists(problem => problem.message.Contains(fragment, StringComparison.Ordinal));
+
+        private static string first_problem(project_report report) =>
+            report.problems.Count == 0 ? string.Empty : report.problems[0].describe();
 
         private static bool requested_relocation_selftest;
 
@@ -1337,7 +1641,7 @@ namespace deren.editor {
                     loaded?.find(node.uid)?.moving_solid != true) {
                     return selftest_failure($"moving solid data did not round trip: {error}");
                 }
-                var older = File.ReadAllText(path).Replace("version = 11", "version = 10", StringComparison.Ordinal);
+                var older = File.ReadAllText(path).Replace("version = 13", "version = 10", StringComparison.Ordinal);
                 File.WriteAllText(path, older);
                 if (document_io.try_load(path, out _, out var refused) || refused?.Contains("moving solids need document version 11", StringComparison.Ordinal) != true) {
                     return selftest_failure($"a version 10 document with a moving solid was not refused: {refused}");

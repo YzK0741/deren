@@ -120,8 +120,10 @@ internal static class scene_sync
             }
             node.runtime = bound;
             // Importing an asset is authoring, not a request to start its bundled motion.
-            // Pause before the next frame consumes the new player's first update.
-            if (animation_player.try_get_info(out _) && !animation_player.try_pause()) {
+            // Pause THE PLACEMENT'S OWN player (ABI 46) before the next frame consumes its first
+            // update: the no-argument overload addresses the scene's first player, which would pause
+            // an unrelated character whenever this one was bound second.
+            if (animation_player.try_get_info(bound, out _) && !animation_player.try_pause(bound)) {
                 tree.destroy_node(bound);
                 node.runtime = default;
                 status = script_status.script_failure;

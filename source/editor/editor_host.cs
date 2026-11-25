@@ -198,6 +198,21 @@ namespace deren.editor {
                         requested_editor = true;
                         options->capture_frames = 8;
                         break;
+                    case "--check-project":
+                        requested_editor = true;
+                        requested_project_check = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-animation":
+                        requested_editor = true;
+                        requested_animation_selftest = true;
+                        options->capture_frames = 8;
+                        break;
+                    case "--editor-selftest-validation":
+                        requested_editor = true;
+                        requested_validation_selftest = true;
+                        options->capture_frames = 8;
+                        break;
                     case "--editor-selftest-relocation":
                         requested_relocation_selftest = true;
                         requested_editor = true;
@@ -317,9 +332,14 @@ namespace deren.editor {
             } else if (requested_scene != null) {
                 if (!scene_instances.try_load(managed_bootstrap.project_directory, requested_scene, out var loaded, out var load_error) || loaded == null) {
                     host_logger.write($"Editor: cannot load scene '{requested_scene}': {load_error}");
-                    return script_status.script_failure;
+                    if (!requested_project_check) {
+                        return script_status.script_failure;
+                    }
+                    host_logger.write("Editor: project check opened an empty scene because the startup scene does not load");
+                    document = create_default_document();
+                } else {
+                    document = loaded;
                 }
-                document = loaded;
             } else {
                 document = create_default_document();
             }
@@ -328,8 +348,19 @@ namespace deren.editor {
             // requires before it will run the project (see app_scripting.cpp activate_scene).
             if (!scene_sync.rebuild(document, out var rebuilt_tree, out var rebuild_status) || rebuilt_tree == null) {
                 host_logger.write($"Editor: cannot rebuild the scene tree ({rebuild_status})");
-                cleanup();
-                return rebuild_status != script_status.success ? rebuild_status : script_status.script_failure;
+                if (!requested_project_check) {
+                    cleanup();
+                    return rebuild_status != script_status.success ? rebuild_status : script_status.script_failure;
+                }
+                // A project check must be able to report a project whose scene cannot be built at
+                // all, so the check opens an empty document instead of refusing to start.
+                document = create_default_document();
+                if (!scene_sync.rebuild(document, out rebuilt_tree, out rebuild_status) || rebuilt_tree == null) {
+                    host_logger.write($"Editor: the empty fallback scene did not rebuild either ({rebuild_status})");
+                    cleanup();
+                    return rebuild_status != script_status.success ? rebuild_status : script_status.script_failure;
+                }
+                host_logger.write("Editor: project check opened an empty scene because the startup scene is broken");
             }
             tree = rebuilt_tree;
             if (requested_thumbnail != null) {
@@ -400,6 +431,13 @@ namespace deren.editor {
                 : string.Create(CultureInfo.InvariantCulture, $"Scene map: {Path.GetFileName(global_environment_hdr)}"));
             host_logger.write($"Editor: document ready ({count_nodes(document.roots)} node(s))");
 
+            if (requested_project_check) {
+                var check_status = run_project_check_command();
+                if (check_status != script_status.success) {
+                    cleanup();
+                    return check_status;
+                }
+            }
             if (requested_collision_selftest) {
                 var collision_status = run_collision_selftest();
                 if (collision_status != script_status.success) {
@@ -454,6 +492,20 @@ namespace deren.editor {
                 if (instances_status != script_status.success) {
                     cleanup();
                     return instances_status;
+                }
+            }
+            if (requested_animation_selftest) {
+                var animation_status = run_animation_selftest();
+                if (animation_status != script_status.success) {
+                    cleanup();
+                    return animation_status;
+                }
+            }
+            if (requested_validation_selftest) {
+                var validation_status = run_validation_selftest();
+                if (validation_status != script_status.success) {
+                    cleanup();
+                    return validation_status;
                 }
             }
             if (requested_relocation_selftest) {
@@ -644,6 +696,8 @@ namespace deren.editor {
                 if (input.type == rml_event_type.change) {
                     if (input.id == "camera_fov") {
                         camera_fov_draft = input.value;
+                    } else if (input.id == "detail_animation_clip") {
+                        apply_animation_clip(input.value);
                     } else if (light_fields.ContainsKey(input.id)) {
                         light_fields[input.id] = input.value;
                     } else if (audio_fields.ContainsKey(input.id)) {
@@ -708,6 +762,11 @@ namespace deren.editor {
                     apply_script_draft(input.id["apply_".Length..]);
                     continue;
                 }
+                const string restore_script = "restore_script_param_";
+                if (input.id.StartsWith(restore_script, StringComparison.Ordinal)) {
+                    restore_script_parameter(input.id["restore_".Length..]);
+                    continue;
+                }
                 switch (input.id) {
                     case "camera_apply_fov":
                     case "camera_main":
@@ -766,6 +825,9 @@ namespace deren.editor {
                         break;
                     case "detail_moving_solid":
                         toggle_moving_solid();
+                        break;
+                    case "detail_animation_autoplay":
+                        toggle_animation_autoplay();
                         break;
                     case "detail_trigger_target":
                         toggle_trigger_target();

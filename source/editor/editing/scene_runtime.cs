@@ -211,8 +211,38 @@ namespace deren.editor {
         }
 
         private void entered_scene() {
-            if (animation_player.try_get_info(out _)) { animation_player.try_play(); }
+            if (!apply_authored_animation(document.roots)) {
+                // NO PLACEMENT AUTHORED A CLIP: keep the old single-character behaviour - whichever
+                // player the host built first plays - so a scene saved before the animation rows
+                // existed still animates in Play and standalone.
+                if (animation_player.try_get_info(out _)) { animation_player.try_play(); }
+            }
             host_logger.write($"Scene runtime: running '{document.name}'");
+        }
+
+        /// <summary>
+        /// Applies each placement's authored clip and auto-play flag to that placement's own player.
+        /// Returns true when at least one placement authored a setting, so the caller knows not to
+        /// fall back to "play the first player"; false means the scene never opted in.
+        /// </summary>
+        private bool apply_authored_animation(IReadOnlyList<document_node> nodes) {
+            var authored = false;
+            foreach (var node in nodes) {
+                if ((node.asset != null || node.subscene != null) && node.runtime.is_valid &&
+                    (node.animation_clip >= 0 || node.animation_autoplay)) {
+                    authored = true;
+                    // AUTHORING IS PER PLACEMENT, so a failure names the node: a placement whose asset
+                    // carries no motion is a broken document reference, not a global runtime error.
+                    if (node.animation_clip >= 0 && !animation_player.try_select(node.runtime, node.animation_clip)) {
+                        host_logger.write($"Scene runtime: '{node.name}' has no animation clip {node.animation_clip}");
+                    }
+                    if (node.animation_autoplay && !animation_player.try_set_playing(node.runtime, true)) {
+                        host_logger.write($"Scene runtime: '{node.name}' has no animation player to play");
+                    }
+                }
+                if (apply_authored_animation(node.children)) { authored = true; }
+            }
+            return authored;
         }
 
         public void Dispose() {

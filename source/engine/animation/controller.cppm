@@ -751,6 +751,12 @@ namespace deren::engine::animation {
         /** @brief morph-buffer floats this controller allocated in its region */
         [[nodiscard]] std::size_t morph_float_count() const noexcept;
 
+        /** @brief re-address every animated scene node after a structural tree edit
+         *         (another placement was imported or removed, so the node containers may have
+         *         moved). Targets whose node no longer exists stay unresolved and are skipped
+         *         until the placement that owns them is dropped. No-op when no scene is bound. */
+        void rebind();
+
         /** @brief number of channel-bearing clips (the combo lists these) */
         [[nodiscard]] std::size_t playable_count() const noexcept;
         /** @brief display name of playable @p index ("<unnamed>" when the glTF has none) */

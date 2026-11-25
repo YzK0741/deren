@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 45;
+    inline constexpr std::uint32_t managed_abi_version = 46;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -380,20 +380,24 @@ export namespace deren::scripting {
         // engine's IBL1 probe file at @p path. Called once, after all six faces are collected.
         script_status (*write_radiance_cube)(utf8_view path, std::uint32_t size, float const* pixels,
                                              std::uint32_t float_count) = nullptr;
-        // ABI 36: THE ANIMATION PLAYER. The host samples the clip, writes the skin matrices and
-        // uploads the morph deltas between frames; these entries only choose the clip and the clock.
-        // Every call reports module_unavailable until an asset that names a motion file is bound, and
+        // ABI 36/46: THE ANIMATION PLAYERS. A placement of an animated asset owns its own player: the
+        // host samples the clip, writes the skin matrices and uploads the morph deltas between frames.
+        // ABI 46 addresses that player by the scene tree and the PLACEMENT node (@p node), so two
+        // placements of the same character answer independently; ABI 45 and older had a single
+        // tree-less player. The entries only choose the clip and the clock.
+        // Every call reports scene_not_found for a node that owns no animated placement, and
         // select/set_* report invalid_argument for a clip index or a value the player cannot take.
-        script_status (*get_animation_state)(animation_state* out) = nullptr;
-        script_status (*animation_playable_count)(std::uint32_t* count) = nullptr;
+        script_status (*get_animation_state)(std::uint64_t tree, node_handle node, animation_state* out) = nullptr;
+        script_status (*animation_playable_count)(std::uint64_t tree, node_handle node, std::uint32_t* count) = nullptr;
         // The clip name borrows the player's storage and stays valid until the player is rebuilt.
-        script_status (*animation_playable_name)(std::uint32_t index, utf8_view* name) = nullptr;
-        script_status (*select_animation)(std::uint32_t index) = nullptr;
-        script_status (*set_animation_playing)(std::uint8_t playing) = nullptr;
-        script_status (*set_animation_speed)(float speed) = nullptr;
+        script_status (*animation_playable_name)(std::uint64_t tree, node_handle node, std::uint32_t index,
+                                                 utf8_view* name) = nullptr;
+        script_status (*select_animation)(std::uint64_t tree, node_handle node, std::uint32_t index) = nullptr;
+        script_status (*set_animation_playing)(std::uint64_t tree, node_handle node, std::uint8_t playing) = nullptr;
+        script_status (*set_animation_speed)(std::uint64_t tree, node_handle node, float speed) = nullptr;
         // Scrubbing: sets the clip time in seconds and pauses, so a GUI timeline drag does not fight
         // the advancing clock. A time outside [0, duration] is clamped.
-        script_status (*set_animation_time)(float seconds) = nullptr;
+        script_status (*set_animation_time)(std::uint64_t tree, node_handle node, float seconds) = nullptr;
         // ABI 38: TREE QUERIES. create_node() already takes a name and a parent, but until now a
         // managed module could not read either back, so every subtree it built had to be remembered
         // in its own side table. These entries make the scene tree itself the source of truth.

@@ -1229,60 +1229,92 @@ namespace deren::app {
                    ? scripting::script_status::success
                    : scripting::script_status::script_failure;
     }
-    // ---- ABI 35: THE ANIMATION PLAYER ----
+    // ---- ABI 35/46: THE ANIMATION PLAYERS ----
     //
-    // The host owns the player (samples the clip, writes the skin matrices, uploads the morph deltas);
-    // these four entries only read its published snapshot and queue one command for the frame that
-    // runs before the next image. `module_unavailable` is the "no player yet" answer rather than
-    // scene_not_found: the scene exists, the animation module the managed side asked for does not.
-    // The scene whose host answers the tree-less animation entries, or nullptr.
-    script_scene* script_scene::animation_owner() {
-        script_scene* const owner = current_owner();
-        if (owner == nullptr || owner->host.animation_state == nullptr) {
+    // A placement of an animated asset owns its own player (the host samples the clip, writes the
+    // skin matrices, uploads the morph deltas); these entries only read that player's published
+    // snapshot and queue one command for the frame that runs before the next image. ABI 46 addresses
+    // the player by the PLACEMENT node, so a managed game can drive two characters of the same asset
+    // separately. A node that owns no animated placement (a plain mesh, or a placement whose buffers
+    // were full) answers scene_not_found, which is the "this node has no player" answer; a tree the
+    // managed side does not own answers the same way.
+    /** The tree's host when it provides animation players, else nullptr (see the block comment above). */
+    script_scene* script_scene::animation_host(std::uint64_t const tree) {
+        if (tree == 0) {
+            // A managed caller that does not know its scene handle (a static API call from a game
+            // that never created a tree) asks for "the scene that owns the players": the starting
+            // scene, else the newest one - the same answer the tree-less ABI 36 entries gave.
+            script_scene* const owner = current_owner();
+            return owner != nullptr && owner->host.animation_state != nullptr ? owner : nullptr;
+        }
+        managed_tree* const entry = find_managed_tree_entry(tree);
+        if (entry == nullptr || !entry->active || entry->owner == nullptr) {
             return nullptr;
         }
-        return owner;
+        if (entry->owner->host.animation_state == nullptr) {
+            return nullptr;
+        }
+        return entry->owner;
     }
 
-    scripting::script_status script_scene::get_animation_state(scripting::animation_state* const value) {
+    scripting::script_status script_scene::get_animation_state(std::uint64_t const tree,
+                                                               scripting::node_handle const node,
+                                                               scripting::animation_state* const value) {
         if (value == nullptr) {
             return scripting::script_status::invalid_argument;
         }
-        script_scene* const owner = animation_owner();
-        if (owner == nullptr) {
-            return scripting::script_status::module_unavailable;
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
         }
-        return owner->host.animation_state(owner->host.context, *value) ? scripting::script_status::success
-                                                                        : scripting::script_status::script_failure;
+        *value = {};
+        script_scene* const scene = animation_host(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        return scene->host.animation_state(scene->host.context, node, *value)
+                   ? scripting::script_status::success
+                   : scripting::script_status::scene_not_found;
     }
 
-    scripting::script_status script_scene::animation_playable_count(std::uint32_t* const count) {
+    scripting::script_status script_scene::animation_playable_count(std::uint64_t const tree,
+                                                                    scripting::node_handle const node,
+                                                                    std::uint32_t* const count) {
         if (count == nullptr) {
             return scripting::script_status::invalid_argument;
         }
-        script_scene* const owner = animation_owner();
-        if (owner == nullptr) {
-            return scripting::script_status::module_unavailable;
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
+        }
+        *count = 0;
+        script_scene* const scene = animation_host(tree);
+        if (scene == nullptr) {
+            return scripting::script_status::scene_not_found;
         }
         scripting::animation_state state{};
-        if (!owner->host.animation_state(owner->host.context, state)) {
-            return scripting::script_status::script_failure;
+        if (!scene->host.animation_state(scene->host.context, node, state)) {
+            return scripting::script_status::scene_not_found;
         }
         *count = state.playable_count;
         return scripting::script_status::success;
     }
 
-    scripting::script_status script_scene::animation_playable_name(std::uint32_t const index,
+    scripting::script_status script_scene::animation_playable_name(std::uint64_t const tree,
+                                                                   scripting::node_handle const node,
+                                                                   std::uint32_t const index,
                                                                    scripting::utf8_view* const name) {
         if (name == nullptr) {
             return scripting::script_status::invalid_argument;
         }
-        script_scene* const owner = animation_owner();
-        if (owner == nullptr || owner->host.animation_playable_name == nullptr) {
-            return scripting::script_status::module_unavailable;
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
+        }
+        *name = {};
+        script_scene* const scene = animation_host(tree);
+        if (scene == nullptr || scene->host.animation_playable_name == nullptr) {
+            return scripting::script_status::scene_not_found;
         }
         std::string_view borrowed{};
-        if (!owner->host.animation_playable_name(owner->host.context, index, borrowed)) {
+        if (!scene->host.animation_playable_name(scene->host.context, node, index, borrowed)) {
             return scripting::script_status::invalid_argument;
         }
         // The player keeps the storage; this view only lives until the player is rebuilt.
@@ -1290,54 +1322,74 @@ namespace deren::app {
         return scripting::script_status::success;
     }
 
-    scripting::script_status script_scene::animation_select(std::uint32_t const index) {
-        script_scene* const owner = animation_owner();
-        if (owner == nullptr || owner->host.animation_command == nullptr) {
-            return scripting::script_status::module_unavailable;
+    scripting::script_status script_scene::animation_select(std::uint64_t const tree,
+                                                            scripting::node_handle const node,
+                                                            std::uint32_t const index) {
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
         }
-        return owner->host.animation_command(owner->host.context, animation_command_kind::select, index, 0.0F)
+        script_scene* const scene = animation_host(tree);
+        if (scene == nullptr || scene->host.animation_command == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        return scene->host.animation_command(scene->host.context, node, animation_command_kind::select, index, 0.0F)
                    ? scripting::script_status::success
                    : scripting::script_status::invalid_argument;
     }
 
-    scripting::script_status script_scene::animation_set_playing(std::uint8_t const playing) {
+    scripting::script_status script_scene::animation_set_playing(std::uint64_t const tree,
+                                                                 scripting::node_handle const node,
+                                                                 std::uint8_t const playing) {
         if (playing > 1) {
             return scripting::script_status::invalid_argument;
         }
-        script_scene* const owner = animation_owner();
-        if (owner == nullptr || owner->host.animation_command == nullptr) {
-            return scripting::script_status::module_unavailable;
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
         }
-        return owner->host.animation_command(owner->host.context, animation_command_kind::playing, 0,
+        script_scene* const scene = animation_host(tree);
+        if (scene == nullptr || scene->host.animation_command == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        return scene->host.animation_command(scene->host.context, node, animation_command_kind::playing, 0,
                                              playing != 0 ? 1.0F : 0.0F)
                    ? scripting::script_status::success
-                   : scripting::script_status::script_failure;
+                   : scripting::script_status::scene_not_found;
     }
 
-    scripting::script_status script_scene::animation_set_speed(float const speed) {
+    scripting::script_status script_scene::animation_set_speed(std::uint64_t const tree,
+                                                               scripting::node_handle const node,
+                                                               float const speed) {
         // NaN would slip past a plain comparison and poison the clock; a negative rate would play the
         // clip backwards, which the player does not implement, so both are refused rather than clamped.
         if (!std::isfinite(speed) || speed < 0.0F) {
             return scripting::script_status::invalid_argument;
         }
-        script_scene* const owner = animation_owner();
-        if (owner == nullptr || owner->host.animation_command == nullptr) {
-            return scripting::script_status::module_unavailable;
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
         }
-        return owner->host.animation_command(owner->host.context, animation_command_kind::speed, 0, speed)
+        script_scene* const scene = animation_host(tree);
+        if (scene == nullptr || scene->host.animation_command == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        return scene->host.animation_command(scene->host.context, node, animation_command_kind::speed, 0, speed)
                    ? scripting::script_status::success
                    : scripting::script_status::invalid_argument;
     }
 
-    scripting::script_status script_scene::animation_set_time(float const seconds) {
+    scripting::script_status script_scene::animation_set_time(std::uint64_t const tree,
+                                                              scripting::node_handle const node,
+                                                              float const seconds) {
         if (!std::isfinite(seconds)) {
             return scripting::script_status::invalid_argument;
         }
-        script_scene* const owner = animation_owner();
-        if (owner == nullptr || owner->host.animation_command == nullptr) {
-            return scripting::script_status::module_unavailable;
+        if (node.value == 0) {
+            return scripting::script_status::invalid_argument;
         }
-        return owner->host.animation_command(owner->host.context, animation_command_kind::time, 0, seconds)
+        script_scene* const scene = animation_host(tree);
+        if (scene == nullptr || scene->host.animation_command == nullptr) {
+            return scripting::script_status::scene_not_found;
+        }
+        return scene->host.animation_command(scene->host.context, node, animation_command_kind::time, 0, seconds)
                    ? scripting::script_status::success
                    : scripting::script_status::invalid_argument;
     }
