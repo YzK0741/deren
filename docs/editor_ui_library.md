@@ -209,9 +209,28 @@ editing boundaries, and screen positions.
   has folding and multi-select, the filtered outliner with visibility marks and
   double-click add, a searchable project browser, draggable row reparenting,
   editable details lanes for every classic component, real scrolling for the
-  inspector, draggable dividers whose sizes live in `editor-layout.json`,
-  viewport click picking, Play, and Save/reopen.
-  `--editor-ui-scene-selftest` covers all twelve of those paths at 100% and 150%.
+  inspector, draggable dividers whose sizes live in `editor-areas.json`,
+  viewport click picking, Play, Save/reopen, the status footer, the output tab,
+  the environment rows with their map lists, and the behaviour rows (a script
+  binding, its parameters and the overrides of an expanded instance). It also
+  reproduces the classic shell's arrangement and metrics: the caption row with
+  the minimize, maximize and close cells (the window is borderless, so the UI
+  draws them), the action and tool strips inside the preview area's own header,
+  the preview over the dock beside the outliner over the details, the status
+  line, panel headers and dock tabs sized from Blender's `PNL_HEADER` grid and
+  Slate's `FDockTabStyle`, four-pixel splitters that keep their grab offset, and
+  the inspector's scroll strip. The layout itself is a tree (`source/editor/ui/
+  area_layout.cs`): each leaf names its editor type, its header cell switches
+  that type through the shared list overlay, its maximize cell fills the window
+  with that one area, and its Split and Join cells divide or merge leaves (a
+  Dope Sheet leaf runs the sheet's rows and transport inside the area). The
+  tree is stored per workspace: the strip above the areas adds, renames and
+  closes arrangements, and `editor-areas.json` records all of them, accepting a
+  version 1 single-tree file. The content browser is a 120x150 tile grid with
+  its own tool row (Search assets, Import, Refresh, Edit Asset, Build
+  Thumbnail), a Root/Up breadcrumb and the paging arrows, and the inspector's
+  sections are drawn as group boxes.
+  `--editor-ui-scene-selftest` covers all nineteen of those paths at 100% and 150%.
   Removing the classic editor code is a separate change, after the game HUD
   scripts are checked against the RmlUi overlay the game still uses.
 

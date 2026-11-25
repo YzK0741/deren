@@ -15,8 +15,33 @@ namespace deren.editor {
     /// hot state from the context instead of carrying it: nothing here holds state across a frame.
     /// </summary>
     internal static class ui_controls {
-        /// <summary>Thickness of a drag handle between two areas, in logical pixels.</summary>
-        internal const float splitter_thickness = 6.0F;
+        /// <summary>
+        /// Thickness of a drag handle between two areas, in logical pixels. Slate's splitters are a thin
+        /// handle that only announces itself under the pointer (SSplitter, in
+        /// D:\UnrealEngine-5.8.2-release\Engine\Source\Runtime\Slate\Private\Widgets\Layout\SSplitter.cpp),
+        /// so the handle is 4 px and carries no grip decoration of its own.
+        /// </summary>
+        internal const float splitter_thickness = 4.0F;
+
+        /// <summary>The strip above a dock body: one cell per tab, the active one marked by a top rule.</summary>
+        internal static ui_element dock_tab(string key, string text, bool active, ui_context? context,
+                                            float height) {
+            return ui_node.box(key).size(float.NaN, height)
+                .painted((paint, area) => {
+                    bool hot = context != null && context.is_hovered(key);
+                    // FDockTabStyle paints Normal/Hovered/Foreground brushes plus a colour overlay; the
+                    // foreground (active) cell is the lifted one and carries the indicator rule on top.
+                    uint fill = active ? ui_theme.panel_border : hot ? ui_theme.row_hover : 0U;
+                    paint.add_rect(area, 0.0F, fill, 0U, 0.0F);
+                    if (active) {
+                        paint.add_rect(new ui_rect(area.x, area.y, area.width, 2.0F), 0.0F,
+                                       ui_theme.accent_border, 0U, 0.0F);
+                    }
+                })
+                .label_text(text, ui_theme.body_size,
+                            active ? ui_theme.text_bright : ui_theme.text_dim, centered: true)
+                .pad(0.0F);
+        }
 
         /// <summary>A push button with its hover state. The caller dictates size and style.</summary>
         internal static ui_element button(string key, string text, ui_button_style style, ui_context? context,
@@ -49,10 +74,6 @@ namespace deren.editor {
                 .painted((paint, area) => {
                     bool hot = dragging || (context != null && context.is_hovered(key));
                     paint.add_rect(area, 0.0F, hot ? ui_theme.accent : ui_theme.panel_border, 0U, 0.0F);
-                    float grip_x = area.x + area.width * 0.5F - 14.0F;
-                    float grip_y = area.y + area.height * 0.5F - 1.0F;
-                    paint.add_rect(new ui_rect(grip_x, grip_y, 28.0F, 2.0F), 1.0F,
-                                   hot ? ui_theme.text_bright : ui_theme.outline, 0U, 0.0F);
                 });
         }
 
@@ -65,10 +86,6 @@ namespace deren.editor {
                 .painted((paint, area) => {
                     bool hot = dragging || (context != null && context.is_hovered(key));
                     paint.add_rect(area, 0.0F, hot ? ui_theme.accent : ui_theme.panel_border, 0U, 0.0F);
-                    float grip_x = area.x + area.width * 0.5F - 1.0F;
-                    float grip_y = area.y + area.height * 0.5F - 14.0F;
-                    paint.add_rect(new ui_rect(grip_x, grip_y, 2.0F, 28.0F), 1.0F,
-                                   hot ? ui_theme.text_bright : ui_theme.outline, 0U, 0.0F);
                 });
         }
     }

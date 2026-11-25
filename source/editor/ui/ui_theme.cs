@@ -28,6 +28,8 @@ namespace deren.editor {
         internal static readonly uint text_key = rgba(169, 190, 209, 255);
         internal static readonly uint key = rgba(150, 196, 236, 255);
         internal static readonly uint key_selected = rgba(255, 214, 148, 255);
+        /// <summary>An error line in the output log; warm enough to stand apart from the blue keys.</summary>
+        internal static readonly uint error = rgba(226, 118, 106, 255);
         /// <summary>The text selection highlight; translucent so the glyphs stay readable inside it.</summary>
         internal static readonly uint selection = rgba(45, 111, 184, 150);
 
@@ -35,8 +37,14 @@ namespace deren.editor {
         internal const float body_size = 12.0F;
         internal const float small_size = 11.0F;
         internal const float radius = 8.0F;
-        internal const float row_height = 22.0F;
-        internal const float row_step = 24.0F;
+        // The row and step follow the integer grids the two editors on hand are built on: Blender lays a
+        // widget on UI_UNIT_Y = 20 px and a panel header on UI_UNIT_Y * 1.25 = 25 px
+        // (D:\blender\blender-5.2.5\source\blender\editors\interface\interface_intern.hh, UI_UNIT_Y and PNL_HEADER),
+        // and Slate's own rows sit on a comparable 20 px baseline.
+        internal const float row_height = 20.0F;
+        internal const float row_step = 22.0F;
+        /// <summary>A panel header strip: Blender's PNL_HEADER, which is UI_UNIT_Y * 1.25.</summary>
+        internal const float panel_header_height = 25.0F;
         internal const float gap = 8.0F;
         internal const float padding = 12.0F;
     }

@@ -25,21 +25,13 @@ internal sealed unsafe partial class editor_host {
     private const float scene_min_height = 320.0F;
     private const float scene_indent = 14.0F;
     private const float scene_fold_width = 14.0F;
-    private const float scene_caption_height = ui_theme.row_height + 4.0F;
-    private const float scene_outliner_min = 160.0F;
-    private const float scene_outliner_max = 600.0F;
-    private const float scene_details_min = 200.0F;
-    private const float scene_details_max = 600.0F;
-    private const float scene_browser_min = 90.0F;
+    private const float scene_caption_height = ui_theme.panel_header_height;
+    // The strip under the outliner caption that names the two columns, the classic shell's
+    // #outliner_columns: one line of small text, no padding of its own above the rows.
+    private const float scene_column_header_height = 18.0F;
+    // The preview keeps at least this much room, which is what the pointer claim and the pick use to tell
+    // the 3D view from the panels; the area tree carries every other minimum.
     private const float scene_viewport_min = 120.0F;
-
-    /// <summary>Which divider is being dragged; only one can move at a time.</summary>
-    private enum scene_split {
-        none,
-        outliner,
-        details,
-        browser,
-    }
 
     /// <summary>One row of the flattened outliner: the node, how deep it sits, and whether it can fold.</summary>
     private readonly struct scene_outline_row {
@@ -56,6 +48,20 @@ internal sealed unsafe partial class editor_host {
         internal bool closed { get; }
     }
 
+    /// <summary>One browser row: an asset (its index into <c>assets</c>) or a folder group (-1).</summary>
+    private readonly struct scene_browser_entry {
+        internal scene_browser_entry(int asset_index, string name, string folder) {
+            this.asset_index = asset_index;
+            this.name = name;
+            this.folder = folder;
+        }
+
+        internal int asset_index { get; }
+        internal string name { get; }
+        internal string folder { get; }
+        internal bool directory => asset_index < 0;
+    }
+
     private readonly ui_list_view scene_outliner = new();
     private readonly ui_list_view scene_browser_list = new();
     private readonly List<scene_outline_row> scene_rows = [];
@@ -63,10 +69,10 @@ internal sealed unsafe partial class editor_host {
     private string scene_picked_asset = string.Empty;
     private asset_authoring scene_authoring;
     private bool scene_started;
-    // Panel sizes and the divider drag; the sizes persist next to the classic shell's layout.
-    private workspace_layout scene_layout = new();
-    private string scene_layout_path = string.Empty;
-    private scene_split scene_split_gesture;
+    // The arrangement lives in an area tree: panels own no geometry, the tree does. Its record sits next
+    // to the classic shell's layout, and the divider drag moves a share in that tree.
+    private area_layout scene_areas = new();
+    private string scene_area_path = string.Empty;
     // A press inside the 3D view that the pointer never dragged is a pick, the same gesture the classic
     // shell used to select the node under the cursor without stealing the camera's orbit drag.
     private float scene_press_x;
@@ -80,7 +86,39 @@ internal sealed unsafe partial class editor_host {
     // filtered list keeps the absolute asset index in every row key the way the outliner keeps its rows.
     private readonly ui_text_edit scene_asset_edit = new();
     private string scene_asset_filter = string.Empty;
-    private readonly List<int> scene_asset_matches = [];
+    // The browser walks folder groups the asset library reports and shows one page of them at a
+    // time; a match keeps its absolute asset index so a filtered or paged row still adds the asset
+    // it names, and a folder row carries -1 because there is no asset behind it.
+    private readonly List<scene_browser_entry> scene_asset_matches = [];
+    private readonly List<scene_browser_entry> scene_browser_catalogue = [];
+    private readonly HashSet<string> scene_browser_folders = new(StringComparer.Ordinal);
+    private string scene_browser_folder = string.Empty;
+    private int scene_browser_page;
+    private int scene_browser_page_size = 48;
+    // The tiles flow in a grid: the dock's width decides how many fit in one row, and the list view
+    // scrolls whole grid rows, so a wheel step never leaves half a tile above the clip.
+    private const float scene_browser_toolbar_height = 26.0F;
+    private const float scene_browser_breadcrumb_height = 20.0F;
+    private const float scene_browser_tile_width = 120.0F;
+    private const float scene_browser_tile_height = 150.0F;
+    private const float scene_browser_tile_gap = 8.0F;
+    private int scene_browser_columns = 4;
+    // The height the tile grid was given last frame, so the wheel scrolls the grid and not the whole dock.
+    private float scene_browser_tiles_height = scene_browser_tile_height;
+    // The bottom dock has two tabs: the project browser and the output log. The log is the host's own
+    // queue, so this frontend only renders it, newest first.
+    private readonly ui_list_view scene_output_list = new();
+    private int scene_bottom_tab;
+    // The open environment list: which row opened it, where it hangs, and the choices it was built from.
+    private bool scene_combo_open;
+    private string scene_combo_target = string.Empty;
+    private float scene_combo_x;
+    private float scene_combo_y;
+    private readonly List<(string label, string value)> scene_combo_items = [];
+    private bool scene_combo_demo_applied;
+    // Without the extended authoring table there is no library root to group by, so every asset
+    // stays in the root and the browser is a flat list, exactly as it was before folders.
+    private bool scene_library_ready;
     private string scene_last_asset = string.Empty;
     private long scene_last_asset_click;
     // A row press that travels is a reparent, not a click: the drag only starts once it leaves the slop.
@@ -107,7 +145,13 @@ internal sealed unsafe partial class editor_host {
             report_next_ui_failure("has no scene document to show");
             return;
         }
-        asset_authoring.try_open(out scene_authoring);
+        scene_library_ready = asset_authoring.try_open(out scene_authoring);
+        // The classic shell builds the script catalogue while it opens; this frontend runs without that
+        // panel, so it makes the same catalogue itself - otherwise every behaviour would read as missing.
+        if (editable_scripts == null) {
+            editable_scripts = new script_catalog(Path.Combine(managed_bootstrap.project_directory, "scripts"));
+            reload_scripts();
+        }
         if (assets.Length == 0) {
             // The classic shell lists the library while it starts; this frontend returns before that
             // happens, so the first frame that needs tiles asks for them instead.
@@ -118,8 +162,8 @@ internal sealed unsafe partial class editor_host {
         }
         host_logger.write(
             $"Editor: scene screen ready ({document.roots.Count} root node(s), {assets.Length} asset(s))");
-        // The panel sizes live in the same file the classic shell writes; a selftest run keeps them in
-        // memory so a machine with a stale layout cannot change what the assertions see.
+        // The arrangement lives beside the classic shell's layout record, in its own file: a selftest run
+        // keeps it in memory so a machine with a stale layout cannot change what the assertions see.
         if (!requested_ui_selftest) {
             string project_root = managed_bootstrap.project_directory;
             string workspace = string.Equals(project_root, managed_bootstrap.assembly_directory,
@@ -128,8 +172,8 @@ internal sealed unsafe partial class editor_host {
                 : Path.Combine(project_root, ".deren");
             try {
                 Directory.CreateDirectory(workspace);
-                scene_layout_path = Path.Combine(workspace, "editor-layout.json");
-                scene_layout = workspace_layout.load(scene_layout_path);
+                scene_area_path = Path.Combine(workspace, "editor-areas.json");
+                scene_areas = area_layout.load(scene_area_path);
             } catch (Exception error) when (error is IOException or UnauthorizedAccessException) {
                 host_logger.write($"Editor: could not prepare the workspace directory ({error.Message})");
             }
@@ -141,15 +185,17 @@ internal sealed unsafe partial class editor_host {
                 "light" => find_scene_node(document.roots, node => node.light != null),
                 "camera" => find_scene_node(document.roots, node => node.camera),
                 "actor" => find_scene_node(document.roots, node => node.subscene != null || node.asset != null),
+                "script" => find_scene_node(document.roots, node => node.script != null),
                 _ => find_scene_node(document.roots, node => node.asset != null || node.subscene != null),
             };
             if (picked != null) { selection_state?.select(picked.uid); }
-            // The same run can open one details lane, so a screenshot shows the inline editor too.
-            if (Environment.GetEnvironmentVariable("DEREN_UI_SCENE_EDIT") is { Length: > 0 } lane
-                && selection_state != null && document.find(selection_state.primary) is { } edited) {
-                begin_scene_edit_from_row(lane);
-                if (scene_value_edit != null) { scene_value_edit.select_all(); }
-            }
+        }
+        // A capture can also open the bottom dock's second tab, which no image would show otherwise.
+        if (Environment.GetEnvironmentVariable("DEREN_UI_SCENE_TAB") == "output") { scene_bottom_tab = 1; }
+        if (Environment.GetEnvironmentVariable("DEREN_UI_SCENE_EDIT") is { Length: > 0 } lane &&
+            selection_state != null && document.find(selection_state.primary) is { } edited) {
+            begin_scene_edit_from_row(lane);
+            if (scene_value_edit != null) { scene_value_edit.select_all(); }
         }
     }
 
@@ -171,6 +217,18 @@ internal sealed unsafe partial class editor_host {
         if (!next_ui.submit(build_scene_screen())) {
             report_next_ui_failure("overlay rejected the scene frame");
         }
+        // A capture run cannot press a row, so one environment hook opens the list for the image. It waits
+        // for the first arranged frame, because the list should hang under the row it belongs to.
+        if (!scene_combo_demo_applied
+            && Environment.GetEnvironmentVariable("DEREN_UI_SCENE_COMBO") is { Length: > 0 } combo_demo
+            && next_ui.last_tree?.find(combo_demo switch {
+                   "script" => "scene_script_picker",
+                   "node" => "scene_env_object",
+                   _ => "scene_env_scene",
+               }) is { } combo_row) {
+            scene_combo_demo_applied = true;
+            open_scene_combo(combo_demo switch { "script" => "script", "node" => "node", _ => "0" }, combo_row.rect);
+        }
         publish_scene_pointer_claim();
         return requested_ui_selftest ? scene_selftest_tick() : script_status.success;
     }
@@ -179,73 +237,159 @@ internal sealed unsafe partial class editor_host {
         rebuild_scene_rows(document?.roots ?? []);
         rebuild_scene_assets();
         build_scene_menus();
-        float height = next_ui!.height;
-        // The browser keeps its height and the body takes the rest, so a short window eats the 3D view
-        // instead of pushing the panels off the screen.
-        float body = MathF.Max(scene_min_height,
-                               height - scene_header_height - scene_footer_height -
-                               ui_controls.splitter_thickness - scene_layout.scene_browser_height);
-        float outliner_height = MathF.Max(scene_outliner.row_height, body - scene_caption_height);
-        float details_height = MathF.Max(ui_theme.row_height, body - scene_caption_height);
-        float browser_height = MathF.Max(scene_browser_list.row_height, scene_layout.scene_browser_height - scene_caption_height);
+        sync_scene_name_field();
+        // The caption row and the workspace strip stay fixed chrome; everything between them and the
+        // status line comes from the area tree, which owns the arrangement, every divider in it and every
+        // area's own header. A maximized area replaces the whole tree with its one leaf, the way Blender's
+        // area fill does.
+        float main_top = scene_header_height + scene_workspace_height;
+        float main_height = scene_main_height();
         var root = ui_node.column("root").spacing(0.0F);
         root.add(build_scene_header());
-        var middle = ui_node.row("scene_middle").size(float.NaN, body).spacing(0.0F);
-        middle.add(ui_node.column("outliner").size(scene_layout.scene_outliner_width, body).bg(ui_theme.panel)
-                       .add(build_scene_outliner_caption(),
-                            build_scene_outliner(outliner_height)));
-        middle.add(ui_controls.vertical_splitter("split_outliner", next_ui, scene_split_gesture == scene_split.outliner));
-        middle.add(ui_node.box("viewport").weight(1.0F));
-        middle.add(ui_controls.vertical_splitter("split_details", next_ui, scene_split_gesture == scene_split.details));
-        middle.add(ui_node.column("details").size(scene_layout.scene_details_width, body).bg(ui_theme.panel)
-                       .clipped()
-                       .add(build_scene_caption("details_caption", "Details"),
-                            build_scene_details(details_height)));
-        root.add(middle);
-        root.add(ui_controls.splitter("split_browser", next_ui, scene_split_gesture == scene_split.browser));
-        root.add(ui_node.column("browser").size(float.NaN, scene_layout.scene_browser_height).bg(ui_theme.panel)
-                     .clipped()
-                     .add(build_scene_browser_caption(),
-                          build_scene_browser(browser_height)));
+        root.add(build_scene_workspace_strip());
+        scene_area_dividers.Clear();
+        scene_area_leaves.Clear();
+        scene_area_sizes.Clear();
+        scene_area_key = 0;
+        root.add(scene_area_maximized is { } maximized
+                     ? build_area_leaf(maximized, next_ui!.width, main_height, scene_area_max_key)
+                     : build_area_tree(scene_areas.root, 0.0F, main_top, next_ui!.width, main_height, string.Empty));
         root.add(ui_node.row("footer").size(float.NaN, scene_footer_height).bg(ui_theme.header)
                      .add(centered(ui_node.label("footer_text", scene_footer_text(), ui_theme.small_size,
                                                  ui_theme.text_dim), float.NaN, scene_footer_height)));
         add_popup_overlays(scene_header_height);
+        add_scene_combo_overlay();
         return root;
     }
 
+    /// <summary>
+    /// The inspector's scroll strip: the thumb spans the fraction of the content the window shows, and it
+    /// is painted only when the content overflows.
+    /// </summary>
+    private ui_element build_scene_details_scrollbar(float height) {
+        var track = ui_node.box("details_scroll").size(9.0F, height).bg(ui_theme.panel);
+        if (scene_details_content <= height + 0.5F) { return track; }
+        track.painted((paint, area) => {
+            float fraction = Math.Clamp(height / scene_details_content, 0.02F, 1.0F);
+            float thumb = MathF.Max(18.0F, area.height * fraction);
+            float travel = area.height - thumb;
+            float limit = MathF.Max(0.0001F, scene_details_content - height);
+            float top = area.y + travel * Math.Clamp(scene_details_scroll / limit, 0.0F, 1.0F);
+            paint.add_rect(new ui_rect(area.x + 2.0F, top, area.width - 4.0F, thumb), 3.0F,
+                           ui_theme.outline, 0U, 0.0F);
+        });
+        return track;
+    }
+
+    /// <summary>The strip above the preview, the way the classic shell labelled the viewport mode.</summary>
+    private static ui_element build_scene_viewport_bar() {
+        var bar = ui_node.row("viewport_toolbar").size(float.NaN, scene_caption_height).bg(ui_theme.panel)
+                         .spacing(0.0F);
+        bar.add(ui_node.box("viewport_toolbar_inset").size(8.0F, 0.0F));
+        bar.add(centered(ui_node.label("viewport_mode", "Perspective  /  Lit", ui_theme.small_size,
+                                       ui_theme.text_dim), float.NaN, scene_caption_height));
+        bar.add(ui_node.spacer("viewport_toolbar_filler"));
+        return bar;
+    }
+
+    /// <summary>The height left for the areas once the chrome rows and the status line are out.</summary>
+    private float scene_main_height() {
+        float total = next_ui?.height ?? 0.0F;
+        return MathF.Max(scene_min_height, total - scene_header_height - scene_workspace_height - scene_footer_height);
+    }
+
     private ui_element build_scene_header() {
-        var header = ui_node.row("header").size(float.NaN, scene_header_height).bg(ui_theme.header)
+        var header = ui_node.row("titlebar").size(float.NaN, scene_header_height).bg(ui_theme.header)
                          .pad(0.0F).spacing(0.0F);
         header.add(ui_node.box("header_inset").size(12.0F, 0.0F));
-        header.add(centered(ui_node.label("scene_title", "Deren Editor", ui_theme.title_size, ui_theme.text_bright),
+        header.add(centered(ui_node.label("scene_title", "deren", ui_theme.title_size, ui_theme.text_bright),
                             float.NaN, scene_header_height));
         header.add(ui_node.box("header_gap_title").size(10.0F, 0.0F));
         foreach (var menu in next_ui_menus) {
             header.add(ui_popup.menu_title(menu, next_ui_open_menu == menu.key, next_ui,
                                            scene_header_height - 8.0F));
         }
-        header.add(ui_node.spacer());
-        // Play is the same session the classic shell starts; the header button is what mirrors it here.
-        header.add(ui_controls.button("scene_play", playing?.running == true ? "Stop" : "Play",
-                                      playing?.running == true ? ui_button_style.filled : ui_button_style.outlined,
-                                      next_ui, 64.0F, scene_header_height - 8.0F));
-        header.add(ui_node.box("header_gap_play").size(10.0F, 0.0F));
+        header.add(ui_node.spacer("header_spacer"));
         string document_name = document?.name ?? "no document";
         string dirty = document?.dirty == true ? " *" : string.Empty;
         header.add(centered(ui_node.label("scene_document", document_name + dirty, ui_theme.body_size,
                                           ui_theme.text_dim), float.NaN, scene_header_height));
         header.add(ui_node.box("header_trailing").size(12.0F, 0.0F));
+        // The window is borderless, so the caption buttons the classic shell drew are this frontend's
+        // job: they forward to the app's own window instead of faking the state.
+        header.add(build_scene_window_button("win_min", "_", ui_theme.panel_border));
+        header.add(build_scene_window_button("win_max", "[]", ui_theme.panel_border));
+        header.add(build_scene_window_button("win_close", "x", ui_theme.error));
         return header;
     }
 
-    /// <summary>A panel caption: the title on a strip that separates the panel from the viewport.</summary>
-    private static ui_element build_scene_caption(string key, string title) {
-        var caption = ui_node.row(key).size(float.NaN, scene_caption_height).bg(ui_theme.panel).spacing(0.0F);
-        caption.add(ui_node.box("caption_inset").size(8.0F, 0.0F));
-        caption.add(centered(ui_node.label(key + "_text", title, ui_theme.small_size, ui_theme.text_dim),
-                             float.NaN, scene_caption_height));
+    /// <summary>
+    /// One caption button. The glyph is painted from rectangles rather than a font character, the way
+    /// Slate draws its window buttons: a rule for minimize, a square outline for maximize and a cross
+    /// for close, all on a 10 px grid so they read at the caption's font size.
+    /// </summary>
+    private ui_element build_scene_window_button(string key, string glyph, uint hover_fill) {
+        bool hovered = next_ui != null && string.Equals(next_ui.hovered_key, key, StringComparison.Ordinal);
+        return ui_node.box(key).size(46.0F, scene_header_height).bg(hovered ? hover_fill : 0U)
+            .painted((paint, area) => {
+                float cx = area.x + area.width * 0.5F;
+                float cy = area.y + area.height * 0.5F;
+                uint ink = ui_theme.text_bright;
+                switch (glyph) {
+                    case "_":
+                        paint.add_rect(new ui_rect(cx - 5.0F, cy, 10.0F, 1.0F), 0.0F, ink, 0U, 0.0F);
+                        break;
+                    case "[]":
+                        paint.add_rect(new ui_rect(cx - 4.0F, cy - 4.0F, 9.0F, 9.0F), 0.0F, 0U,
+                                       ink, 1.0F);
+                        break;
+                    default:
+                        for (var step = 0; step < 5; ++step) {
+                            paint.add_rect(new ui_rect(cx - 5.0F + step * 2.4F, cy - 5.0F + step * 2.4F,
+                                                       1.6F, 1.6F), 0.0F, ink, 0U, 0.0F);
+                            paint.add_rect(new ui_rect(cx + 3.5F - step * 2.4F, cy - 5.0F + step * 2.4F,
+                                                       1.6F, 1.6F), 0.0F, ink, 0U, 0.0F);
+                        }
+                        break;
+                }
+            });
+    }
+
+    /// <summary>
+    /// A panel caption: the area's own header. The editor type sits on the left and opens the type menu,
+    /// the title follows it, and the arrangement cells and the maximize cell sit on the right, so every
+    /// area carries its own controls instead of the screen holding one toolbar for all of them.
+    /// </summary>
+    private ui_element build_scene_caption(string key, string title, area_node node, string path, float width) {
+        var caption = ui_node.row(key).size(float.NaN, scene_caption_height).bg(ui_theme.header).spacing(0.0F)
+                              .painted((paint, area) => paint.add_rect(
+                                  new ui_rect(area.x, area.y + area.height - 1.0F, area.width, 1.0F), 0.0F,
+                                  ui_theme.panel_border, 0U, 0.0F));
+        caption.add(ui_node.box("caption_inset").size(4.0F, 0.0F));
+        caption.add(build_area_type_cell(node, path));
+        if (title.Length != 0) {
+            caption.add(centered(ui_node.label(key + "_text", title, ui_theme.small_size, ui_theme.text_bright),
+                                 float.NaN, scene_caption_height));
+        }
+        caption.add(ui_node.spacer(key + "_filler"));
+        caption.add(build_area_edit_cells(node, path, width));
+        caption.add(build_area_max_cell(node, path));
+        caption.add(ui_node.box("caption_trailing").size(4.0F, 0.0F));
         return caption;
+    }
+
+    /// <summary>The column titles of the outliner, so a bare name row reads as belonging to a column.</summary>
+    private static ui_element build_scene_outliner_columns() {
+        var row = ui_node.row("outliner_columns").size(float.NaN, scene_column_header_height)
+                          .bg(ui_theme.panel).spacing(0.0F);
+        row.add(ui_node.box("outliner_columns_inset").size(6.0F, 0.0F));
+        row.add(centered(ui_node.label("outliner_columns_name", "Name", ui_theme.small_size, ui_theme.text_dim),
+                         float.NaN, scene_column_header_height));
+        row.add(ui_node.spacer("outliner_columns_filler"));
+        row.add(centered(ui_node.label("outliner_columns_asset", "Asset", ui_theme.small_size, ui_theme.text_dim),
+                         float.NaN, scene_column_header_height));
+        row.add(ui_node.box("outliner_columns_trailing").size(8.0F, 0.0F));
+        return row;
     }
 
     private ui_element build_scene_outliner(float list_height) {
@@ -279,13 +423,13 @@ internal sealed unsafe partial class editor_host {
                                            selected ? ui_theme.text_bright : ui_theme.text_dim),
                              float.NaN, scene_outliner.row_height));
         element.add(ui_node.spacer(key + "_filler"));
-        if (row.node.asset != null) {
-            element.add(centered(ui_node.label(key + "_asset", row.node.asset, ui_theme.small_size,
-                                               ui_theme.text_key), float.NaN, scene_outliner.row_height));
-        } else if (row.node.subscene != null) {
-            element.add(centered(ui_node.label(key + "_asset", "scene", ui_theme.small_size,
-                                               ui_theme.text_key), float.NaN, scene_outliner.row_height));
-        }
+        // The asset column sits under its own title: a fixed 110 px cell, right aligned, so the ids form a
+        // column instead of ending wherever the name happens to end.
+        string asset_text = row.node.asset ?? (row.node.subscene != null ? "scene" : string.Empty);
+        var asset = ui_node.label(key + "_asset", asset_text, ui_theme.small_size, ui_theme.text_key,
+                                  right: true);
+        asset.size(110.0F, scene_outliner.row_height);
+        element.add(asset);
         element.add(ui_node.box(key + "_tail").size(4.0F, 0.0F));
         // The visibility mark is its own hit target, so hiding a node never moves the selection.
         var vis = ui_node.box(key + "_vis").size(20.0F, scene_outliner.row_height);
@@ -309,6 +453,10 @@ internal sealed unsafe partial class editor_host {
         private readonly float window;
         private readonly float scroll;
         private float cursor;
+        // A section header opens a group, and every row added after it carries the group box's side rules
+        // until the next header closes it. The frame is drawn per row because the inspector is a flat
+        // column: a nested container would move every hit key the panels and the selftest rely on.
+        private bool grouping;
 
         internal scene_details_body(ui_element column, float window, float scroll) {
             this.column = column;
@@ -321,16 +469,64 @@ internal sealed unsafe partial class editor_host {
 
         internal void add(ui_element row, float height) {
             float top = cursor;
-            cursor += height + 2.0F;
+            // A framed row is wrapped in a container as tall as the row plus the gap it closes; the
+            // column's own spacing then adds one more gap, so the accounting follows the layout.
+            cursor += height + (grouping ? 4.0F : 2.0F);
             // A row outside the window is not in the frame at all, so nothing below the clip can be
             // hovered or pressed, and the frame stays as small as the window is.
             if (top + height <= scroll || top >= scroll + window) { return; }
-            column.add(row);
+            if (!grouping) {
+                column.add(row);
+                return;
+            }
+            column.add(framed(row, height));
+        }
+
+        /// <summary>
+        /// A group header: it closes the previous group and opens its own, and paints the box's top rule
+        /// over the band so the section reads as one box rather than as a caption followed by rows.
+        /// </summary>
+        internal void add_section(ui_element header, float height) {
+            grouping = true;
+            header.size(float.NaN, height).bg(ui_theme.header)
+                  .painted((paint, area) => {
+                      paint.add_rect(new ui_rect(area.x, area.y, area.width, 1.0F), 0.0F,
+                                     ui_theme.panel_border, 0U, 0.0F);
+                      paint.add_rect(new ui_rect(area.x, area.y + area.height - 1.0F, area.width, 1.0F), 0.0F,
+                                     ui_theme.panel_border, 0U, 0.0F);
+                      paint.add_rect(new ui_rect(area.x, area.y, 1.0F, area.height), 0.0F,
+                                     ui_theme.panel_border, 0U, 0.0F);
+                      paint.add_rect(new ui_rect(area.x + area.width - 1.0F, area.y, 1.0F, area.height), 0.0F,
+                                     ui_theme.panel_border, 0U, 0.0F);
+                  });
+            float top = cursor;
+            cursor += height + 2.0F;
+            if (top + height <= scroll || top >= scroll + window) { return; }
+            column.add(header);
+        }
+
+        /// <summary>
+        /// One row of a group: a wrapper as tall as the row plus the column's own gap, so the two side
+        /// rules run on without a break between rows.
+        /// </summary>
+        private ui_element framed(ui_element row, float height) {
+            var frame = ui_node.row("details_group_row").size(float.NaN, height + 2.0F).spacing(0.0F)
+                              .painted((paint, area) => {
+                                  paint.add_rect(new ui_rect(area.x, area.y, 1.0F, area.height), 0.0F,
+                                                 ui_theme.panel_border, 0U, 0.0F);
+                                  paint.add_rect(new ui_rect(area.x + area.width - 1.0F, area.y, 1.0F, area.height),
+                                                 0.0F, ui_theme.panel_border, 0U, 0.0F);
+                              });
+            frame.add(row.weight(1.0F));
+            return frame;
         }
     }
 
     private ui_element build_scene_details(float height) {
         scene_details_window = height;
+        // A shorter panel (or a shorter inspector after an edit) pulls the scroll back into range.
+        scene_details_scroll = Math.Clamp(scene_details_scroll, 0.0F,
+                                          MathF.Max(0.0F, scene_details_content - height));
         var node = selection_state == null || document == null ? null : document.find(selection_state.primary);
         // A different node starts at the top of the inspector; the same node keeps where the reader was.
         if ((node?.uid ?? Guid.Empty) != scene_details_node) {
@@ -340,8 +536,10 @@ internal sealed unsafe partial class editor_host {
         var body_column = ui_node.column("details_body").size(float.NaN, height).spacing(2.0F).clipped();
         var column = new scene_details_body(body_column, height, scene_details_scroll);
         if (node == null) {
-            scene_details_content = 0.0F;
             body_column.add(ui_node.label("details_empty", "Nothing selected", ui_theme.body_size, ui_theme.text_dim));
+            // The scene-wide map belongs to no node, so it stays reachable with nothing selected.
+            add_scene_environment(column, null);
+            scene_details_content = column.content;
             return body_column;
         }
         // A row whose value is editable becomes a text field in place when it is pressed; the lanes are
@@ -369,9 +567,7 @@ internal sealed unsafe partial class editor_host {
         if (node.pipeline != null) {
             add_scene_property(column, "pipeline", "Pipeline", node.pipeline);
         }
-        if (node.script != null) {
-            add_scene_property(column, "script", "Behaviour", node.script);
-        }
+        add_scene_script(column, node);
         if (node.camera) {
             add_scene_section(column, "camera", "Camera");
             add_scene_value_row(column, "camera_fov", "Vertical FOV", node,
@@ -424,17 +620,209 @@ internal sealed unsafe partial class editor_host {
                                 node.animation_clip < 0 ? "(asset default)" : node.animation_clip.ToString(CultureInfo.InvariantCulture));
             add_scene_toggle_row(column, "animation_autoplay", "Auto Play", node.animation_autoplay);
         }
+        add_scene_environment(column, node);
         scene_details_content = column.content;
         return body_column;
     }
 
+    /// <summary>
+    /// The environment rows: the scene-wide map the project settings keep, one row per custom lane the
+    /// document carries, and - when a node is selected - the lane that node samples.
+    /// </summary>
+    /// <remarks>
+    /// The classic panel offered these as dropdowns. A dropdown is a popup here (the same overlay layer the
+    /// menus use), so a row only has to say which lane it edits and where the list should hang; the apply
+    /// paths are the host's existing ones, which already allocate a lane, share one with another object and
+    /// record the single undo step the two halves need.
+    /// </remarks>
+    private void add_scene_environment(scene_details_body column, document_node? node) {
+        add_scene_section(column, "environment", "Environment");
+        add_scene_choice_row(column, "scene_env_scene", "Scene Map", environment_label(global_environment_hdr));
+        if (document != null) {
+            for (var lane = 1; lane < global_environment.slot_count; ++lane) {
+                if (!string.IsNullOrEmpty(document.environment_slots[lane - 1])) {
+                    add_scene_choice_row(column, string.Create(CultureInfo.InvariantCulture, $"scene_env_lane_{lane}"),
+                                         string.Create(CultureInfo.InvariantCulture, $"Lane {lane}"),
+                                         environment_label(document.environment_slots[lane - 1]));
+                }
+            }
+        }
+        if (node != null) {
+            add_scene_choice_row(column, "scene_env_object", "Object Map",
+                                 node.environment == 0
+                                     ? "(scene map)"
+                                     : environment_lane_label(node.environment));
+        }
+    }
+
+    /// <summary>A row that opens a list instead of a text field: the whole row is the hit target.</summary>
+    private void add_scene_choice_row(scene_details_body column, string key, string name, string value) {
+        bool open = scene_combo_open && string.Equals(scene_combo_target, scene_combo_key(key), StringComparison.Ordinal);
+        var row = ui_node.row(key).size(float.NaN, ui_theme.row_height).spacing(0.0F)
+                      .bg(open ? ui_theme.panel_border : 0U);
+        row.add(ui_node.box(key + "_inset").size(8.0F, 0.0F));
+        row.add(centered(ui_node.label(key + "_name", name, ui_theme.small_size, ui_theme.text_dim),
+                         88.0F, ui_theme.row_height));
+        row.add(value_slot(ui_node.label(key + "_value", value + "  v", ui_theme.body_size, ui_theme.text_key)));
+        column.add(row, ui_theme.row_height);
+    }
+
+    /// <summary>The map a lane row shows: the file name, or the procedural sky when the lane is empty.</summary>
+    private static string environment_label(string? text) {
+        if (string.IsNullOrEmpty(text)) { return "(procedural sky)"; }
+        var name = Path.GetFileName(text);
+        return name.Length == 0 ? text : name;
+    }
+
+    /// <summary>What a node that samples @p lane shows: the lane's map, or that the lane carries none.</summary>
+    private string environment_lane_label(int lane) {
+        var text = document?.environment_slots[lane - 1];
+        return string.IsNullOrEmpty(text)
+            ? string.Create(CultureInfo.InvariantCulture, $"Lane {lane} (no map)")
+            : string.Create(CultureInfo.InvariantCulture, $"Lane {lane}: {environment_label(text)}");
+    }
+
+    /// <summary>The combo target a row stands for: a lane index, or "node" for the per-object row.</summary>
+    private static string scene_combo_key(string key) {
+        if (key == "scene_env_scene") { return "0"; }
+        if (key == "scene_env_object") { return "node"; }
+        return key["scene_env_lane_".Length..];
+    }
+
+    /// <summary>
+    /// Matches any child of an environment row - the inset, the name and the value are all hit targets -
+    /// and returns the combo target the row opens.
+    /// </summary>
+    private static bool try_scene_env_key(string key, out string target) {
+        target = string.Empty;
+        if (!key.StartsWith("scene_env_", StringComparison.Ordinal)) { return false; }
+        foreach (var suffix in new[] { "_inset", "_name", "_value" }) {
+            if (key.EndsWith(suffix, StringComparison.Ordinal)) {
+                key = key[..^suffix.Length];
+                break;
+            }
+        }
+        if (key == "scene_env_scene") {
+            target = "0";
+            return true;
+        }
+        if (key == "scene_env_object") {
+            target = "node";
+            return true;
+        }
+        if (try_scene_index(key, "scene_env_lane_", out var lane) && lane >= 1) {
+            target = lane.ToString(CultureInfo.InvariantCulture);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Opens the map list under @p anchor, seeded with the catalogue the classic panel offered.</summary>
+    private void open_scene_combo(string target, ui_rect anchor) {
+        scene_combo_items.Clear();
+        if (target.StartsWith("area_type|", StringComparison.Ordinal)) {
+            // The area's own header lists the editor types, the way a Blender area's type menu does.
+            foreach (var kind in area_kinds.all) {
+                scene_combo_items.Add((area_kinds.name_of(kind),
+                                       ((int)kind).ToString(CultureInfo.InvariantCulture)));
+            }
+        } else if (target == "script") {
+            // The classic picker listed every binding in the catalogue and let "No script" clear it.
+            scene_combo_items.Add(("No script", string.Empty));
+            if (editable_scripts != null) {
+                foreach (var definition in editable_scripts.entries) {
+                    scene_combo_items.Add((scene_script_label(definition.binding), definition.binding));
+                }
+            }
+        } else if (target.StartsWith("script_param_", StringComparison.Ordinal) &&
+                   try_scene_index(target, "script_param_", out var parameter_index) &&
+                   selection_state != null && document?.find(selection_state.primary) is { } selected &&
+                   scene_script_definition(selected) is { } script &&
+                   parameter_index >= 0 && parameter_index < script.parameters.Length) {
+            scene_combo_items.AddRange(scene_script_items(script.parameters[parameter_index]));
+        } else {
+            var node_target = target == "node";
+            scene_combo_items.Add(node_target ? ("(scene map)", environment_panel.scene_value)
+                                              : ("(procedural sky)", environment_panel.sky_value));
+            foreach (var entry in environment_catalog()) {
+                scene_combo_items.Add((entry.label, entry.text));
+            }
+            scene_combo_items.Add(("Choose a file...", environment_panel.choose_value));
+        }
+        scene_combo_target = target;
+        scene_combo_open = true;
+        float width = 220.0F;
+        float height = scene_combo_items.Count * ui_theme.row_step + 8.0F;
+        scene_combo_x = Math.Clamp(anchor.x, 0.0F, MathF.Max(0.0F, (next_ui?.width ?? 0.0F) - width));
+        scene_combo_y = Math.Clamp(anchor.y + anchor.height, 0.0F,
+                                   MathF.Max(0.0F, (next_ui?.height ?? 0.0F) - height));
+    }
+
+    /// <summary>Cancels whatever the open row was showing, leaving the document untouched.</summary>
+    private void close_scene_combo() {
+        scene_combo_open = false;
+        scene_combo_items.Clear();
+    }
+
+    /// <summary>Applies one pick from an open list through the host's own environment commands.</summary>
+    private void pick_scene_combo(string value) {
+        string target = scene_combo_target;
+        close_scene_combo();
+        var node = selection_state == null || document == null ? null : document.find(selection_state.primary);
+        if (target.StartsWith("area_type|", StringComparison.Ordinal)) {
+            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var kind)) {
+                apply_scene_area_kind(target["area_type|".Length..], (area_kind)kind);
+            }
+            return;
+        }
+        if (target == "script") {
+            if (node != null) { apply_scene_script_binding(node, value); }
+            return;
+        }
+        if (target.StartsWith("script_param_", StringComparison.Ordinal) &&
+            try_scene_index(target, "script_param_", out var parameter_index)) {
+            if (node != null) { apply_scene_script_value(node, parameter_index, value); }
+            return;
+        }
+        if (target == "node") {
+            if (node != null) { apply_node_environment_selection(node, value); }
+            return;
+        }
+        if (!int.TryParse(target, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lane)) { return; }
+        apply_environment_selection(lane, value);
+        notice = lane == 0
+            ? "Scene map: " + environment_label(global_environment_hdr)
+            : string.Create(CultureInfo.InvariantCulture, $"Lane {lane}: {environment_label(document?.environment_slots[lane - 1])}");
+    }
+
+    /// <summary>The list itself, hung under the row that opened it so the inspector stays readable.</summary>
+    private void add_scene_combo_overlay() {
+        if (!scene_combo_open || next_ui == null) { return; }
+        var panel = ui_node.column("scene_combo").size(220.0F, float.NaN).bg(ui_theme.panel)
+                          .stroke(ui_theme.outline, 1.0F).pad(4.0F).spacing(1.0F);
+        for (var index = 0; index < scene_combo_items.Count; ++index) {
+            int at = index;
+            var item = scene_combo_items[index];
+            panel.add(ui_node.box(string.Create(CultureInfo.InvariantCulture, $"scene_combo_item_{at}"))
+                            .size(float.NaN, ui_theme.row_step - 1.0F)
+                            .painted((paint, area) => {
+                                if (next_ui.is_hovered(string.Create(CultureInfo.InvariantCulture, $"scene_combo_item_{at}"))) {
+                                    paint.add_rect(area, 0.0F, ui_theme.row_hover, 0U, 0.0F);
+                                }
+                                paint.add_text(area.x + 8.0F, area.y + (area.height - ui_theme.body_size) * 0.5F,
+                                               ui_theme.body_size, ui_theme.text_bright, item.label);
+                            }));
+        }
+        next_ui.add_overlay(panel, scene_combo_x, scene_combo_y);
+    }
+
     /// <summary>A caption row that groups the inspector sections the way the classic panel did.</summary>
     private static void add_scene_section(scene_details_body column, string key, string title) {
-        column.add(ui_node.box("scene_section_" + key).size(float.NaN, scene_caption_height)
-                       .bg(ui_theme.header)
-                       .pad(8.0F)
-                       .label_text(title, ui_theme.small_size, ui_theme.text_dim),
-                   scene_caption_height);
+        column.add_section(ui_node.box("scene_section_" + key).size(float.NaN, scene_caption_height)
+                                 .bg(ui_theme.header)
+                                 .pad(8.0F)
+                                 .label_text(title, ui_theme.small_size, ui_theme.text_dim),
+                           scene_caption_height);
     }
 
     /// <summary>A boolean row: the value half shows the state and the whole value is the hit target.</summary>
@@ -443,10 +831,20 @@ internal sealed unsafe partial class editor_host {
         row.add(ui_node.box("scene_property_inset_" + lane).size(8.0F, 0.0F));
         row.add(centered(ui_node.label("scene_property_name_" + lane, name, ui_theme.small_size, ui_theme.text_dim),
                          88.0F, ui_theme.row_height));
-        row.add(centered(ui_node.label("scene_property_value_" + lane, on ? "yes" : "no", ui_theme.body_size,
-                                       on ? ui_theme.text_bright : ui_theme.text_dim),
-                         float.NaN, ui_theme.row_height));
+        row.add(value_slot(ui_node.label("scene_property_value_" + lane, on ? "yes" : "no", ui_theme.body_size,
+                                       on ? ui_theme.text_bright : ui_theme.text_dim)));
         column.add(row, ui_theme.row_height);
+    }
+
+    /// <summary>
+    /// One value slot: it takes the rest of its row instead of hugging the text, so the whole right-hand
+    /// side of a row is a hit target and not just the few pixels the value happens to cover.
+    /// </summary>
+    private static ui_element value_slot(ui_element label) {
+        label.size(float.NaN, ui_theme.row_height);
+        label.text_center = true;
+        label.weight(1.0F);
+        return label;
     }
 
     private static void add_scene_property(scene_details_body column, string key, string name, string value) {
@@ -454,8 +852,8 @@ internal sealed unsafe partial class editor_host {
         row.add(ui_node.box("scene_property_inset_" + key).size(8.0F, 0.0F));
         row.add(centered(ui_node.label("scene_property_name_" + key, name, ui_theme.small_size, ui_theme.text_dim),
                          88.0F, ui_theme.row_height));
-        row.add(centered(ui_node.label("scene_property_value_" + key, value, ui_theme.body_size,
-                                       ui_theme.text_bright), float.NaN, ui_theme.row_height));
+        row.add(value_slot(ui_node.label("scene_property_value_" + key, value, ui_theme.body_size,
+                                       ui_theme.text_bright)));
         column.add(row, ui_theme.row_height);
     }
 
@@ -477,8 +875,8 @@ internal sealed unsafe partial class editor_host {
                         .bg(ui_theme.panel).stroke(ui_theme.accent, 1.0F)
                         .painted((paint, area) => paint_scene_value_field(paint, area)));
         } else {
-            row.add(centered(ui_node.label("scene_property_value_" + lane, display, ui_theme.body_size,
-                                           ui_theme.text_bright), float.NaN, ui_theme.row_height));
+            row.add(value_slot(ui_node.label("scene_property_value_" + lane, display, ui_theme.body_size,
+                                           ui_theme.text_bright)));
         }
         column.add(row, ui_theme.row_height);
     }
@@ -508,18 +906,24 @@ internal sealed unsafe partial class editor_host {
     }
 
     /// <summary>The outliner caption carries the search field, so filtering sits next to what it filters.</summary>
-    private ui_element build_scene_outliner_caption() {
-        var row = ui_node.row("outliner_caption").size(float.NaN, scene_caption_height).spacing(0.0F);
-        row.add(ui_node.box("outliner_caption_inset").size(8.0F, 0.0F));
-        row.add(centered(ui_node.label("outliner_caption_text", "Hierarchy", ui_theme.small_size,
-                                       ui_theme.text_dim), float.NaN, scene_caption_height));
+    private ui_element build_scene_outliner_caption(area_node node, string path, float width) {
+        var row = ui_node.row("outliner_caption").size(float.NaN, scene_caption_height).bg(ui_theme.header)
+                          .spacing(0.0F)
+                          .painted((paint, area) => paint.add_rect(
+                              new ui_rect(area.x, area.y + area.height - 1.0F, area.width, 1.0F), 0.0F,
+                              ui_theme.panel_border, 0U, 0.0F));
+        row.add(ui_node.box("outliner_caption_inset").size(4.0F, 0.0F));
+        row.add(build_area_type_cell(node, path));
         row.add(ui_node.spacer());
-        row.add(ui_node.box("scene_filter").size(96.0F, scene_caption_height - 4.0F)
+        row.add(ui_node.box("scene_filter").size(96.0F, scene_caption_height - 6.0F)
                     .bg(ui_theme.panel)
                     .stroke(scene_filter_edit.focused ? ui_theme.accent : ui_theme.panel_border, 1.0F)
                     .pad(2.0F)
                     .painted((paint, area) => paint_scene_field(paint, area, scene_filter_edit, "search")));
         row.add(ui_node.box("outliner_caption_trailing").size(4.0F, 0.0F));
+        row.add(build_area_edit_cells(node, path, width));
+        row.add(build_area_max_cell(node, path));
+        row.add(ui_node.box("outliner_caption_trailing2").size(4.0F, 0.0F));
         return row;
     }
 
@@ -582,7 +986,12 @@ internal sealed unsafe partial class editor_host {
                 apply_scene_vector(node, detail_field.scale_x, text, "Scale");
                 break;
             default:
-                apply_scene_component(node, lane, text);
+                // A script parameter is addressed by its index in the definition the node carries.
+                if (try_scene_index(lane, "script_", out var script_index)) {
+                    apply_scene_script_value(node, script_index, text);
+                } else {
+                    apply_scene_component(node, lane, text);
+                }
                 break;
         }
     }
@@ -638,57 +1047,317 @@ internal sealed unsafe partial class editor_host {
         return string.Create(CultureInfo.InvariantCulture, $"{value.x:0.###}, {value.y:0.###}, {value.z:0.###}");
     }
 
-    private ui_element build_scene_browser(float list_height) {
-        var column = ui_node.column("browser_body").size(float.NaN, list_height);
-        column.add(scene_browser_list.build("browser_tiles", list_height, scene_asset_matches.Count, build_scene_asset_row));
+    /// <summary>The bottom dock's content: the project browser, or the output log on its own tab.</summary>
+    private ui_element build_scene_bottom(float list_height, float width) {
+        if (scene_bottom_tab == 1) {
+            var log_column = ui_node.column("output_body").size(float.NaN, list_height);
+            if (output_log.count == 0) {
+                log_column.add(centered(ui_node.label("output_empty", "Nothing has been logged yet.",
+                                                      ui_theme.small_size, ui_theme.outline),
+                                        float.NaN, ui_theme.row_height),
+                               ui_node.spacer("output_empty_filler"));
+                return log_column;
+            }
+            log_column.add(scene_output_list.build("output_lines", list_height, output_log.count,
+                                                   build_scene_output_row));
+            return log_column;
+        }
+        // The classic browser stacked a tool row, a breadcrumb and then the tiles; that order is what
+        // makes a deep folder reachable without leaving the grid, so it stays.
+        float toolbar = MathF.Min(scene_browser_toolbar_height, MathF.Max(0.0F, list_height - scene_browser_list.row_height));
+        float crumb = MathF.Min(scene_browser_breadcrumb_height,
+                                MathF.Max(0.0F, list_height - toolbar - scene_browser_list.row_height));
+        float tiles = MathF.Max(scene_browser_list.row_height, list_height - toolbar - crumb - 4.0F);
+        float usable = MathF.Max(scene_browser_tile_width + scene_browser_tile_gap, width - 12.0F);
+        scene_browser_columns = Math.Max(1, (int)(usable / (scene_browser_tile_width + scene_browser_tile_gap)));
+        scene_browser_list.row_height = scene_browser_tile_height;
+        scene_browser_list.row_gap = scene_browser_tile_gap;
+        scene_browser_tiles_height = tiles;
+        var column = ui_node.column("browser_body").size(float.NaN, list_height).spacing(2.0F);
+        column.add(build_scene_browser_toolbar(width, toolbar));
+        column.add(build_scene_browser_breadcrumb(crumb));
+        column.add(scene_browser_list.build("browser_tiles", tiles, scene_browser_grid_rows, build_scene_asset_row));
         return column;
     }
 
-    /// <summary>The browser caption carries its own search field and how much of the project survived it.</summary>
-    private ui_element build_scene_browser_caption() {
-        var row = ui_node.row("browser_caption").size(float.NaN, scene_caption_height).spacing(0.0F);
-        row.add(ui_node.box("browser_caption_inset").size(8.0F, 0.0F));
-        row.add(centered(ui_node.label("browser_caption_text", "Project", ui_theme.small_size, ui_theme.text_dim),
-                         float.NaN, scene_caption_height));
-        row.add(ui_node.box("browser_caption_gap").size(8.0F, 0.0F));
-        row.add(centered(ui_node.label("browser_caption_count", scene_asset_count_text(), ui_theme.small_size,
-                                       ui_theme.text_key), float.NaN, scene_caption_height));
-        row.add(ui_node.spacer());
-        row.add(ui_node.box("scene_asset_filter").size(96.0F, scene_caption_height - 4.0F)
+    /// <summary>How many grid rows the visible slice needs; the list scrolls those, not single tiles.</summary>
+    private int scene_browser_grid_rows =>
+        scene_browser_shown == 0 ? 0 : (scene_browser_shown + scene_browser_columns - 1) / scene_browser_columns;
+
+    /// <summary>
+    /// The browser's own tool row: the search field, the four asset commands, the count and the paging
+    /// arrows. The count and paging lived in the caption before the grid needed the room for them.
+    /// </summary>
+    private ui_element build_scene_browser_toolbar(float width, float height) {
+        var row = ui_node.row("browser_toolbar").size(float.NaN, height).spacing(4.0F);
+        if (height < 12.0F) { return row; }
+        float field = Math.Clamp(width * 0.32F, 110.0F, 260.0F);
+        row.add(ui_node.box("browser_toolbar_inset").size(4.0F, 0.0F));
+        row.add(ui_node.box("scene_asset_filter").size(field, MathF.Min(height - 4.0F, ui_theme.row_height))
                     .bg(ui_theme.panel)
                     .stroke(scene_asset_edit.focused ? ui_theme.accent : ui_theme.panel_border, 1.0F)
                     .pad(2.0F)
-                    .painted((paint, area) => paint_scene_field(paint, area, scene_asset_edit, "find asset")));
-        row.add(ui_node.box("browser_caption_trailing").size(4.0F, 0.0F));
+                    .painted((paint, area) => paint_scene_field(paint, area, scene_asset_edit, "Search assets")));
+        row.add(ui_controls.button("browser_import", "Import", ui_button_style.subtle, next_ui, 60.0F,
+                                   MathF.Min(height - 4.0F, ui_theme.row_height)));
+        row.add(ui_controls.button("browser_refresh", "Refresh", ui_button_style.subtle, next_ui, 64.0F,
+                                   MathF.Min(height - 4.0F, ui_theme.row_height)));
+        row.add(ui_controls.button("browser_edit_asset", "Edit Asset", ui_button_style.subtle, next_ui, 78.0F,
+                                   MathF.Min(height - 4.0F, ui_theme.row_height)));
+        row.add(ui_controls.button("browser_thumbnail", "Build Thumbnail", ui_button_style.subtle, next_ui, 108.0F,
+                                   MathF.Min(height - 4.0F, ui_theme.row_height)));
+        row.add(ui_node.spacer("browser_toolbar_filler"));
+        row.add(centered(ui_node.label("browser_caption_count", scene_asset_count_text(), ui_theme.small_size,
+                                       ui_theme.text_key), float.NaN, height));
+        if (scene_browser_page_count > 1) {
+            row.add(ui_controls.button("browser_prev", "<", ui_button_style.subtle, next_ui, 24.0F,
+                                       MathF.Min(height - 4.0F, ui_theme.row_height)));
+            row.add(centered(ui_node.label("browser_page",
+                                           string.Create(CultureInfo.InvariantCulture,
+                                                         $"{scene_browser_page + 1}/{scene_browser_page_count}"),
+                                           ui_theme.small_size, ui_theme.text_dim),
+                             float.NaN, height));
+            row.add(ui_controls.button("browser_next", ">", ui_button_style.subtle, next_ui, 24.0F,
+                                       MathF.Min(height - 4.0F, ui_theme.row_height)));
+        }
+        row.add(ui_node.box("browser_toolbar_trailing").size(6.0F, 0.0F));
         return row;
     }
 
-    private string scene_asset_count_text() {
-        return string.Create(CultureInfo.InvariantCulture, $"{scene_asset_matches.Count} / {assets.Length}");
+    /// <summary>The breadcrumb: root and up on the left, then the folder path the tiles belong to.</summary>
+    private ui_element build_scene_browser_breadcrumb(float height) {
+        var row = ui_node.row("browser_crumb").size(float.NaN, height).spacing(4.0F);
+        if (height < 10.0F) { return row; }
+        row.add(ui_node.box("browser_crumb_inset").size(4.0F, 0.0F));
+        row.add(ui_controls.button("browser_root", "Root", ui_button_style.subtle, next_ui, 42.0F,
+                                   MathF.Min(height - 4.0F, ui_theme.row_height)));
+        float up_width = scene_browser_folder.Length == 0 ? 0.0F : 34.0F;
+        if (up_width > 0.0F) {
+            row.add(ui_controls.button("browser_up", "Up", ui_button_style.subtle, next_ui, up_width,
+                                       MathF.Min(height - 4.0F, ui_theme.row_height)));
+        }
+        row.add(centered(ui_node.label("browser_caption_text",
+                                       scene_browser_folder.Length == 0 ? string.Empty : scene_browser_path(),
+                                       ui_theme.small_size, ui_theme.text_dim), float.NaN, height));
+        row.add(ui_node.spacer("browser_crumb_filler"));
+        return row;
     }
 
-    /// <summary>Recomputes which assets survive the filter; the rows keep their absolute index.</summary>
+    /// <summary>One log line, newest first: a linked line walks to its node when it names one.</summary>
+    private ui_element build_scene_output_row(int index) {
+        int line = output_log.count - 1 - index;
+        string text = line < 0 ? string.Empty : output_log.text_at(line);
+        bool error = line >= 0 && output_log.error_at(line);
+        Guid node = line < 0 ? Guid.Empty : output_log.node_at(line);
+        string key = string.Create(CultureInfo.InvariantCulture, $"output_line_{line}");
+        uint colour = error ? ui_theme.error : node != Guid.Empty ? ui_theme.text_key : ui_theme.text_dim;
+        var row = ui_node.row(key).size(float.NaN, scene_output_list.row_height).spacing(0.0F)
+                          .bg(scene_row_color(key, false, index))
+                          .add(ui_node.box(key + "_inset").size(8.0F, 0.0F),
+                               centered(ui_node.label(key + "_text", text, ui_theme.small_size, colour),
+                                        float.NaN, scene_output_list.row_height),
+                               ui_node.spacer(key + "_filler"));
+        return row;
+    }
+
+    /// <summary>
+    /// The bottom dock's caption: a tab strip, then the active tab's own controls. The cells follow
+    /// Slate's dock tab (FDockTabStyle in
+    /// D:\UnrealEngine-5.8.2-release\Engine\Source\Runtime\SlateCore\Private\Styling\CoreStyle.cpp):
+    /// the active tab is the lifted cell and carries the indicator rule on top.
+    /// </summary>
+    private ui_element build_scene_bottom_caption(area_node node, string path, float width) {
+        var row = ui_node.row("browser_caption").size(float.NaN, scene_caption_height).bg(ui_theme.header)
+                          .spacing(0.0F)
+                          .painted((paint, area) => paint.add_rect(
+                              new ui_rect(area.x, area.y + area.height - 1.0F, area.width, 1.0F), 0.0F,
+                              ui_theme.panel_border, 0U, 0.0F));
+        row.add(ui_node.box("browser_caption_inset").size(4.0F, 0.0F));
+        row.add(build_area_type_cell(node, path));
+        row.add(ui_node.box("browser_caption_gap").size(4.0F, 0.0F));
+        var project_tab = ui_controls.dock_tab("bottom_tab_project", "Assets", scene_bottom_tab == 0,
+                                               next_ui, scene_caption_height);
+        project_tab.size(74.0F, scene_caption_height);
+        row.add(project_tab);
+        var output_tab = ui_controls.dock_tab("bottom_tab_output", "Output", scene_bottom_tab == 1,
+                                              next_ui, scene_caption_height);
+        output_tab.size(70.0F, scene_caption_height);
+        row.add(output_tab);
+        row.add(ui_node.box("browser_caption_gap").size(8.0F, 0.0F));
+        if (scene_bottom_tab == 1) {
+            row.add(centered(ui_node.label("output_caption_count",
+                                           string.Create(CultureInfo.InvariantCulture,
+                                                         $"{output_log.count} line(s)"),
+                                           ui_theme.small_size, ui_theme.text_key),
+                             float.NaN, scene_caption_height));
+            row.add(ui_node.spacer("browser_caption_filler"));
+            row.add(ui_controls.button("output_clear", "Clear", ui_button_style.subtle, next_ui, 60.0F,
+                                       scene_caption_height - 6.0F));
+            row.add(ui_node.box("browser_caption_trailing").size(6.0F, 0.0F));
+            row.add(build_area_edit_cells(node, path, width));
+            row.add(build_area_max_cell(node, path));
+            row.add(ui_node.box("browser_caption_trailing2").size(4.0F, 0.0F));
+            return row;
+        }
+        // The tabs already name the dock, so the caption keeps the trailing cells only.
+        row.add(ui_node.spacer("browser_caption_filler"));
+        row.add(ui_node.box("browser_caption_trailing").size(6.0F, 0.0F));
+        row.add(build_area_edit_cells(node, path, width));
+        row.add(build_area_max_cell(node, path));
+        row.add(ui_node.box("browser_caption_trailing2").size(4.0F, 0.0F));
+        return row;
+    }
+
+    private string scene_browser_path() {
+        return scene_browser_folder.Length == 0
+            ? "Project"
+            : "Project / " + scene_browser_folder.Replace("/", " / ");
+    }
+
+    /// <summary>The count reads as the visible slice, so a page says where in the list it sits.</summary>
+    private string scene_asset_count_text() {
+        if (scene_asset_matches.Count == 0) { return "0 items"; }
+        int first = scene_browser_first;
+        return string.Create(CultureInfo.InvariantCulture,
+                             $"{first + 1}-{first + scene_browser_shown} of {scene_asset_matches.Count}");
+    }
+
+    private int scene_browser_first => scene_browser_page * scene_browser_page_size;
+    private int scene_browser_shown =>
+        Math.Max(0, Math.Min(scene_browser_page_size, scene_asset_matches.Count - scene_browser_first));
+    private int scene_browser_page_count =>
+        Math.Max(1, (scene_asset_matches.Count + scene_browser_page_size - 1) / scene_browser_page_size);
+
+    private static string scene_folder_parent(string folder) {
+        int slash = folder.LastIndexOf('/');
+        return slash < 0 ? string.Empty : folder[..slash];
+    }
+
+    /// <summary>Rescans the library and re-lists it, which is what the browser's Refresh cell asks for.</summary>
+    private void refresh_scene_assets() {
+        refresh_asset_library();
+        rebuild_scene_assets();
+    }
+
+    /// <summary>
+    /// The browser's Import cell: pick a GLB or glTF, copy it into the library under the suggested id,
+    /// then re-list so the new tile shows up. The classic shell asked for the same two things in a
+    /// dialog; the file picker IS that dialog here, so the id is suggested instead of typed.
+    /// </summary>
+    private void import_scene_asset() {
+        if (!asset_authoring.try_open(out var authoring) || authoring.library_root() is not { } library) {
+            notice = "Configure an asset library for this project before importing.";
+            return;
+        }
+        if (authoring.pick_model() is not { Length: > 0 } source) {
+            notice = "Import cancelled";
+            return;
+        }
+        string id = asset_importer.suggested_id(source);
+        if (!asset_importer.try_import(authoring, import_destination(library), source, id, out var error)) {
+            host_logger.write($"Editor import: {error}");
+            notice = error;
+            return;
+        }
+        assets = asset_manager.list();
+        rebuild_scene_assets();
+        scene_browser_page = 0;
+        scene_browser_list.first = 0;
+        scene_picked_asset = id;
+        notice = $"Imported asset: {id}";
+    }
+
+    /// <summary>Groups the project by the folders the asset library reports and lists the current one.</summary>
     private void rebuild_scene_assets() {
-        scene_asset_matches.Clear();
-        string filter = scene_asset_filter.Trim();
+        scene_browser_catalogue.Clear();
+        scene_browser_folders.Clear();
+        string? root = scene_library_ready ? scene_authoring.library_root() : null;
         for (var index = 0; index < assets.Length; ++index) {
             string id = assets[index];
-            if (filter.Length == 0) {
-                scene_asset_matches.Add(index);
-                continue;
+            if (id.Length == 0) { continue; }
+            string folder = string.Empty;
+            if (root != null && scene_authoring.asset_directory(id) is { } directory &&
+                Path.GetDirectoryName(directory) is { } parent) {
+                folder = Path.GetRelativePath(root, parent).Replace(Path.DirectorySeparatorChar, '/');
+                if (folder is "." or ".." || folder.StartsWith("../", StringComparison.Ordinal) ||
+                    Path.IsPathRooted(folder)) {
+                    folder = string.Empty;
+                }
             }
             string? name = scene_authoring.display_name(id);
-            if (id.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                (name != null && name.Contains(filter, StringComparison.OrdinalIgnoreCase))) {
-                scene_asset_matches.Add(index);
+            scene_browser_catalogue.Add(new scene_browser_entry(index,
+                                                                string.IsNullOrWhiteSpace(name) ? id : name, folder));
+            for (var branch = folder; branch.Length != 0 && scene_browser_folders.Add(branch);
+                 branch = scene_folder_parent(branch)) {
             }
         }
+        // A refresh can drop the folder being shown; walk up until the path exists again.
+        while (scene_browser_folder.Length != 0 && !scene_browser_folders.Contains(scene_browser_folder)) {
+            scene_browser_folder = scene_folder_parent(scene_browser_folder);
+        }
+        rebuild_scene_browser_matches();
+    }
+
+    private void rebuild_scene_browser_matches() {
+        scene_asset_matches.Clear();
+        string filter = scene_asset_filter.Trim();
+        if (filter.Length == 0) {
+            var children = new List<string>();
+            foreach (string folder in scene_browser_folders) {
+                if (string.Equals(scene_folder_parent(folder), scene_browser_folder, StringComparison.Ordinal)) {
+                    children.Add(folder);
+                }
+            }
+            children.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (string folder in children) {
+                scene_asset_matches.Add(new scene_browser_entry(-1, Path.GetFileName(folder), folder));
+            }
+            foreach (var item in scene_browser_catalogue) {
+                if (string.Equals(item.folder, scene_browser_folder, StringComparison.Ordinal)) {
+                    scene_asset_matches.Add(item);
+                }
+            }
+        } else {
+            // A search reaches into the current folder's subtree, the way the classic browser did.
+            string prefix = scene_browser_folder.Length == 0 ? string.Empty : scene_browser_folder + "/";
+            foreach (var item in scene_browser_catalogue) {
+                if (!string.Equals(item.folder, scene_browser_folder, StringComparison.Ordinal) &&
+                    !item.folder.StartsWith(prefix, StringComparison.Ordinal)) {
+                    continue;
+                }
+                if (item.name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                    assets[item.asset_index].Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                    item.folder.Contains(filter, StringComparison.OrdinalIgnoreCase)) {
+                    scene_asset_matches.Add(item);
+                }
+            }
+        }
+        int pages = Math.Max(1, (scene_asset_matches.Count + scene_browser_page_size - 1) / scene_browser_page_size);
+        scene_browser_page = Math.Clamp(scene_browser_page, 0, pages - 1);
+    }
+
+    private bool navigate_scene_folder(string folder) {
+        if (string.Equals(folder, scene_browser_folder, StringComparison.Ordinal)) { return false; }
+        scene_browser_folder = folder;
+        scene_browser_page = 0;
+        scene_browser_list.first = 0;
+        rebuild_scene_browser_matches();
+        return true;
+    }
+
+    private bool change_scene_browser_page(int step) {
+        int next = Math.Clamp(scene_browser_page + step, 0, scene_browser_page_count - 1);
+        if (next == scene_browser_page) { return false; }
+        scene_browser_page = next;
+        scene_browser_list.first = 0;
+        return true;
     }
 
     private void apply_scene_asset_filter() {
         scene_asset_edit.clear_preedit();
         scene_asset_filter = scene_asset_edit.text;
-        rebuild_scene_assets();
+        scene_browser_page = 0;
+        rebuild_scene_browser_matches();
         scene_browser_list.first = 0;
     }
 
@@ -697,36 +1366,80 @@ internal sealed unsafe partial class editor_host {
         scene_asset_edit.focused = false;
         scene_asset_edit.reset(string.Empty);
         scene_asset_filter = string.Empty;
-        rebuild_scene_assets();
+        scene_browser_page = 0;
+        rebuild_scene_browser_matches();
     }
 
+    /// <summary>
+    /// One grid row of tiles. The list view scrolls whole rows, so this row asks for the slice its index
+    /// covers and pads the tail with empty cells instead of shrinking the row.
+    /// </summary>
     private ui_element build_scene_asset_row(int index) {
-        int asset_index = scene_asset_matches[index];
-        string id = assets[asset_index];
-        bool picked = string.Equals(id, scene_picked_asset, StringComparison.Ordinal);
-        string key = string.Create(CultureInfo.InvariantCulture, $"scene_asset_{asset_index}");
-        var row = ui_node.row(key)
-                      .size(float.NaN, scene_browser_list.row_height)
-                      .bg(scene_row_color(key, picked, index))
-                      .spacing(0.0F);
-        row.add(ui_node.box(key + "_inset").size(8.0F, 0.0F));
-        string label = scene_authoring.display_name(id) ?? id;
-        row.add(centered(ui_node.label(key + "_name", label, ui_theme.body_size,
-                                       picked ? ui_theme.text_bright : ui_theme.text_dim),
-                         float.NaN, scene_browser_list.row_height));
-        row.add(ui_node.spacer(key + "_filler"));
-        row.add(centered(ui_node.label(key + "_id", id, ui_theme.small_size, ui_theme.text_key),
-                         float.NaN, scene_browser_list.row_height));
-        row.add(ui_node.box(key + "_tail").size(8.0F, 0.0F));
+        var row = ui_node.row("browser_row").size(float.NaN, scene_browser_tile_height)
+                          .spacing(scene_browser_tile_gap);
+        row.add(ui_node.box("browser_row_inset").size(4.0F, 0.0F));
+        for (int column = 0; column < scene_browser_columns; ++column) {
+            int match = scene_browser_first + index * scene_browser_columns + column;
+            row.add(match < scene_asset_matches.Count
+                        ? build_scene_asset_tile(match, index * scene_browser_columns + column)
+                        : ui_node.box("browser_row_gap").size(scene_browser_tile_width, scene_browser_tile_height));
+        }
         return row;
     }
 
+    /// <summary>One tile: the thumbnail frame, the display name and the catalogue id under it.</summary>
+    private ui_element build_scene_asset_tile(int match, int slot) {
+        var entry = scene_asset_matches[match];
+        string key = entry.directory
+            ? string.Create(CultureInfo.InvariantCulture, $"scene_folder_{match}")
+            : string.Create(CultureInfo.InvariantCulture, $"scene_asset_{entry.asset_index}");
+        bool picked = !entry.directory && string.Equals(assets[entry.asset_index], scene_picked_asset,
+                                                       StringComparison.Ordinal);
+        var tile = ui_node.column(key).size(scene_browser_tile_width, scene_browser_tile_height)
+                          .spacing(2.0F).pad(6.0F).bg(ui_theme.panel)
+                          .stroke(picked ? ui_theme.accent : ui_theme.panel_border, 1.0F);
+        tile.add(ui_node.box(key + "_thumb").size(scene_browser_tile_width - 14.0F, 96.0F)
+                      .bg(ui_theme.row_even).stroke(ui_theme.outline, 1.0F)
+                      .painted((paint, area) => {
+                          // No texture path in this frontend yet, so the frame draws the asset mark: a folder
+                          // for a directory, a picture frame for an asset. Both are ASCII-safe rectangles.
+                          float size = MathF.Min(area.width, area.height) * 0.52F;
+                          float x = area.x + (area.width - size) * 0.5F;
+                          float y = area.y + (area.height - size * 0.78F) * 0.5F;
+                          paint.add_rect(new ui_rect(x, y, size, size * 0.78F), 2.0F,
+                                         entry.directory ? ui_theme.header : ui_theme.panel_border,
+                                         ui_theme.outline, 1.0F);
+                          if (entry.directory) {
+                              paint.add_rect(new ui_rect(x + size * 0.14F, y - size * 0.15F, size * 0.36F,
+                                                         size * 0.18F),
+                                             1.0F, ui_theme.header, ui_theme.outline, 1.0F);
+                          } else {
+                              paint.add_rect(new ui_rect(x + size * 0.16F, y + size * 0.5F, size * 0.68F,
+                                                         size * 0.14F),
+                                             1.0F, ui_theme.row_selected, 0U, 0.0F);
+                          }
+                      }));
+        tile.add(centered(ui_node.label(key + "_name", entry.name, ui_theme.body_size,
+                                        picked ? ui_theme.text_bright : ui_theme.text_dim), float.NaN, 18.0F));
+        tile.add(centered(ui_node.label(key + "_id",
+                                        entry.directory ? "folder" : assets[entry.asset_index],
+                                        ui_theme.small_size, ui_theme.text_dim), float.NaN, 14.0F));
+        return tile;
+    }
+
     private string scene_footer_text() {
-        if (notice.Length > 0) { return notice; }
+        // The classic status line: the path and its dirty flag, the node count, the selected node,
+        // then the notice. The notice used to REPLACE the line, which hid the selection while a tool
+        // was talking; the old shell appended it, and so does this one.
+        string path = string.IsNullOrEmpty(document?.path) ? "untitled" : document!.path!;
+        string dirty = document?.dirty == true ? " *dirty*" : string.Empty;
         int nodes = document == null ? 0 : count_nodes(document.roots);
-        string path = document?.path ?? "(unsaved document)";
+        string selected = selection_state != null && document?.find(selection_state.primary) is { } node
+            ? node.name
+            : "-";
+        string suffix = notice.Length == 0 ? string.Empty : " | " + notice;
         return string.Create(CultureInfo.InvariantCulture,
-                             $"Scene screen on the editor UI library | {nodes} node(s) | {path}");
+                             $"{path}{dirty} | nodes: {nodes} | selected: {selected}{suffix}");
     }
 
     /// <summary>The row fill: selection wins, then the pointer, then a zebra stripe.</summary>
@@ -878,8 +1591,12 @@ internal sealed unsafe partial class editor_host {
                     next_ui_pointer_x = value.x;
                     next_ui_pointer_y = value.y;
                     next_ui_pointer_known = true;
-                    if (scene_split_gesture != scene_split.none) {
-                        update_scene_split(value.x, value.y);
+                    if (scene_area_drag.Length != 0) {
+                        update_area_drag(value.x, value.y);
+                    } else if (scene_dope_gesture) {
+                        // A drag the sheet started (a key, or the scrubber) follows the pointer even when
+                        // it leaves the sheet's rect, which is how every slider-like drag behaves.
+                        update_next_ui_gesture(value.x);
                     } else {
                         update_scene_drag(value.x, value.y);
                     }
@@ -897,11 +1614,13 @@ internal sealed unsafe partial class editor_host {
                     press_scene_ui(value.x, value.y, value.modifiers);
                     break;
                 case input_type.mouse_button when value.button == 0:
-                    // Releasing a divider keeps the new size and writes it next to the classic layout.
-                    if (scene_split_gesture != scene_split.none) {
-                        scene_split_gesture = scene_split.none;
-                        save_scene_layout();
+                    // Releasing a divider keeps the new share and writes the tree to disk.
+                    if (scene_area_drag.Length != 0) {
+                        scene_area_drag = string.Empty;
+                        save_scene_areas();
                     }
+                    // A gesture the sheet owns ends with the same release the animation editor uses.
+                    if (scene_dope_gesture) { release_next_ui(); }
                     // Releasing a row drag reparents; releasing it in place is just the click that selected.
                     if (scene_drag_armed) { finish_scene_drag(value.x, value.y); }
                     if (scene_viewport_press) {
@@ -917,9 +1636,15 @@ internal sealed unsafe partial class editor_host {
                     scroll_scene_ui(value.wheel, value.x, value.y);
                     break;
                 case input_type.character when value.down:
-                    // Typing goes wherever the caret is: the inline editor, then the two search fields.
+                    // Typing goes wherever the caret is: the workspace rename, then the inline editor,
+                    // then the two search fields.
+                    if (scene_workspace_types(value.codepoint)) {
+                        break;
+                    }
                     if (scene_value_edit is { focused: true }) {
                         scene_value_edit.insert(value.codepoint);
+                    } else if (scene_name_edit.focused) {
+                        scene_name_edit.insert(value.codepoint);
                     } else if (scene_filter_edit.focused) {
                         scene_filter_edit.insert(value.codepoint);
                         apply_scene_filter();
@@ -938,48 +1663,8 @@ internal sealed unsafe partial class editor_host {
         next_ui_events.Clear();
     }
 
-    /// <summary>
-    /// One drag step of one divider. Every clamp keeps the 3D view at least <see cref="scene_viewport_min"/>
-    /// wide or tall, so a divider can never swallow the preview.
-    /// </summary>
-    private void update_scene_split(float x, float y) {        if (next_ui == null) { return; }
-        switch (scene_split_gesture) {
-            case scene_split.outliner: {
-                float max = MathF.Min(scene_outliner_max, next_ui.width - scene_layout.scene_details_width -
-                                                         ui_controls.splitter_thickness * 2.0F - scene_viewport_min);
-                scene_layout = scene_layout with {
-                    scene_outliner_width = Math.Clamp(x, scene_outliner_min, MathF.Max(scene_outliner_min, max)),
-                };
-                break;
-            }
-            case scene_split.details: {
-                float width = next_ui.width - x;
-                float max = MathF.Min(scene_details_max, next_ui.width - scene_layout.scene_outliner_width -
-                                                         ui_controls.splitter_thickness * 2.0F - scene_viewport_min);
-                scene_layout = scene_layout with {
-                    scene_details_width = Math.Clamp(width, scene_details_min, MathF.Max(scene_details_min, max)),
-                };
-                break;
-            }
-            case scene_split.browser: {
-                float available = next_ui.height - scene_header_height - scene_footer_height -
-                                  ui_controls.splitter_thickness;
-                float height = next_ui.height - scene_footer_height - y;
-                float max = MathF.Min(available - scene_viewport_min, MathF.Min(500.0F, available));
-                scene_layout = scene_layout with {
-                    scene_browser_height = Math.Clamp(height, scene_browser_min, MathF.Max(scene_browser_min, max)),
-                };
-                break;
-            }
-            default:
-                break;
-        }
-    }
-
-    private void save_scene_layout() {
-        if (scene_layout_path.Length == 0) { return; }
-        scene_layout.save(scene_layout_path);
-    }
+    /// <summary>The rect of a divider from the last submitted frame, or an empty rect before the first one.</summary>
+    private ui_rect scene_divider_rect(string key) => next_ui?.last_tree?.find(key)?.rect ?? new ui_rect(0.0F, 0.0F, 0.0F, 0.0F);
 
     /// <summary>One step of a row drag: it becomes a reparent once it leaves the press slop.</summary>
     private void update_scene_drag(float x, float y) {
@@ -1085,22 +1770,41 @@ internal sealed unsafe partial class editor_host {
         }
     }
 
-    /// <summary>The height the outliner list gets from the current layout, shared by the wheel and the reveal.</summary>
+    /// <summary>The height the outliner list gets from the current tree, shared by the wheel and the reveal.</summary>
     private float scene_outliner_window_height() {
-        float total = next_ui?.height ?? 0.0F;
-        float body = MathF.Max(scene_min_height, total - scene_header_height - scene_footer_height -
-                                                 ui_controls.splitter_thickness - scene_layout.scene_browser_height);
-        return MathF.Max(scene_outliner.row_height, body - scene_caption_height);
+        return scene_outliner_list_height();
     }
 
     private void press_scene_ui(float x, float y, int modifiers = 0) {
         var hit = next_ui?.hit_test(x, y);
         string key = hit?.key ?? string.Empty;
+        // An open list owns the pointer: its entries pick, and any other press closes it and is spent, the
+        // way a dropdown behaves in the classic shell.
+        if (scene_combo_open) {
+            if (try_scene_index(key, "scene_combo_item_", out var choice) && choice >= 0
+                && choice < scene_combo_items.Count) {
+                pick_scene_combo(scene_combo_items[choice].value);
+            } else {
+                close_scene_combo();
+            }
+            return;
+        }
         if (handle_popup_press(key)) { return; }
         if (find_menu(key) != null) {
             next_ui_open_menu = next_ui_open_menu == key ? string.Empty : key;
             return;
         }
+        // The rename field keeps the keyboard until the press lands elsewhere, where it commits first.
+        if (scene_name_edit.focused && key != "scene_name_field") {
+            apply_rename(scene_name_edit.text);
+            scene_name_edit.focused = false;
+        }
+        if (press_scene_toolbar(key, x)) { return; }
+        if (press_scene_area_header(key, x, y)) { return; }
+        if (press_scene_workspace(key)) { return; }
+        // The Dope Sheet leaf takes the pointer inside its own rect and reuses the animation editor's
+        // handler, so its transport, keys and lanes behave exactly as they do in the sheet screen.
+        if (press_scene_dope(x, y)) { return; }
         if (key == "scene_play") {
             toggle_scene_play();
             return;
@@ -1115,23 +1819,47 @@ internal sealed unsafe partial class editor_host {
         // A click anywhere else dismisses the notice, the way the classic shell does.
         notice = string.Empty;
         switch (key) {
-            case "split_outliner":
-                scene_split_gesture = scene_split.outliner;
-                update_scene_split(x, y);
+            // The borderless window draws its own caption, so these cells forward to the app's window.
+            case "win_min":
+                window_control.try_minimize();
                 return;
-            case "split_details":
-                scene_split_gesture = scene_split.details;
-                update_scene_split(x, y);
+            case "win_max":
+                window_control.try_toggle_maximize();
                 return;
-            case "split_browser":
-                scene_split_gesture = scene_split.browser;
-                update_scene_split(x, y);
+            case "win_close":
+                window_control.try_close();
                 return;
-            default:
-                break;
+        }
+        // A divider of the area tree: the drag is a delta from the press, so pressing a handle never
+        // moves it, and the split's own shares are what the move edits.
+        if (key.StartsWith("area_split_", StringComparison.Ordinal)) {
+            if (begin_area_drag(key, x, y)) { update_area_drag(x, y); }
+            return;
+        }
+        // The caption's blank parts hand the drag to the system move loop, the way a title bar does.
+        if (key == "titlebar" || key.StartsWith("header_", StringComparison.Ordinal)) {
+            window_control.try_begin_drag();
+            return;
         }
         if (key.StartsWith("scene_property_value_", StringComparison.Ordinal)) {
             begin_scene_edit_from_row(key["scene_property_value_".Length..]);
+            return;
+        }
+        if (try_scene_env_key(key, out var environment_target)) {
+            // The row opens a list under itself; the pick goes through the host's environment commands.
+            apply_scene_edit();
+            open_scene_combo(environment_target, hit?.rect ?? new ui_rect(x, y, 0.0F, 0.0F));
+            return;
+        }
+        if (try_scene_index(key, "scene_script_restore_", out var restore_index)) {
+            var restore_node = selection_state == null || document == null ? null : document.find(selection_state.primary);
+            if (restore_node != null) { apply_scene_script_restore(restore_node, restore_index); }
+            return;
+        }
+        if (try_scene_script_key(key, out var script_target)) {
+            // The binding and the three kinds the classic panel listed open a list; the rest edit in place.
+            apply_scene_edit();
+            open_scene_combo(script_target, hit?.rect ?? new ui_rect(x, y, 0.0F, 0.0F));
             return;
         }
         if (key.StartsWith("scene_filter", StringComparison.Ordinal)) {
@@ -1163,6 +1891,77 @@ internal sealed unsafe partial class editor_host {
                 scene_drag_armed = true;
                 scene_drag_active = false;
                 scene_drag_target = Guid.Empty;
+            }
+            return;
+        }
+        if (key == "bottom_tab_project" || key == "bottom_tab_output") {
+            scene_bottom_tab = key == "bottom_tab_output" ? 1 : 0;
+            scene_output_list.first = 0;
+            scene_browser_list.first = 0;
+            return;
+        }
+        if (key == "output_clear") {
+            output_log.clear();
+            scene_output_list.first = 0;
+            notice = "Cleared the output log";
+            return;
+        }
+        if (try_scene_index(key, "output_line_", out var log_line) && log_line >= 0) {
+            // A line the runtime tagged with a node walks the selection there, which is what the
+            // classic output panel did when a message was clicked.
+            var logged = output_log.node_at(log_line);
+            if (logged != Guid.Empty && document?.find(logged) is { } logged_node) {
+                selection_state?.select(logged);
+                notice = string.Create(CultureInfo.InvariantCulture, $"Selected '{logged_node.name}'");
+            }
+            return;
+        }
+        if (key == "browser_up") {
+            navigate_scene_folder(scene_folder_parent(scene_browser_folder));
+            notice = scene_browser_path();
+            return;
+        }
+        if (key == "browser_root") {
+            navigate_scene_folder(string.Empty);
+            notice = scene_browser_path();
+            return;
+        }
+        if (key == "browser_refresh") {
+            refresh_scene_assets();
+            return;
+        }
+        if (key == "browser_import") {
+            import_scene_asset();
+            return;
+        }
+        if (key == "browser_edit_asset") {
+            // The classic shell edited a catalogue entry in an RmlUi dialog; that dialog has no equivalent
+            // here yet, so the cell reports the gap instead of pretending to open something.
+            notice = scene_picked_asset.Length == 0
+                ? "Select an asset to edit its name or folder"
+                : "Editing an asset's name or folder needs the asset edit dialog";
+            return;
+        }
+        if (key == "browser_thumbnail") {
+            if (scene_picked_asset.Length == 0) {
+                notice = "Select an asset to render a thumbnail";
+            } else if (thumbnails != null) {
+                thumbnails.begin(scene_picked_asset, out notice);
+            } else {
+                notice = "This session has no thumbnail workspace";
+            }
+            return;
+        }
+        if (key == "browser_prev" || key == "browser_next") {
+            change_scene_browser_page(key == "browser_next" ? 1 : -1);
+            return;
+        }
+        if (try_scene_index(key, "scene_folder_", out var folder_match) && folder_match >= 0 &&
+            folder_match < scene_asset_matches.Count) {
+            var folder_entry = scene_asset_matches[folder_match];
+            if (folder_entry.directory) {
+                navigate_scene_folder(folder_entry.folder);
+                notice = scene_browser_path();
             }
             return;
         }
@@ -1206,6 +2005,13 @@ internal sealed unsafe partial class editor_host {
                 }
                 return;
             default: {
+                // A text-shaped script parameter opens seeded with the value it shows, like a component lane.
+                if (try_scene_index(lane, "script_", out var script_index) &&
+                    scene_script_definition(node) is { } script && script_index >= 0 &&
+                    script_index < script.parameters.Length) {
+                    begin_scene_edit(node, lane, scene_script_seed(node, script.parameters[script_index]));
+                    return;
+                }
                 // A component lane seeds from the node, so the field opens on the value it shows; a
                 // boolean lane has no text and toggles instead.
                 if (seed_scene_component(node, lane) is { } seed) {
@@ -1295,21 +2101,27 @@ internal sealed unsafe partial class editor_host {
         notice = message;
     }
     private void scroll_scene_ui(float wheel, float x, float y) {
+        // The sheet's own wheel rule comes first: it walks the channel rows of the leaf under the pointer.
+        if (scroll_scene_dope(wheel, x, y)) { return; }
         var hit = next_ui?.hit_test(x, y);
         if (hit == null) { return; }
         string key = hit.key;
         if (key.StartsWith("outline", StringComparison.Ordinal)) {
-            scene_outliner.scroll(scene_rows.Count,
-                                  MathF.Max(scene_outliner.row_height, next_ui!.height - scene_header_height -
-                                            scene_footer_height - scene_layout.scene_browser_height - scene_caption_height),
-                                  wheel);
+            scene_outliner.scroll(scene_rows.Count, scene_outliner_list_height(), wheel);
         } else if (key.StartsWith("browser", StringComparison.Ordinal)) {
-            scene_browser_list.scroll(scene_asset_matches.Count,
-                                      MathF.Max(scene_browser_list.row_height,
-                                                scene_layout.scene_browser_height - scene_caption_height), wheel);
+            float list_height = scene_dock_list_height();
+            if (scene_bottom_tab == 1) {
+                // The wheel walks only the tab on screen; the log's order flips so a wheel down
+                // reads the newer lines, which is what the reader expects.
+                scene_output_list.scroll(output_log.count, list_height, -wheel);
+            } else {
+                scene_browser_list.scroll(scene_browser_grid_rows, scene_browser_tiles_height, wheel);
+            }
         } else if (key.StartsWith("details", StringComparison.Ordinal) ||
                    key.StartsWith("scene_property", StringComparison.Ordinal) ||
-                   key.StartsWith("scene_section", StringComparison.Ordinal)) {
+                   key.StartsWith("scene_section", StringComparison.Ordinal) ||
+                   key.StartsWith("scene_script", StringComparison.Ordinal) ||
+                   key.StartsWith("scene_env", StringComparison.Ordinal)) {
             // The inspector can be taller than its panel; the wheel walks it by whole rows and the clamp
             // comes from the height the last frame measured with every row built.
             scene_details_scroll = Math.Clamp(scene_details_scroll - wheel * ui_theme.row_step, 0.0F,
@@ -1318,6 +2130,12 @@ internal sealed unsafe partial class editor_host {
     }
 
     private void handle_scene_key(input_event value) {
+        // The workspace strip's rename field is the outermost inline edit: it owns the keyboard while open.
+        if (scene_workspace_renaming) {
+            handle_text_field_key(scene_workspace_edit, value, apply_scene_workspace_rename,
+                                  cancel_scene_workspace_rename);
+            return;
+        }
         // A running inline edit owns the keyboard: Enter applies, Escape cancels, the rest edits text.
         if (scene_value_edit is { focused: true }) {
             handle_text_field_key(scene_value_edit, value, apply_scene_edit, cancel_scene_edit);
@@ -1330,6 +2148,16 @@ internal sealed unsafe partial class editor_host {
             }, cancel_scene_filter);
             return;
         }
+        if (scene_name_edit.focused) {
+            handle_text_field_key(scene_name_edit, value, () => {
+                apply_rename(scene_name_edit.text);
+                scene_name_edit.focused = false;
+            }, () => {
+                scene_name_edit.focused = false;
+                sync_scene_name_field();
+            });
+            return;
+        }
         if (scene_asset_edit.focused) {
             handle_text_field_key(scene_asset_edit, value, () => {
                 apply_scene_asset_filter();
@@ -1338,7 +2166,9 @@ internal sealed unsafe partial class editor_host {
             return;
         }
         if (value.key == key_code.escape) {
-            if (next_ui_dialog != null) {
+            if (scene_combo_open) {
+                close_scene_combo();
+            } else if (next_ui_dialog != null) {
                 next_ui_dialog = null;
             } else if (next_ui_open_menu.Length != 0) {
                 next_ui_open_menu = string.Empty;
@@ -1348,6 +2178,8 @@ internal sealed unsafe partial class editor_host {
                 scene_filter_applied = string.Empty;
                 scene_asset_edit.reset(string.Empty);
                 scene_asset_filter = string.Empty;
+                scene_browser_folder = string.Empty;
+                scene_browser_page = 0;
                 rebuild_scene_assets();
             }
             return;
