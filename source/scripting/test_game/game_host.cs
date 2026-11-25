@@ -45,6 +45,7 @@ namespace game {
         private demo_debug_windows? debug_windows;
         private demo_audio_panel? audio_panel;
         private static string? requested_audio;
+        private static bool ui_demo_requested;
         private node_id initially_hidden;
         private bool input_registered;
         private bool left_down;
@@ -81,6 +82,13 @@ namespace game {
                 var argument = args[i];
                 if (argument == "--capture-windowed") {
                     options->capture_windowed = 1;
+                    continue;
+                }
+                if (argument == "--ui-demo") {
+                    // ABI 47: the host must know the frontend before it creates the renderer, and
+                    // only the project's preinit knows its own flags.
+                    options->editor_ui = 1;
+                    ui_demo_requested = true;
                     continue;
                 }
                 if (argument == "--audio-panel") {
@@ -706,6 +714,9 @@ namespace game {
                 return script_status.invalid_argument;
             }
             instance.audio_panel?.update(frame->delta_time);
+            if (ui_demo_requested && camera_projection.try_get_viewport_size(out var ui_width, out var ui_height)) {
+                ui_demo.draw(ui_width, ui_height);
+            }
             if (instance.frame_events_selftest) {
                 return instance.frame_events_check();
             }

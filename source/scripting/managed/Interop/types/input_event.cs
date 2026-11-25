@@ -12,12 +12,13 @@ namespace deren.scripting {
     }
 
     /// <summary>
-    /// One window event across the ABI: the flat mirror of deren::scripting::input_event (40 bytes).
+    /// One window event across the ABI: the flat mirror of deren::scripting::input_event (44 bytes).
     ///
     /// One struct carries every kind because the host reports on the render thread and a union would
     /// buy nothing but a second layout to keep in step. A reader switches on <see cref="type"/> and
     /// takes the fields that kind defines: `x`/`y` are the cursor, `dx`/`dy` the cursor delta,
-    /// `wheel` the scroll amount, `key` the GLFW keycode, `codepoint` the typed character.
+    /// `wheel` the scroll amount, `key` the GLFW keycode, `codepoint` the typed character,
+    /// `modifiers` the GLFW modifier bits, and `repeated` a key the OS auto-repeated.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct native_input_event {
@@ -32,5 +33,8 @@ namespace deren.scripting {
         public float dy;
         public float wheel;
         public uint codepoint;
+        public byte modifiers;
+        public byte repeated;
+        public fixed byte padding2[2];
     }
 }

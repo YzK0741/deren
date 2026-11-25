@@ -202,6 +202,36 @@ export namespace deren::app {
             return window_;
         }
 
+        /// The platform window behind the GLFW one: HWND on Windows, null elsewhere. The IME seam
+        /// subclasses exactly this handle, and keeping the GLFW native header out of run.cpp means
+        /// the application sees one opaque value instead of a platform type.
+        void* native_window_handle() const noexcept {
+#ifdef _WIN32
+            return window_ == nullptr ? nullptr : glfwGetWin32Window(window_);
+#else
+            return nullptr;
+#endif
+        }
+
+        /// Sends one of the two IME bracket messages to the window so a diagnostic run can prove the
+        /// IME seam's dispatch without a real input method: 0 is WM_IME_STARTCOMPOSITION, 1 is
+        /// WM_IME_ENDCOMPOSITION. Nothing is composed - the messages only walk the procedure chain.
+        bool dispatch_ime_probe(unsigned kind) const noexcept {
+#ifdef _WIN32
+            HWND const window = window_ == nullptr ? nullptr : glfwGetWin32Window(window_);
+            if (window == nullptr) {
+                return false;
+            }
+            UINT const message = kind == 0 ? WM_IME_STARTCOMPOSITION : WM_IME_ENDCOMPOSITION;
+            SendMessageW(window, message, 0, 0);
+            return true;
+#else
+            static_cast<void>(kind);
+            return false;
+#endif
+        }
+
+
         /// Hides the window in the taskbar the way the system minimize button does.
         void minimize_window() const noexcept {
             if (window_ != nullptr) {
@@ -541,13 +571,26 @@ export namespace deren::app {
     struct glfw_action_input {
         using event_sink = void (*)(void* context, window_event const& event);
         using event_filter = bool (*)(void* context, window_event const& event);
+        using camera_gate = bool (*)(void* context, window_event const& event);
         void set_event_filter(event_filter filter, void* context) noexcept {
             this->filter = filter;
             this->filter_context = context;
         }
 
-        glfw_action_input(glfw_window const* host, deren::input::action_state& state)
-            : window_(host == nullptr ? nullptr : host->native_handle())
+        /// Publishes a typed character that did not come from a key press, such as an IME commit.
+        /// The event takes the same path as a keyboard-typed character, so the UI and the managed
+        /// game both see one kind of character event.
+        void type_character(unsigned codepoint) const noexcept {
+            if (window_ == nullptr || active != this) {
+                return;
+            }
+            // A TYPED CHARACTER IS ALWAYS A PRESS: it has no release, and a consumer that filters on
+            // `down` (the editor's text field does) would otherwise drop every keystroke.
+            window_event event{.type = window_event_type::character, .down = true, .codepoint = codepoint};
+            active->publish(event);
+        }
+
+        glfw_action_input(glfw_window const* host, deren::input::action_state& state)            : window_(host == nullptr ? nullptr : host->native_handle())
             , state(state) {
             if (window_ == nullptr) {
                 return;
@@ -604,7 +647,7 @@ export namespace deren::app {
                 // document consumed (over a panel) must not also fly the camera; a move the camera
                 // owns, even one that has wandered over a panel mid-drag, still must.
                 bool const consumed = active->publish(event);
-                if ((!consumed || active->camera_drag) && active->previous_cursor != nullptr) {
+                if ((!consumed || active->camera_drag) && !active->camera_gated(event) && active->previous_cursor != nullptr) {
                     active->previous_cursor(event_window, x, y);
                 }
             });
@@ -612,9 +655,20 @@ export namespace deren::app {
                 if (active->window_ != event_window || (action != GLFW_PRESS && action != GLFW_RELEASE)) {
                     return;
                 }
+                // A PRESS CARRIES ITS POSITION: the document hit-tests with it, so a press that reported
+                // only the button would land at the window's origin and every click would miss.
+                // The tracked position wins over a fresh query so a press agrees with the moves that
+                // preceded it; only a press that arrives before any move falls back to the query.
+                double cursor_x = active->cursor_x;
+                double cursor_y = active->cursor_y;
+                if (!active->has_cursor) {
+                    glfwGetCursorPos(event_window, &cursor_x, &cursor_y);
+                }
                 window_event event{.type = window_event_type::mouse_button,
                                    .button = button,
                                    .down = action == GLFW_PRESS,
+                                   .x = static_cast<float>(cursor_x),
+                                   .y = static_cast<float>(cursor_y),
                                    .modifiers = mods};
                 bool const consumed = active->publish(event);
                 if (event.down) {
@@ -626,7 +680,7 @@ export namespace deren::app {
                 }
                 // A RELEASE IS ALWAYS CHAINED. The camera clears its drag state on it, and a press
                 // that the document consumed must not leave the camera believing the button is down.
-                if ((!consumed || !event.down) && active->previous_button != nullptr) {
+                if (((!consumed && !active->camera_gated(event)) || !event.down) && active->previous_button != nullptr) {
                     active->previous_button(event_window, button, action, mods);
                 }
             });
@@ -634,8 +688,12 @@ export namespace deren::app {
                 if (active->window_ != event_window) {
                     return;
                 }
-                window_event event{.type = window_event_type::scroll, .wheel = static_cast<float>(yoffset), .modifiers = active->modifiers};
-                if (!active->publish(event) && active->previous_scroll != nullptr) {
+                window_event event{.type = window_event_type::scroll,
+                                   .x = active->cursor_x,
+                                   .y = active->cursor_y,
+                                   .wheel = static_cast<float>(yoffset),
+                                   .modifiers = active->modifiers};
+                if (!active->publish(event) && !active->camera_gated(event) && active->previous_scroll != nullptr) {
                     active->previous_scroll(event_window, xoffset, yoffset);
                 }
             });
@@ -643,7 +701,8 @@ export namespace deren::app {
                 if (active->window_ != event_window) {
                     return;
                 }
-                window_event event{.type = window_event_type::character, .codepoint = codepoint};
+                // A TYPED CHARACTER IS ALWAYS A PRESS, for the same reason as type_character above.
+                window_event event{.type = window_event_type::character, .down = true, .codepoint = codepoint};
                 active->publish(event);
             });
         }
@@ -680,10 +739,30 @@ export namespace deren::app {
             this->sink_context = context;
         }
 
+        /// Decides whether a pointer event is ALSO forwarded to the callbacks this seam replaced (the
+        /// runtime's orbit camera). Unlike the filter this never withholds the event from the sink:
+        /// an editor frontend whose own UI owns the pointer still needs every event, it just must not
+        /// have the camera orbit under the same drag. Not consulted for releases, which always chain
+        /// so the camera never believes a button is still down.
+        void set_camera_gate(camera_gate gate, void* context) noexcept {
+            this->gate = gate;
+            this->gate_context = context;
+        }
+
         glfw_action_input(glfw_action_input const&) = delete;
         glfw_action_input& operator=(glfw_action_input const&) = delete;
 
     private:
+        bool camera_gated(window_event const& event) const noexcept {
+            // A DRAG THE CAMERA STARTED KEEPS ITS MOVES: the gate describes who owns a pointer at
+            // PRESS time, so a drag that began over the 3D view keeps orbiting even when the pointer
+            // wanders over a panel mid-gesture (the same rule the consumed press follows).
+            if (this->camera_drag &&
+                (event.type == window_event_type::mouse_move || event.type == window_event_type::scroll)) {
+                return false;
+            }
+            return this->gate != nullptr && this->gate(this->gate_context, event);
+        }
         bool publish(window_event const& event) const noexcept {
             bool const consumed = this->filter && this->filter(this->filter_context, event);
             bool const release = (event.type == window_event_type::key || event.type == window_event_type::mouse_button) && !event.down;
@@ -712,6 +791,8 @@ export namespace deren::app {
         int modifiers = 0;
         event_filter filter = nullptr;
         void* filter_context = nullptr;
+        camera_gate gate = nullptr;
+        void* gate_context = nullptr;
         event_sink sink = nullptr;
         void* sink_context = nullptr;
         float cursor_x = 0.0F;

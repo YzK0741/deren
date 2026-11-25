@@ -9,6 +9,8 @@ namespace deren.scripting {
         asset_authoring = 7,
         asset_authoring_extended = 8,
         /// <summary>ABI 45: the capsule collision world (see <c>collision_api</c>).</summary>
-        collision = 9
+        collision = 9,
+        /// <summary>ABI 47: the editor's own frontend overlay (see <c>editor_ui_api</c>).</summary>
+        editor_ui = 10
     }
 }

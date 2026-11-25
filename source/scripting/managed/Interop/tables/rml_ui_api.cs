@@ -38,6 +38,9 @@ namespace deren.scripting {
         internal delegate* unmanaged<ulong, utf8_view, element_rect_layout*, script_status> get_element_rect;
         internal delegate* unmanaged<ulong, utf8_view, utf8_view, utf8_view, script_status> set_element_style;
         internal delegate* unmanaged<ulong, utf8_view, utf8_view, script_status> set_markup;
+        // ABI 46: swaps the markup of an open document, so one shell can host several layouts. Like the
+        // ABI 42 entries above it is optional: a host without it answers module_unavailable.
+        internal delegate* unmanaged<ulong, utf8_view, utf8_view, utf8_view, script_status> reopen;
         internal readonly bool is_valid() => open != null && close != null && set_text != null &&
             set_value != null && set_visible != null && poll_event != null;
     }
@@ -75,8 +78,13 @@ namespace deren.scripting {
                 return status;
             }
             uint current_size = (uint)sizeof(rml_ui_api_layout);
-            uint previous_size = current_size - (uint)sizeof(nint);
-            if (value == null || (size != current_size && size != previous_size)) {
+            // Optional tails grow one entry at a time, so a host may hand over any prefix of the table:
+            // the six mandatory entries at least, then whole entries up to what this build knows. A size
+            // in between (a host from before an entry was appended, or after one was) is legal; anything
+            // shorter than the mandatory prefix or not entry-aligned is not.
+            uint entry = (uint)sizeof(nint);
+            uint required_size = 6 * entry;
+            if (value == null || size < required_size || size > current_size || (size % entry) != 0) {
                 return script_status.module_invalid;
             }
             rml_ui_api_layout resolved = default;

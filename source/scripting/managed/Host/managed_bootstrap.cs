@@ -6,7 +6,7 @@ using System.Runtime.Loader;
 
 namespace deren.scripting {
     internal static unsafe class managed_bootstrap {
-        private const uint abi_version = 46;
+        private const uint abi_version = 47;
         internal static native_api core;
         internal static Assembly? game_assembly;
 
@@ -131,6 +131,11 @@ namespace deren.scripting {
             if (collision_status == script_status.module_invalid) {
                 host_logger.write(api, "Managed host: invalid collision module; collision calls will fail.");
             }
+            // ABI 47: the editor's own frontend. The classic shell leaves the module unpublished.
+            var editor_ui_status = editor_ui_api.initialize(api);
+            if (editor_ui_status != script_status.success && editor_ui_status != script_status.module_unavailable) {
+                host_logger.write(api, "Managed host: invalid editor UI module; overlay calls will fail.");
+            }
             // Framework baseline first: the project's initialize can still move anything after.
             project_config.apply();
             var status = game.initialize(api, scripts);
@@ -163,6 +168,7 @@ namespace deren.scripting {
             } finally {
                 screen_snapshot.shutdown();
                 rml_ui_api.shutdown();
+                editor_ui_api.shutdown();
                 ui_api.shutdown();
                 audio_api.shutdown();
                 collision_api.shutdown();

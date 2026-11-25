@@ -6,7 +6,8 @@ using deren.scripting;
 namespace deren.editor {
     internal sealed record workspace_layout(
         bool sidebar_left = false, bool dock_top = false, bool details_first = false,
-        float sidebar_width = 350, float dock_height = 244, float outliner_height = 254) {
+        float sidebar_width = 350, float dock_height = 244, float outliner_height = 254,
+        float scene_outliner_width = 250, float scene_details_width = 300, float scene_browser_height = 170) {
 
         internal static workspace_layout load(string path) {
             try {
@@ -16,7 +17,10 @@ namespace deren.editor {
                         return layout with {
                             sidebar_width = Math.Clamp(layout.sidebar_width, 240, 900),
                             dock_height = Math.Clamp(layout.dock_height, 120, 700),
-                            outliner_height = Math.Clamp(layout.outliner_height, 120, 700)
+                            outliner_height = Math.Clamp(layout.outliner_height, 120, 700),
+                            scene_outliner_width = Math.Clamp(layout.scene_outliner_width, 160, 600),
+                            scene_details_width = Math.Clamp(layout.scene_details_width, 200, 600),
+                            scene_browser_height = Math.Clamp(layout.scene_browser_height, 90, 500)
                         };
                     }
                 }

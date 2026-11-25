@@ -1,4 +1,4 @@
-// module version: 0.2.0
+// module version: 0.3.0
 // Optional retained-document UI contract. No RmlUi types or borrowed string results cross this table.
 export module deren.scripting.rml_ui_api;
 export import deren.vstd;
@@ -53,8 +53,13 @@ export namespace deren::scripting {
                                            utf8_view value) = nullptr;
         // Optional tail. Replaces a container's children with application-authored RML.
         script_status (*set_markup)(std::uint64_t document, utf8_view element, utf8_view markup) = nullptr;
+        // Optional tail. Loads a different markup document into the same open document, keeping its
+        // id, so a shell with several layouts (scene editor, animation editor) can swap the whole
+        // layout without every panel having to rebind. A host without it answers module_unavailable.
+        script_status (*reopen)(std::uint64_t document, utf8_view markup, utf8_view font,
+                                utf8_view fallback_font) = nullptr;
     };
-    static_assert(sizeof(rml_ui_api) == 9 * sizeof(void*));
+    static_assert(sizeof(rml_ui_api) == 10 * sizeof(void*));
     static_assert(sizeof(rml_ui_event) == 28);
     static_assert(sizeof(element_rect) == 16);
 } // namespace deren::scripting

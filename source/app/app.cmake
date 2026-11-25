@@ -75,6 +75,7 @@ target_sources(app_support
         source/app/capture.cppm
         source/app/environment_loader.cppm
         source/app/glfw.cppm
+        source/app/window_ime.cppm
         source/app/image_loader.cppm
         source/app/startup_splash.cppm
         PRIVATE
@@ -83,6 +84,7 @@ target_sources(app_support
         source/app/app_renderer.cpp
         source/app/app_toon.cpp
         source/app/run.cpp
+        source/app/window_ime.cpp
     )
 target_link_libraries(app_support
         deren_scripting_audio
@@ -99,7 +101,9 @@ target_sources(app_support PRIVATE FILE_SET app_scripting_modules TYPE CXX_MODUL
 target_sources(app_support PRIVATE source/app/app_scripting.cpp)
 target_link_libraries(app_support deren_managed_host)
 if(WIN32)
-    target_link_libraries(app_support dwmapi)
+    # dwmapi: the dark caption attributes of the system frame. imm32: the IME seam's
+    # ImmGetCompositionStringW / ImmSetCandidateWindow (see source/app/window_ime.cppm).
+    target_link_libraries(app_support dwmapi imm32)
 endif()
 get_property(managed_runtime_dir TARGET deren_managed_bridge PROPERTY DEREN_MANAGED_RUNTIME_DIR)
 add_custom_target(deren_managed_runtime
@@ -148,6 +152,15 @@ target_sources(rmlui_support PRIVATE source/ui/rml_document.cpp source/ui/rml_ov
 target_link_libraries(rmlui_support PUBLIC promise vstd_lib static_utility deren_script_api
     PRIVATE RmlUi::Core stb_vendored)
 target_link_libraries(app_support rmlui_support)
+
+# The editor's own immediate-mode frontend: it shares nothing with RmlUi but the UI shader pair.
+add_library(ui_support STATIC)
+target_sources(ui_support PUBLIC FILE_SET CXX_MODULES FILES
+    source/ui/ui_overlay.cppm source/ui/ui_scripting.cppm)
+target_sources(ui_support PRIVATE source/ui/ui_overlay.cpp)
+target_link_libraries(ui_support PUBLIC promise vstd_lib static_utility deren_script_api
+    PRIVATE Freetype::Freetype HarfBuzz::HarfBuzz)
+target_link_libraries(app_support ui_support)
 if(VR_BUILD_TESTS)
     add_executable(test_rml_document source/tests/test_rml_document.cpp)
     target_link_libraries(test_rml_document PRIVATE rmlui_support vstd_lib static_utility)

@@ -1,4 +1,4 @@
-// module version: 0.5.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.6.0  (independent of the app version in CMakeLists project(VERSION))
 
 export module deren.app.scripting;
 
@@ -11,6 +11,7 @@ import deren.gaussian_loader;
 import deren.gltf_loader;
 import deren.scripting.managed_host;
 import deren.scripting.rml_ui_api;
+import deren.scripting.editor_ui_api;
 import deren.utility;
 
 export namespace deren::app {
@@ -327,6 +328,7 @@ export namespace deren::app {
     class script_scene {
         bool owns_audio_session = false;
         scripting::rml_ui_api const* document_ui = nullptr;
+        scripting::editor_ui_api const* editor_ui = nullptr;
         /**
          * ABI 45: the collision boxes of the ACTIVE scene, in world space.
          *
@@ -363,6 +365,8 @@ export namespace deren::app {
         /** Installs the debug panel host (ABI 31); empty when the project draws no panel. */
         void install_ui(managed_ui_host host);
         void install_document_ui(scripting::rml_ui_api const* table) noexcept;
+        /// ABI 47: the editor's own frontend table, empty when the classic shell is active.
+        void install_editor_ui(scripting::editor_ui_api const* table) noexcept;
         /// ABI 31: hands one window event to the managed game's registered handler, if it has one.
         ///
         /// THE HOST OWNS DELIVERY, THE GAME OWNS MEANING: the app forwards what the window produced

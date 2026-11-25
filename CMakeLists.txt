@@ -139,6 +139,7 @@ include(source/third_party/imgui.cmake)
 include(source/third_party/xxhash.cmake)
 include(source/third_party/boost.cmake)
 include(source/third_party/freetype.cmake)
+include(source/third_party/harfbuzz.cmake)
 include(source/third_party/rmlui.cmake)
 include(source/vstd/vstd.cmake)
 include(source/utility/utility.cmake)
@@ -586,7 +587,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # the old root-level `chores` module needed a manual clang-format because its source fed both the
     # format stamp and a target that depended on other format-listed targets. Splitting it into
     # source/app/app_*.cpp* removed that cycle.
-    foreach(_tgt deren_audio deren_script_api deren_scripting_audio shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry rmlui_support app_support ${VR_APP_EXE})
+    foreach(_tgt deren_audio deren_script_api deren_scripting_audio shared_utility static_utility backend_loader promise rhi_sync_contract app_config deren_vulkan vulkan_constant_init vulkan_synchronization renderer_layout vulkan_error_tables deren_engine deren_assets resource_cluster_core render_graph_core render_graph_rhi render_graph_execute render_graph_compose render_graph_bloom render_graph_post render_graph_lighting render_graph_geometry rmlui_support ui_support app_support ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -1049,6 +1050,16 @@ if(TARGET test_acceleration_structures)
 endif()
 if(TARGET deren)
     add_dependencies(deren shaders)
+    # The editor's own UI library ships its font beside the executable: `ui_overlay` loads
+    # `fonts/editor_ui.ttf` when the project names no `gui.rml_font`. The file is the Latin subset the
+    # RmlUi demo already vendored; M1's text pipeline decides on the library's own font directory.
+    add_custom_command(TARGET deren POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:deren>/fonts"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/source/ui/demo/LatoLatin-Regular.ttf"
+                "$<TARGET_FILE_DIR:deren>/fonts/editor_ui.ttf"
+        COMMENT "copying the editor UI font"
+        VERBATIM)
 endif()
 # The dynamic runtime's scaffold test needs the compiled shaders as soon as the port starts building
 # pipelines from them (S2/S3); in S1 it needs none, and asking anyway keeps the dependency from being

@@ -1237,6 +1237,231 @@ namespace deren.editor {
 
         private static bool requested_validation_selftest;
 
+        private static bool requested_animation_mode_selftest;
+
+        private scene_document? animation_mode_selftest_project;
+        private string? animation_mode_selftest_path;
+        private string animation_mode_selftest_content = string.Empty;
+        private Guid animation_mode_selftest_placement;
+        private string? animation_mode_selftest_asset;
+        private int animation_mode_selftest_phase;
+        private float animation_mode_selftest_seek = -1.0f;
+        private int animation_mode_selftest_step;
+
+        /// <summary>
+        /// Covers the isolated animation editor: entering leaves the project scene on disk untouched,
+        /// the preview scene holds one placement of the chosen asset, the transport seeks and plays,
+        /// Save refuses the preview, and leaving restores the same project document and selection.
+        /// The preview player is created when its asset binds, so the checks run after a few frames.
+        /// </summary>
+        private script_status animation_mode_selftest_begin() {
+            if (document == null || tree == null || selection_state == null || ui == null) {
+                return selftest_failure("the animation editor selftest needs an open scene and UI");
+            }
+            animation_mode_selftest_project = document;
+            animation_mode_selftest_path = document.path;
+            if (animation_mode_selftest_path == null || !File.Exists(animation_mode_selftest_path)) {
+                return selftest_failure("the animation editor selftest needs a saved startup scene");
+            }
+            animation_mode_selftest_content = File.ReadAllText(animation_mode_selftest_path);
+            // Pick a placement whose asset really drives a player; the first asset in the scene is a
+            // static prop in every demo that has one.
+            if (!select_first_animatable() || document.find(selection_state.primary) is not { asset: { } } character) {
+                return selftest_failure("the animation editor selftest scene has no animated placement");
+            }
+            animation_mode_selftest_placement = character.uid;
+            animation_mode_selftest_asset = character.asset;
+            toggle_animation_mode();
+            if (!animation_mode || ReferenceEquals(document, animation_mode_selftest_project)) {
+                return selftest_failure("the animation editor did not open an isolated preview scene");
+            }
+            if (document!.path != null || document.roots.Count != 0) {
+                return selftest_failure("the animation editor did not open an empty preview scene");
+            }
+            // The empty preview is filled through the Timeline's Open button, which reads the content
+            // browser selection, so the check also covers the button path that the mouse uses.
+            if (!select_browser_asset(animation_mode_selftest_asset)) {
+                return selftest_failure("the content browser did not offer the animated asset");
+            }
+            if (!handle_timeline_pointer(new(rml_event_type.click, "timeline_open", string.Empty))) {
+                return selftest_failure("the Timeline did not consume its Open button");
+            }
+            if (document.roots.Count != 1 || document.roots[0].asset != animation_mode_selftest_asset) {
+                return selftest_failure("the Timeline's Open button did not load the selected asset");
+            }
+            if (document.roots[0].uid != animation_preview_uid) {
+                return selftest_failure("the preview scene did not adopt the opened placement");
+            }
+            return script_status.success;
+        }
+
+        /// <summary>Selects one asset tile in the content browser by id, for the Open-button path.</summary>
+        private bool select_browser_asset(string asset) {
+            if (browser == null) { return false; }
+            for (var index = 0; index < 512; ++index) {
+                if (!browser.try_tile_asset(index, out var id)) { break; }
+                if (id == asset) {
+                    return browser.try_select_tile(index);
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Runs a few frames into the preview and checks the transport. The preview player appears
+        /// when its asset finishes importing, which can trail the first frames by a few uploads, so
+        /// the checks wait for it and fail only after a bounded number of frames.
+        /// </summary>
+        private script_status animation_mode_selftest_tick() {
+            if (!requested_animation_mode_selftest || animation_mode_selftest_project == null) {
+                return script_status.success;
+            }
+            var phase = ++animation_mode_selftest_phase;
+            var project = animation_mode_selftest_project;
+            var preview = animation_preview();
+            if (!animation_mode || preview == null || document == null) {
+                return selftest_failure("the animation preview scene closed during the checks");
+            }
+            if (!animation_player.try_get_info(preview.runtime, out var info, out var info_status) ||
+                !info.available || info.duration <= 0) {
+                if (phase < 90) {
+                    return script_status.success;
+                }
+                return selftest_failure(
+                    $"the preview placement has no animation player (handle {preview.runtime.handle.value}, {info_status})");
+            }
+            if (preview.asset != animation_mode_selftest_asset || preview.uid != animation_preview_uid) {
+                return selftest_failure("the preview scene did not keep the selected placement's asset");
+            }
+            update_animation_strip();
+            if (animation_clip_text.Length == 0 || animation_clip_text == "No clip") {
+                return selftest_failure($"the timeline strip did not name the preview clip ('{animation_clip_text}')");
+            }
+            if (animation_mode_selftest_seek < 0) {
+                animation_mode_selftest_seek = info.duration * 0.5f;
+                seek_animation(animation_mode_selftest_seek);
+                return script_status.success;
+            }
+            // Transport commands are queued for the next frame boundary, so the seek is issued on one
+            // frame and read back on the next one.
+            switch (animation_mode_selftest_step) {
+            case 0:
+                if (MathF.Abs(info.time - animation_mode_selftest_seek) > 0.05f) {
+                    return selftest_failure(
+                        $"the timeline seek did not reach the preview player ({info.time:0.00} vs {animation_mode_selftest_seek:0.00})");
+                }
+                animation_mode_selftest_step = 1;
+                if (!handle_animation_strip(new(rml_event_type.click, "animation_play", string.Empty))) {
+                    return selftest_failure("the timeline strip did not consume its Play button");
+                }
+                return script_status.success;
+            case 1:
+                if (!info.playing) {
+                    return selftest_failure("the timeline strip Play button did not start the preview clip");
+                }
+                animation_mode_selftest_step = 2;
+                if (!handle_animation_strip(new(rml_event_type.click, "animation_restart", string.Empty))) {
+                    return selftest_failure("the timeline strip did not consume its Restart button");
+                }
+                return script_status.success;
+            case 2:
+                if (!info.playing || info.time > 0.2f) {
+                    return selftest_failure(
+                        $"the timeline Restart button did not rewind the clip ({info.time:0.00}, playing {info.playing})");
+                }
+                break;
+            }
+            // M2a: the Timeline reads the preview asset's motion.gltf in managed code, so it must show the
+            // clip's real channels and keys, and a row click must select that channel.
+            if (timeline_clip is not { } clip) {
+                return selftest_failure($"the timeline did not load the preview asset's motion clip ({notice})");
+            }
+            if (clip.channels.Count == 0 || clip.total_keys == 0 || clip.duration <= 0) {
+                return selftest_failure("the timeline loaded a motion clip without channels, keys or duration");
+            }
+            foreach (var channel in clip.channels) {
+                if (channel.key_count == 0 || channel.values.Length != channel.key_count * channel.components ||
+                    channel.end_time < channel.start_time) {
+                    return selftest_failure($"the timeline loaded a malformed channel ('{channel.describe()}')");
+                }
+            }
+            if (timeline_selected_channel < 0) {
+                return selftest_failure("the timeline did not select a channel");
+            }
+            var first_selected_channel = timeline_selected_channel;
+            var last_channel = clip.channels.Count - 1;
+            if (!handle_timeline_pointer(
+                    new(rml_event_type.click, $"timeline_channel_{last_channel}", string.Empty)) ||
+                timeline_selected_channel != last_channel) {
+                return selftest_failure("the timeline did not select the clicked channel row");
+            }
+            timeline_selected_channel = first_selected_channel;
+            requested_animation_mode_selftest = false;
+            if (save_document()) {
+                return selftest_failure("the animation preview scene was saved to disk");
+            }
+            if (animation_mode_selftest_path == null ||
+                File.ReadAllText(animation_mode_selftest_path) != animation_mode_selftest_content) {
+                return selftest_failure("opening the animation editor changed the project scene file");
+            }
+
+            toggle_animation_mode();
+            if (animation_mode || !ReferenceEquals(document, project) ||
+                selection_state?.primary != animation_mode_selftest_placement) {
+                return selftest_failure("leaving the animation editor did not restore the project scene and selection");
+            }
+            if (document!.path != animation_mode_selftest_path || document.dirty) {
+                return selftest_failure("the restored project scene lost its path or became dirty");
+            }
+            if (timeline_clip != null || active_dock_tab != "tab_content") {
+                return selftest_failure("leaving the animation editor left the timeline loaded");
+            }
+            var animated = project.roots
+                .Where(node => node.asset != null && node.runtime.is_valid &&
+                               animation_player.try_get_info(node.runtime, out var player_info) &&
+                               player_info.available && player_info.duration > 0)
+                .ToList();
+            // A selection without an asset must not seed the preview either: entering always opens an
+            // empty scene, and the author brings content in with the Timeline's Open button.
+            var plain = project.roots.FirstOrDefault(node => node.asset == null);
+            if (plain != null) {
+                selection_state?.select(plain.uid);
+                browser?.clear_selection();
+                refresh_panels(force_details: true);
+                toggle_animation_mode();
+                if (!animation_mode || document!.roots.Count != 0) {
+                    return selftest_failure("entering the animation editor with a plain selection did not open an empty preview");
+                }
+                toggle_animation_mode();
+                if (animation_mode || !ReferenceEquals(document, project)) {
+                    return selftest_failure("leaving the fallback animation preview did not restore the project scene");
+                }
+            }
+            // Every mode switch rebuilds the scene's placements, and the preview and the project take
+            // turns over the shared skin/morph buffers. If the slices of the dropped players were not
+            // returned, six round trips would exhaust the buffer and the characters would lose their
+            // players (or read another character's joints).
+            for (var round = 0; round < 6; ++round) {
+                toggle_animation_mode();
+                if (!animation_mode) {
+                    return selftest_failure("the animation editor did not reopen during the switch loop");
+                }
+                toggle_animation_mode();
+                if (animation_mode) {
+                    return selftest_failure("the animation editor did not close during the switch loop");
+                }
+            }
+            foreach (var node in animated) {
+                if (!animation_player.try_get_info(node.runtime, out var player_info) || !player_info.available ||
+                    player_info.duration <= 0) {
+                    return selftest_failure(
+                        $"twelve mode switches exhausted the animation buffers for '{node.name}'");
+                }
+            }
+            animation_mode_selftest_project = null;
+            host_logger.write("Editor selftest: isolated animation editor preview, seek, save guard and mode restore passed");
+            return script_status.success;
+        }
         /// <summary>Checks the project validator itself against a scratch project: one clean build, then one
         /// broken copy per problem class, so the gate the exporter relies on has its own coverage.</summary>
         private script_status run_validation_selftest() {

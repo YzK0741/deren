@@ -15,6 +15,9 @@ import :startup_splash;
 import deren.ui.rml_document;
 import deren.ui.rml_overlay;
 import deren.ui.rml_scripting;
+import deren.ui.ui_overlay;
+import deren.ui.ui_scripting;
+import deren.app.window_ime;
 import deren.vstd;
 import deren.utility.shared;
 import deren.utility; // re-exports frame_clock / frame_stats / bvh / vessel / thread_pool / data_block
@@ -344,6 +347,93 @@ namespace deren::app {
         // makes it capture the camera's handlers as the previous ones and forward every event back
         // (see glfw_action_input's constructor), so both readers see the mouse.
         glfw_action_input action_input{&window, action_state};
+        // THE IME SEAM SITS BESIDE THE ACTION SEAM: GLFW has no preedit API, so the window procedure
+        // is subclassed to read the IMM messages (source/app/window_ime.cppm). Observation only:
+        // commits are typed through the same character path as a keyboard character, so the managed
+        // text input sees one event kind, and the system composition window keeps drawing until M1
+        // renders preedit itself. Its counters feed docs/editor_ui_ime_report.md.
+        deren::app::window_ime ime_seam;
+        if (!ime_seam.install(window.native_window_handle())) {
+            deren::utility::log("ime: the IME seam could not be installed (handle {}); typing falls back to raw characters",
+                                window.native_window_handle());
+        }
+        ime_seam.set_sink(
+            +[](void* opaque, deren::app::ime_event const& event) {
+                auto& actions = *static_cast<deren::app::glfw_action_input*>(opaque);
+                switch (event.type) {
+                case deren::app::ime_event_type::commit: {
+                    // The result string is UTF-8 already. A frontend with a focused field consumes it
+                    // through its IME handler; without one, each scalar becomes one character event,
+                    // exactly what GLFW's character callback delivers for typed text.
+                    if (deren::ui::ui_scripting::ime_attached()) {
+                        deren::ui::ui_scripting::dispatch_ime(2U, event.text, 0);
+                        break;
+                    }
+                    std::string_view const text{event.text};
+                    for (std::size_t offset = 0; offset < text.size();) {
+                        unsigned char const lead = static_cast<unsigned char>(text[offset]);
+                        std::size_t const length = lead < 0x80 ? 1 : (lead >> 5) == 0x6 ? 2 : (lead >> 4) == 0xE ? 3 : 4;
+                        unsigned codepoint = 0;
+                        if (length == 1) {
+                            codepoint = lead;
+                        } else if (length == 2) {
+                            codepoint = static_cast<unsigned>(lead & 0x1F) << 6;
+                            codepoint |= static_cast<unsigned char>(text[offset + 1]) & 0x3F;
+                        } else if (length == 3) {
+                            codepoint = static_cast<unsigned>(lead & 0x0F) << 12;
+                            codepoint |= (static_cast<unsigned char>(text[offset + 1]) & 0x3F) << 6;
+                            codepoint |= static_cast<unsigned char>(text[offset + 2]) & 0x3F;
+                        } else {
+                            codepoint = static_cast<unsigned>(lead & 0x07) << 18;
+                            codepoint |= (static_cast<unsigned char>(text[offset + 1]) & 0x3F) << 12;
+                            codepoint |= (static_cast<unsigned char>(text[offset + 2]) & 0x3F) << 6;
+                            codepoint |= static_cast<unsigned char>(text[offset + 3]) & 0x3F;
+                        }
+                        deren::utility::log("ime: committed U+{:04X}", codepoint);
+                        actions.type_character(codepoint);
+                        offset += length;
+                    }
+                    break;
+                }
+                case deren::app::ime_event_type::update:
+                    deren::utility::log("ime: preedit '{}' caret {}", event.text, event.caret);
+                    deren::ui::ui_scripting::dispatch_ime(1U, event.text, event.caret);
+                    break;
+                case deren::app::ime_event_type::candidates:
+                    deren::utility::log("ime: candidates {}", event.candidate_count);
+                    break;
+                case deren::app::ime_event_type::start:
+                    deren::utility::log("ime: composition started");
+                    deren::ui::ui_scripting::dispatch_ime(0U, {}, 0);
+                    break;
+                case deren::app::ime_event_type::end:
+                    deren::utility::log("ime: composition ended without a commit");
+                    deren::ui::ui_scripting::dispatch_ime(3U, {}, 0);
+                    break;
+                default:
+                    break;
+                }
+            },
+            &action_input);
+        if (ime_seam.installed()) {
+            deren::utility::log("ime: seam installed on the window (observation mode)");
+            // DEREN_IMEPROBE=1 drives one synthetic composition through the real window procedure:
+            // a preedit of one CJK scalar followed by a two-scalar commit, so the report's counters
+            // and the log lines below are what Windows would deliver for a session, not empty
+            // bracket messages.
+            if (char const* probe = std::getenv("DEREN_IMEPROBE"); probe != nullptr && std::string_view{probe} == "1") {
+                bool const composed = ime_seam.probe_composition("\xE4\xBD\xA0\xE5\xA5\xBD", true);
+                deren::app::ime_report const seen = ime_seam.report();
+                deren::utility::log("ime: probe composed {} ({} start, {} update, {} commit, {} cancel)",
+                                    composed, seen.compositions_started, seen.updates, seen.commits,
+                                    seen.cancelled);
+                std::string mapped;
+                std::int32_t mapped_caret = 0;
+                bool const text_ok = deren::app::window_ime::probe_text_mapping(mapped, mapped_caret);
+                deren::utility::log("ime: text mapping '{}' caret {} (as expected: {})", mapped, mapped_caret,
+                                    text_ok && mapped.size() == 10 && mapped_caret == 3);
+            }
+        }
         auto const runtime_ready = std::chrono::steady_clock::now();
         deren::utility::log("vulkan runtime initialized: {:.1f} ms (no environment baked yet)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
 
@@ -576,9 +666,69 @@ namespace deren::app {
                 }
             };
             std::vector<animation_player_entry> players;
+            /**
+             * A returned skin-matrix block range or morph-float range. Placements come and go (the
+             * editor rebuilds every placement when it switches between the scene and animation
+             * editors), and a bump allocator that never reuses space ran the 2048-block skin buffer
+             * out after a handful of switches. Returned ranges are merged and handed out first fit.
+             */
+            struct buffer_span {
+                std::uint32_t base = 0;
+                std::uint32_t count = 0;
+            };
+            std::vector<buffer_span> free_skin;  // sorted by base, adjacent spans merged
+            std::vector<buffer_span> free_morph; // same, in morph-floats
             std::uint32_t next_skin_base = 4; // 4 = first block after the shared identity block
-            std::size_t next_morph_base = 0;
+            std::uint32_t next_morph_base = 0;
             std::mutex animation_mutex;
+
+            /** Takes @p count units from a returned span, if one is large enough. A zero-sized request
+             *  (an asset with no skin or no morphs) needs no buffer at all and always succeeds. */
+            static bool take_free_span(std::vector<buffer_span>& free, std::uint32_t const count,
+                                       std::uint32_t& base) {
+                if (count == 0) {
+                    base = 0;
+                    return true;
+                }
+                for (auto it = free.begin(); it != free.end(); ++it) {
+                    if (it->count < count) {
+                        continue;
+                    }
+                    base = it->base;
+                    it->base += count;
+                    it->count -= count;
+                    if (it->count == 0) {
+                        free.erase(it);
+                    }
+                    return true;
+                }
+                return false;
+            }
+
+            /** Returns the units a dropped player owned and merges them with their neighbours. */
+            static void return_span(std::vector<buffer_span>& free, std::uint32_t const base,
+                                    std::uint32_t const count) {
+                if (count == 0) {
+                    return;
+                }
+                auto const at = std::lower_bound(
+                    free.begin(), free.end(), base,
+                    [](buffer_span const& span, std::uint32_t const value) { return span.base < value; });
+                auto it = free.insert(at, buffer_span{base, count});
+                if (it != free.begin()) {
+                    auto const previous = std::prev(it);
+                    if (previous->base + previous->count == it->base) {
+                        previous->count += it->count;
+                        it = free.erase(it);
+                        it = previous;
+                    }
+                }
+                auto const next = std::next(it);
+                if (next != free.end() && it->base + it->count == next->base) {
+                    it->count += next->count;
+                    free.erase(next);
+                }
+            }
             // ABI 43: the window the managed request controls act on; null for an offscreen capture,
             // which must answer module_unavailable instead of pretending to move a window.
             deren::app::glfw_window* window = nullptr;
@@ -603,6 +753,8 @@ namespace deren::app {
                                              .ui_default_width = 380.0F,
                                              .ui_default_height = 140.0F,
                                              .players = {},
+                                             .free_skin = {},
+                                             .free_morph = {},
                                              .next_skin_base = 4,
                                              .next_morph_base = 0,
                                              .animation_mutex = {},
@@ -718,9 +870,6 @@ namespace deren::app {
             // published: an asset that does not fit is reported and stays static rather than writing
             // into another character's blocks.
             if (!source.scenes->animations.empty()) {
-                std::uint32_t const skin_base = context.next_skin_base;
-                auto const morph_base = static_cast<std::uint32_t>(context.next_morph_base);
-                auto player = std::make_unique<deren::engine::animation::controller>();
                 deren::engine::animation::backend const backend{
                     .scene = &runtime.get_scene(),
                     .morph_scratch_active = [&runtime]() { return static_cast<float*>(runtime.morph_scratch()); },
@@ -731,12 +880,47 @@ namespace deren::app {
                     .run_tasks = [&runtime](std::span<std::function<void()>> tasks) { runtime.run_tasks(tasks); },
                     .task_worker_count = [&runtime]() { return runtime.task_pool_threads(); },
                 };
-                player->init(*source.scenes, backend, import_shift, result.import_instance, skin_base, morph_base);
-                std::size_t const skin_blocks = player->skin_block_count();
-                std::size_t const morph_floats = player->morph_float_count();
-                if (skin_blocks == 0 ||
-                    skin_base + skin_blocks > deren::engine::scene_skin_capacity ||
-                    static_cast<std::size_t>(morph_base) + morph_floats > deren::engine::scene_morph_capacity) {
+                auto const make_player = [&](std::uint32_t const block, std::uint32_t const morph) {
+                    auto candidate = std::make_unique<deren::engine::animation::controller>();
+                    candidate->init(*source.scenes, backend, import_shift, result.import_instance, block, morph);
+                    return candidate;
+                };
+                // A recycled slice is preferred over the bump end: the editor rebuilds every
+                // placement when it switches between the scene and animation editors, and a bump
+                // allocator that only recycles once full still grows by one scene's worth per switch
+                // until it hits the capacity. Player counts come from a provisional init(), because
+                // the slice size depends on the asset's skin and morph tables.
+                std::uint32_t skin_base = context.next_skin_base;
+                std::uint32_t morph_base = context.next_morph_base;
+                auto player = make_player(skin_base, morph_base);
+                std::uint32_t const skin_blocks = player->skin_block_count();
+                auto const morph_floats = static_cast<std::uint32_t>(player->morph_float_count());
+                bool const bump_fits = skin_blocks != 0 &&
+                                       skin_base + skin_blocks <= deren::engine::scene_skin_capacity &&
+                                       morph_base + morph_floats <= deren::engine::scene_morph_capacity;
+                bool recycled = false;
+                if (skin_blocks != 0) {
+                    std::uint32_t candidate_skin = 0;
+                    std::uint32_t candidate_morph = 0;
+                    if (managed_bind_context::take_free_span(context.free_skin, skin_blocks, candidate_skin)) {
+                        if (managed_bind_context::take_free_span(context.free_morph, morph_floats, candidate_morph)) {
+                            // A fresh controller, because init() stamps its slice into the imported
+                            // meshes and appends its rig tables.
+                            player = make_player(candidate_skin, candidate_morph);
+                            skin_base = candidate_skin;
+                            morph_base = candidate_morph;
+                            recycled = true;
+                        } else {
+                            managed_bind_context::return_span(context.free_skin, candidate_skin, skin_blocks);
+                        }
+                    }
+                }
+                bool const fits = recycled || bump_fits;
+                if (!fits) {
+                    // No slice: take back whatever the provisional player stamped, so the meshes use
+                    // the identity block and the rest pose instead of reading another character's
+                    // joints (the exploded meshes a full skin buffer used to produce).
+                    player->detach_buffers();
                     deren::utility::log("animation: '{}' has {} clip(s), but the skin buffer is full "
                                         "({} of {} blocks used) - the asset stays static",
                                         asset_id, source.scenes->animations.size(), skin_base,
@@ -763,8 +947,10 @@ namespace deren::app {
                     }
                     deren::utility::log("animation: '{}' placement {:#x} now drives {} clip(s) [{}], skin block {}",
                                         asset_id, entry.owner_node, entry.player->playable_count(), names, skin_base);
-                    context.next_skin_base += static_cast<std::uint32_t>(skin_blocks);
-                    context.next_morph_base += morph_floats;
+                    // A slice recycled from a dropped player sits below the bump end; the bump only
+                    // moves when the allocation really came from it.
+                    context.next_skin_base = std::max(context.next_skin_base, skin_base + skin_blocks);
+                    context.next_morph_base = std::max(context.next_morph_base, morph_base + morph_floats);
                     {
                         std::lock_guard const lock{context.animation_mutex};
                         context.players.push_back(std::move(entry));
@@ -822,6 +1008,9 @@ namespace deren::app {
                 }
                 context->next_skin_base = 4;
                 context->next_morph_base = 0;
+                // The tree is new, so the spans the old players owned mean nothing here.
+                context->free_skin.clear();
+                context->free_morph.clear();
             }
             publish_animation_state(*context);
             context->render_runtime->set_scene(managed);
@@ -1535,6 +1724,9 @@ namespace deren::app {
         // game's panel calls report `module_unavailable` and the game can say so in its log - a null
         // table would look like a bug in the game instead of a setting in the project.
         std::optional<deren::ui::rml_overlay> game_ui;
+        // ABI 47: the editor's own immediate-mode frontend. Exactly one of the two overlays exists.
+        std::optional<deren::ui::ui_overlay> editor_frontend;
+        std::optional<deren::ui::ui_scripting> editor_frontend_table;
         struct ui_input_context {
             deren::ui::rml_overlay* overlay;
             glfw_window* window;
@@ -1543,12 +1735,57 @@ namespace deren::app {
             bool debug_keyboard_owner = false;
         };
         ui_input_context ui_input{};
-        game_ui.emplace(runtime.rhi_face());
-        if (!game_ui->initialize(shaders_dir)) {
-            return fail_project("RmlUi could not load its shaders");
+        bool const use_editor_frontend = startup->editor_ui == 1;
+        if (use_editor_frontend) {
+            editor_frontend.emplace(runtime.rhi_face());
+            // The UI library owns its font: a project may point `gui.rml_font` at one, otherwise the
+            // build tree's bundled editor font is used. (M1 replaces this placeholder with the
+            // library's own font directory.)
+            std::filesystem::path editor_font{std::string_view(settings.gui.rml_font.data(), settings.gui.rml_font.size())};
+            if (editor_font.empty()) {
+                editor_font = deren::utility::executable_directory() / "fonts" / "editor_ui.ttf";
+            }
+            // The fallback covers code points the UI font does not have (CJK with a Latin-only font).
+            // A project may name one; otherwise the system CJK face is used when it exists, and a
+            // missing fallback only means those code points stay blank.
+            std::filesystem::path editor_fallback_font{
+                std::string_view(settings.gui.rml_fallback_font.data(), settings.gui.rml_fallback_font.size())};
+            if (editor_fallback_font.empty()) {
+                for (auto const* candidate : {"msyh.ttc", "msyh.ttf", "simhei.ttf"}) {
+                    auto const path = std::filesystem::path{"C:/Windows/Fonts"} / candidate;
+                    if (std::filesystem::exists(path)) {
+                        editor_fallback_font = path;
+                        break;
+                    }
+                }
+            }
+            if (!editor_frontend->initialize(shaders_dir, editor_font, editor_fallback_font)) {
+                return fail_project("the editor UI could not load its shaders or font");
+            }
+            editor_frontend_table.emplace(*editor_frontend);
+            script_scene.install_editor_ui(&deren::ui::ui_scripting::table());
+            runtime.set_output_overlay(&*editor_frontend, &deren::ui::ui_overlay::record);
+            // THE EDITOR UI OWNS THE POINTER WHERE ITS OWN CONTROLS ARE, AND ONLY THERE: the window
+            // seam chained its pointer events to the runtime's orbit camera (which is how the 3D
+            // preview above the Dope Sheet still rotates), and before this gate a left-drag that
+            // started on the name field orbited the model as well. The gate withholds only the camera
+            // copy - the frontend keeps receiving the same event through the sink.
+            action_input.set_camera_gate(+[](void*, deren::app::window_event const& event) -> bool {
+                using type = deren::app::window_event_type;
+                bool const pointer = event.type == type::mouse_move || event.type == type::mouse_button ||
+                                     event.type == type::scroll;
+                return pointer && deren::ui::ui_scripting::pointer_claimed();
+            }, nullptr);
         }
-        deren::ui::rml_scripting document_ui(game_ui->content());
-        script_scene.install_document_ui(&deren::ui::rml_scripting::table());
+        std::optional<deren::ui::rml_scripting> document_ui_holder;
+        if (!use_editor_frontend) {
+            game_ui.emplace(runtime.rhi_face());
+            if (!game_ui->initialize(shaders_dir)) {
+                return fail_project("RmlUi could not load its shaders");
+            }
+            document_ui_holder.emplace(game_ui->content());
+            script_scene.install_document_ui(&deren::ui::rml_scripting::table());
+        }
         // Destruct before document_ui/game_ui, on early returns as well as normal shutdown.
         struct script_session_guard {
             deren::app::script_scene& scene;
@@ -1556,7 +1793,7 @@ namespace deren::app {
                 this->scene.stop();
             }
         } script_session{script_scene};
-        {
+        if (game_ui) {
             if (!settings.gui.rml_document.empty() &&
                 !game_ui->content().open(settings.gui.rml_document, settings.gui.rml_font, settings.gui.rml_fallback_font)) {
                 return fail_project("RmlUi could not load its document or font");
@@ -1626,10 +1863,18 @@ namespace deren::app {
                 }
                 return consumed; }, &ui_input);
         }
+        // ABI 47: the editor UI authors in its own logical pixels, which differ from window pixels
+        // when a scale is pinned (`startup_options::ui_scale`). The factor is refreshed with the
+        // window each frame and converts the forwarded pointer into the same space the frame uses.
+        float managed_pointer_scale = 1.0F;
+        // One line per run naming the two densities, so a pointer that lands in the wrong place can be
+        // traced without rebuilding a diagnostic binary.
+        bool logged_editor_metrics = false;
         // ABI 31: THE WINDOW'S EVENTS BECOME THE GAME'S EVENTS. The action layer forwards every
         // raw event here (it keeps its own named-action map untouched); this seam only renames the
         // fields into the scripting ABI's flat record, so the app owns no input state either.
-        auto const forward_window_event = +[](void*, deren::app::window_event const& source) {
+        auto const forward_window_event = +[](void* opaque, deren::app::window_event const& source) {
+            float const pointer_scale = *static_cast<float const*>(opaque);
             deren::scripting::input_event event{};
             switch (source.type) {
             case deren::app::window_event_type::mouse_move:
@@ -1654,15 +1899,17 @@ namespace deren::app {
             event.button = source.button;
             event.down = source.down ? 1U : 0U;
             event.key = source.key;
-            event.x = source.x;
-            event.y = source.y;
-            event.dx = source.dx;
-            event.dy = source.dy;
+            event.x = source.x * pointer_scale;
+            event.y = source.y * pointer_scale;
+            event.dx = source.dx * pointer_scale;
+            event.dy = source.dy * pointer_scale;
             event.wheel = source.wheel;
             event.codepoint = source.codepoint;
+            event.modifiers = static_cast<std::uint8_t>(source.modifiers);
+            event.repeated = source.repeated ? 1U : 0U;
             script_scene::publish_input_event(event);
         };
-        action_input.set_event_sink(forward_window_event, nullptr);
+        action_input.set_event_sink(forward_window_event, &managed_pointer_scale);
         managed_binding.ui_available = settings.gui.show && runtime.enable_debug_gui();
         if (managed_binding.ui_available) {
             deren::utility::log("gui: managed debug panel enabled (default {}x{})", settings.gui.panel_width,
@@ -1869,6 +2116,8 @@ namespace deren::app {
                         return false;
                     };
                     std::vector<std::uint64_t> dropped;
+                    std::vector<managed_bind_context::buffer_span> freed_skin;
+                    std::vector<managed_bind_context::buffer_span> freed_morph;
                     {
                         std::lock_guard const lock(context.animation_mutex);
                         for (auto const& entry : context.players) {
@@ -1884,8 +2133,7 @@ namespace deren::app {
                             }
                         }
                     }
-                    if (!dropped.empty()) {
-                        // The players write GPU-visible buffers, so no frame may be in flight while
+                    if (!dropped.empty()) {                        // The players write GPU-visible buffers, so no frame may be in flight while
                         // they die. Before the runtime starts no frame exists yet, so only then can
                         // the idle wait be skipped - the players must still be dropped either way,
                         // because they cache node pointers of the subtree that is going away.
@@ -1894,6 +2142,20 @@ namespace deren::app {
                         }
                         {
                             std::lock_guard const lock(context.animation_mutex);
+                            for (auto const& entry : context.players) {
+                                if (std::ranges::find(dropped, entry.owner_node) == dropped.end()) {
+                                    continue;
+                                }
+                                // The buffer slices follow the player: a scene the editor rebuilds
+                                // when it switches modes has to get the same blocks back.
+                                if (entry.player) {
+                                    freed_skin.push_back({entry.skin_base, entry.player->skin_block_count()});
+                                    freed_morph.push_back({
+                                        static_cast<std::uint32_t>(entry.morph_base),
+                                        static_cast<std::uint32_t>(entry.player->morph_float_count()),
+                                    });
+                                }
+                            }
                             context.players.erase(
                                 std::ranges::remove_if(context.players,
                                                        [&dropped](managed_bind_context::animation_player_entry const& entry) {
@@ -1901,10 +2163,15 @@ namespace deren::app {
                                                        })
                                     .begin(),
                                 context.players.end());
+                            for (auto const& span : freed_skin) {
+                                managed_bind_context::return_span(context.free_skin, span.base, span.count);
+                            }
+                            for (auto const& span : freed_morph) {
+                                managed_bind_context::return_span(context.free_morph, span.base, span.count);
+                            }
                         }
                         // publish_animation_state takes the lock itself, so it runs outside the block above.
-                        publish_animation_state(context);
-                    }
+                        publish_animation_state(context);                    }
                     // A removed leaf must not survive in the next frame's cached BVH.
                     context.render_runtime->scene_changed();
                 }});
@@ -2291,7 +2558,7 @@ namespace deren::app {
             if (ends_session(rec)) {
                 break;
             }
-            if (game_ui) {
+            if (game_ui || editor_frontend) {
                 auto* image = runtime.rhi_face().frames->frame_image();
                 auto const extent = image->extent();
                 // The document is authored in density-independent pixels: on a 150%/200% window the
@@ -2303,20 +2570,48 @@ namespace deren::app {
                 float const pixel_ratio = window_width > 0 && window_height > 0
                                               ? static_cast<float>(extent.width) / static_cast<float>(window_width)
                                               : 1.0F;
-                // A document may show the 3D scene itself (`deren://scene`): hand the frame's resolved color
-                // image over so the overlay samples it instead of an atlas. The image exists only on frames
-                // a resolve finishes (FXAA/upscale); on the others the viewport element draws nothing.
-                auto const scene_color = runtime.current_scene_color();
-                deren::ui::scene_texture const scene_texture{.image = scene_color.image};
-                if (!game_ui->prepare(extent.width, extent.height, image->format(),
-                                      runtime.rhi_face().frames->walk_frames()->position(), pixel_ratio, scene_texture)) {
-                    return fail_project("RmlUi could not prepare its overlay");
+                // A pinned editor UI scale replaces the display scale for the editor frontend only;
+                // the classic HUD keeps the window's own density.
+                float const editor_scale = startup->ui_scale > 0.0F ? startup->ui_scale : pixel_ratio;
+                managed_pointer_scale = pixel_ratio / editor_scale;
+                if (editor_frontend && !logged_editor_metrics) {
+                    logged_editor_metrics = true;
+                    deren::utility::log(
+                        "editor ui: window {}x{}, frame {}x{}, density {}, authoring scale {}, pointer {}",
+                        window_width, window_height, extent.width, extent.height, pixel_ratio,
+                        editor_scale, managed_pointer_scale);
                 }
-                if (!document_ui.has_managed_document()) {
-                    for (auto const& event : game_ui->content().take_events()) {
-                        deren::utility::log("rmlui: {} {} {}", event.type, event.id, event.value);
-                        if (event.type == "click" && event.id == "apply") {
-                            game_ui->content().set_text("status", game_ui->content().value("name"));
+                if (editor_frontend) {
+                    if (!editor_frontend->prepare(extent.width, extent.height, image->format(),
+                                                  runtime.rhi_face().frames->walk_frames()->position(),
+                                                  editor_scale)) {
+                        return fail_project("the editor UI could not prepare its overlay");
+                    }
+                    // The frontend publishes the caret box in logical pixels; the composition seam
+                    // wants client pixels, which is the logical box times the editor's density.
+                    float caret_x = 0.0F, caret_y = 0.0F, caret_w = 0.0F, caret_h = 0.0F;
+                    if (deren::ui::ui_scripting::ime_caret_rect(caret_x, caret_y, caret_w, caret_h)) {
+                        ime_seam.set_caret_rect(caret_x * editor_scale, caret_y * editor_scale,
+                                                caret_w * editor_scale, caret_h * editor_scale);
+                    }
+                }
+                if (game_ui) {
+                    // A document may show the 3D scene itself (`deren://scene`): hand the frame's resolved color
+                    // image over so the overlay samples it instead of an atlas. The image exists only on frames
+                    // a resolve finishes (FXAA/upscale); on the others the viewport element draws nothing.
+                    auto const scene_color = runtime.current_scene_color();
+                    deren::ui::scene_texture const scene_texture{.image = scene_color.image};
+                    if (!game_ui->prepare(extent.width, extent.height, image->format(),
+                                          runtime.rhi_face().frames->walk_frames()->position(), pixel_ratio,
+                                          scene_texture)) {
+                        return fail_project("RmlUi could not prepare its overlay");
+                    }
+                    if (!document_ui_holder->has_managed_document()) {
+                        for (auto const& event : game_ui->content().take_events()) {
+                            deren::utility::log("rmlui: {} {} {}", event.type, event.id, event.value);
+                            if (event.type == "click" && event.id == "apply") {
+                                game_ui->content().set_text("status", game_ui->content().value("name"));
+                            }
                         }
                     }
                 }

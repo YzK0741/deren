@@ -1560,6 +1560,10 @@ namespace deren::app {
         this->document_ui = table;
     }
 
+    void script_scene::install_editor_ui(scripting::editor_ui_api const* table) noexcept {
+        this->editor_ui = table;
+    }
+
     scripting::script_status script_scene::get_module(std::uint32_t const module, void const** table,
                                                       std::uint32_t* const byte_size) {
         if (table == nullptr || byte_size == nullptr) {
@@ -1622,6 +1626,15 @@ namespace deren::app {
         }
         constexpr auto rml_ui = static_cast<std::uint32_t>(scripting::native_module::rml_ui);
         constexpr auto rml_ui_extended = static_cast<std::uint32_t>(scripting::native_module::rml_ui_extended);
+        if (module == static_cast<std::uint32_t>(scripting::native_module::editor_ui)) {
+            auto const* owner = current_owner();
+            if (!owner || !owner->editor_ui) {
+                return scripting::script_status::module_unavailable;
+            }
+            *table = owner->editor_ui;
+            *byte_size = sizeof(scripting::editor_ui_api);
+            return scripting::script_status::success;
+        }
         if (module == rml_ui || module == rml_ui_extended) {
             auto const* owner = current_owner();
             if (!owner || !owner->document_ui) {

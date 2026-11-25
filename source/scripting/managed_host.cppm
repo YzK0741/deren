@@ -1,4 +1,4 @@
-// module version: 1.1.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.2.0  (independent of the app version in CMakeLists project(VERSION))
 // The managed ABI itself is tracked by managed_abi_version.
 
 export module deren.scripting.managed_host;
@@ -8,7 +8,7 @@ export import deren.scripting.audio_api;
 
 export namespace deren::scripting {
 
-    inline constexpr std::uint32_t managed_abi_version = 46;
+    inline constexpr std::uint32_t managed_abi_version = 47;
 
     struct node_handle {
         std::uint64_t value = 0;
@@ -109,9 +109,20 @@ export namespace deren::scripting {
         vector_3 target{};
         float sweep_yaw_deg_per_frame = 0.0F;
         float animation_seconds_per_frame = 0.0F;
+        /**
+         * Editor frontend selection, chosen before the window exists: 0 keeps the classic RmlUi
+         * shell, 1 installs the editor's own ui_overlay instead.
+         */
+        std::int32_t editor_ui = 0;
+        /**
+         * Scale of the editor UI, 1.0 being the authored size. Zero follows the window's display
+         * scale, which is what a project normally wants; a positive value pins it (150% -> 1.5F)
+         * and also converts pointer input from window coordinates into the UI's own space.
+         */
+        float ui_scale = 0.0F;
     };
 
-    static_assert(sizeof(startup_options) == 48);
+    static_assert(sizeof(startup_options) == 56);
 
     struct transform_value {
         vector_3 position;
@@ -635,9 +646,14 @@ export namespace deren::scripting {
         float dy = 0.0F;
         float wheel = 0.0F;          // scroll: vertical wheel delta
         std::uint32_t codepoint = 0; // character: one Unicode code point
+        // key and character: GLFW modifier bits (shift 1, control 2, alt 4, super 8). A text field
+        // needs them to tell "c" from Ctrl+C, and the window already reports them.
+        std::uint8_t modifiers = 0;
+        std::uint8_t repeated = 0; // key: 1 when the OS repeated the key instead of pressing it
+        std::uint8_t padding2[2] = {};
     };
 
-    static_assert(sizeof(input_event) == 40);
+    static_assert(sizeof(input_event) == 44);
 
     // ABI 33: the structs both sides pass by value and pointer, whose byte size the managed side
     // re-checks before it binds. The version number alone only catches an ABI both sides know they
@@ -692,7 +708,10 @@ export namespace deren::scripting {
         asset_authoring_extended = 8,
         // ABI 45: the capsule collision world. The kernel (deren.engine.collision) is stateless, so the
         // host owns the box set and the managed side rebuilds it whenever its collision inputs change.
-        collision = 9
+        collision = 9,
+        // ABI 47: the editor's own immediate-mode frontend (editor_ui_api). Distinct from
+        // rml_ui because the classic shell never installs it.
+        editor_ui = 10
     };
 
     // Keep layouts and calling conventions in sync with managed_bootstrap.cs.

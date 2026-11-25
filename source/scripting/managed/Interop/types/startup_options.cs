@@ -18,5 +18,13 @@ namespace deren.scripting {
         public vector_3 target;
         public float sweep_yaw_deg_per_frame;
         public float animation_seconds_per_frame;
+
+        /// <summary>Editor frontend: 0 selects the classic RmlUi shell, 1 the editor's own UI layer.</summary>
+        public int editor_ui;
+
+        /// <summary>
+        /// Editor UI scale, 1.0 being the authored size. Zero follows the window's display scale.
+        /// </summary>
+        public float ui_scale;
     }
 }

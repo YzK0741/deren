@@ -32,7 +32,9 @@ namespace deren {
         float dx,
         float dy,
         float wheel,
-        uint codepoint) {
+        uint codepoint,
+        int modifiers = 0,
+        bool repeated = false) {
         public input_type type { get; } = type;
 
         /// <summary>The mouse button index (0 left, 1 right, 2 middle) for <see cref="input_type.mouse_button"/>.</summary>
@@ -59,6 +61,20 @@ namespace deren {
 
         /// <summary>The Unicode codepoint typed, for <see cref="input_type.character"/>.</summary>
         public uint codepoint { get; } = codepoint;
+
+        /// <summary>The GLFW modifier bits held during a key or character event; see <see cref="modifier"/>.</summary>
+        public int modifiers { get; } = modifiers;
+
+        /// <summary>Whether the OS auto-repeated this key press rather than reporting a fresh press.</summary>
+        public bool repeated { get; } = repeated;
+    }
+
+    /// <summary>The modifier bits the window reports in <see cref="input_event.modifiers"/>.</summary>
+    public static class modifier {
+        public const int shift = 1;
+        public const int control = 2;
+        public const int alt = 4;
+        public const int super = 8;
     }
 
     /// <summary>
@@ -99,7 +115,8 @@ namespace deren {
             try {
                 var record = *value;
                 callback(new input_event((input_type)record.type, record.button, record.down != 0, record.key,
-                                         record.x, record.y, record.dx, record.dy, record.wheel, record.codepoint));
+                                         record.x, record.y, record.dx, record.dy, record.wheel, record.codepoint,
+                                         record.modifiers, record.repeated != 0));
             } catch (Exception error) {
                 host_logger.write(
                     $"Game: input handler threw: {error.GetBaseException().Message}");
@@ -121,16 +138,36 @@ namespace deren {
         public const int right = 262;
         public const int up = 265;
         public const int down = 264;
+        public const int home = 268;
+        public const int end = 269;
+        public const int delete = 261;
         public const int a = 65;
+        public const int c = 67;
         public const int d = 68;
         public const int e = 69;
         public const int f = 70;
         public const int q = 81;
         public const int r = 82;
         public const int s = 83;
+        public const int v = 86;
         public const int w = 87;
+        public const int x = 88;
+        public const int y = 89;
+        public const int z = 90;
         public const int left_shift = 340;
         public const int left_control = 341;
         public const int left_alt = 342;
+        public const int f1 = 290;
+        public const int f2 = 291;
+        public const int f3 = 292;
+        public const int f4 = 293;
+        public const int f5 = 294;
+        public const int f6 = 295;
+        public const int f7 = 296;
+        public const int f8 = 297;
+        public const int f9 = 298;
+        public const int f10 = 299;
+        public const int f11 = 300;
+        public const int f12 = 301;
     }
 }

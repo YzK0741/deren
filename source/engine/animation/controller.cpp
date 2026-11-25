@@ -173,6 +173,27 @@ namespace deren::engine::animation {
         return this->morph_floats_used;
     }
 
+    void controller::detach_buffers() noexcept {
+        for (skin_rig const& rig : this->skin_rigs) {
+            if (rig.mesh_node == nullptr || rig.mesh_node->primitive_leaf == nullptr) {
+                continue;
+            }
+            auto* const leaf = static_cast<deren::engine::primitive*>(rig.mesh_node->primitive_leaf.get());
+            leaf->push.skin_base = 0;
+            leaf->skin_joint_count = 0;
+        }
+        for (morph_rig const& rig : this->morph_rigs) {
+            if (rig.prim == nullptr) {
+                continue;
+            }
+            rig.prim->push.morph_base = 0;
+            rig.prim->push.morph_targets = 0;
+            rig.prim->push.morph_vertices = 0;
+        }
+        this->skin_rigs.clear();
+        this->morph_rigs.clear();
+    }
+
     std::optional<glm::mat4> controller::joint_world(std::size_t const rig_index, std::size_t const joint_index) const noexcept {
         if (rig_index >= this->skin_readers.size() || this->skin_readers[rig_index] == deren::engine::scene_tree::no_source_index) {
             return std::nullopt;
