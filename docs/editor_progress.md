@@ -596,6 +596,121 @@ The scene selftest is twelve lines: the two new ones cover the browser search (p
 narrows, the rebuilt frame shows the matches and the caption count) and the row drag (the press arms
 without starting, the move settles on the target, the release reparents and one undo restores).
 
+### 1.23 Folders and pages in the project browser
+
+The classic browser grouped the library by folder and sliced it into pages of 48 tiles; the new frontend did
+neither, so a project with a real asset tree was one flat list. Both came back with the same shape the old
+panel had, but the data is rebuilt per frame instead of owned by a panel.
+
+`scene_browser_entry` is a tile that is either an asset (`asset_index >= 0`) or a folder
+(`asset_index < 0`, with `directory` true). `scene_browser_catalogue` is the whole library, built once from
+`scene_authoring.asset_directory` relative to `library_root()`; `scene_asset_matches` is only the current
+folder's slice. A folder tile is listed before the assets of its own directory, sorted with
+`StringComparer.OrdinalIgnoreCase`, and a filter searches the subtree of the folder you are standing in,
+not the whole library - that is what the classic browser did, and it is what makes "narrow this folder" mean
+something.
+
+Two indices had to be kept apart: `scene_browser_first` is a position in the page and the row key keeps the
+asset's absolute index (`scene_asset_3`), because the press parses that key back into `assets[]`. Pages are
+`page_size = 48`, the caption reads `Project / a / b` on the left and `first+1-first+shown of total` on the
+right, and the `..`, `<` and `>` buttons only exist when they can do something. A missing folder (the asset
+moved or the library changed under us) walks the current folder up instead of showing an empty page, and a
+stale page is clamped back into range.
+
+The library handle is now recorded at startup: `scene_library_ready = asset_authoring.try_open(out
+scene_authoring)`. `asset_authoring` is a struct wrapping a native table, so calling `library_root()` before
+the table is opened would call through a null pointer; every browser path checks the flag first.
+
+The scene selftest is thirteen lines: the new one shortens the page size to two, walks the project with the
+`<` and `>` buttons, checks that the first row of page two really is the entry at that offset and that the
+caption starts with the first index on screen, then restores the page size. It also pins both folder
+helpers, because a wrong split shows up as an empty browser and nothing else.
+
+### 1.24 The status line and the output tab
+
+Two pieces of the classic shell were still missing from the new frontend, and both were about the same
+thing: where the editor talks back.
+
+The footer used to show ONE of two things - the notice if there was one, otherwise the file path - so a
+picked asset hid the selection and the dirty flag. It now prints the classic status line:
+`path *dirty* | nodes: N | selected: <name> | <notice>`. The dirty flag is read from the document rather than
+guessed (`document.dirty` is recomputed from the saved content, so restoring an edit really does clear it),
+and the selftest makes an unsaved edit and puts it back through the document's own comparison to prove the
+flag moves in both directions.
+
+The bottom dock gained a second tab. `output_log_panel` stayed the owner of the queue (it caps at 200 lines,
+which is what the classic panel did), but it now exposes `count`, `text_at`, `error_at` and `node_at` so a
+frontend can render it without owning it. The scene screen's `Output` tab builds one row per line, newest
+first - hence the row key carries the line id and the list index runs backwards over `count - 1 - index` -
+and colours an error line with the new `ui_theme.error`; a line the runtime tagged with a node selects that
+node when pressed, which is how a play failure walks you to the actor that raised it. `Clear` empties the
+queue and the tab says `Nothing has been logged yet.` instead of showing an empty list. The wheel is flipped
+for this tab so scrolling down reads newer lines.
+
+The scene selftest is fifteen lines: the status line (path, dirty flag both ways, node count, selection, the
+notice appended rather than replacing the line) and the output tab (the caption count, the newest row, a
+press that follows the line to its node, and Clear leaving the tab empty).
+
+### 1.25 The environment rows and their list
+
+The classic shell edited the environment through dropdowns: the scene-wide map, one row per custom lane the
+document carries, and a per-object row in the inspector. All three are now rows of the new inspector, and the
+dropdown became a popup - the same overlay layer the menus use, hung under the row that opened it.
+
+That split keeps the responsibilities where they were. A row only says which lane it edits; the list is
+built from the catalogue the classic panel offered (the `.hdr` files under `<library>/environments`, in name
+order) plus the entry that means "no map" and the one that opens the platform file picker. Picking an entry
+goes through the host's existing commands - `apply_environment_selection` for a lane and
+`apply_node_environment_selection` for an object - so lane allocation, map sharing between objects, the
+"all 15 lanes are in use" refusal and the single undo step that writes a lane and points a node at it are all
+still in one place. The lane rows only exist while the document carries a lane, which is what keeps fifteen
+empty rows from burying the inspector; the scene map row and, with a selection, the object map row are always
+there.
+
+Two behaviours are worth naming. A press on anything that is not an entry closes the list and is spent, the
+way a dropdown behaves in the classic shell, and Escape closes it before it clears the searches. And a capture
+run cannot press a row, so `DEREN_UI_SCENE_COMBO=scene|node` opens the list for the image; it waits for the
+first arranged frame, because the list has to hang under the row's own rectangle rather than under a guess.
+
+The scene selftest is sixteen lines: the new one presses the scene map row, requires the list with the
+procedural sky first and its first entry in the rebuilt frame, closes it with a second press, writes a lane
+through the host's own command and requires the row to appear and to vanish again after one undo, then opens
+the object row's list and closes it with Escape. It restores the lanes and the undo depth itself, so a
+failure here cannot leak into the phases after it.
+
+### 1.26 The behaviour rows
+
+The classic inspector built its script rows in `script_inspector` and looked the field up again on every
+message, because that panel owned the selected node. This screen rebuilds its rows every frame, so a row
+carries the parameter index and the apply path resolves the field from the definition the node's binding
+names. Two pieces of the classic panel are therefore not reused: the `fields` dictionary and the markup. The
+transactions are: `set_script_settings` for a binding and a parameter of an ordinary node, and
+`set_instance_override` for a placement's override, which re-derives every expanded node from the source
+snapshot. Both were already there, so a script change and an override stay one undo step each.
+
+The rows follow the distinction the classic panel made between kinds. A binding row opens the catalogue -
+"No script" first, then one entry per definition, labelled with the type name after its last dot. A boolean,
+node or asset parameter is a row that opens a list of the values its kind allows: `true`/`false`, the scene's
+nodes flattened with their path, or the project's assets. The remaining kinds - an integer, a number, a
+vector - edit in place, seeded with the value the row shows, exactly like a transform lane. An expanded
+instance node shows its source scene and binding as read-only rows and gains a `From source` button under
+every parameter it overrides.
+
+One thing this slice needed besides the rows: the catalogue itself. The classic shell creates it while it
+opens and the new frontend returns before that happens, so the first frame of the scene screen now creates
+`script_catalog` over `<project>/scripts` and reloads it; without that every behaviour read as missing.
+
+A second finding is worth recording. The outliner phase's "double press on a project tile" step used to add
+the first tile in the list, which in this project is the imported `bistro` scene, and that import aborted the
+process with `std::bad_alloc`. The step now adds the asset the first outliner row already uses, so it tests
+the double press rather than the glTF importer, but the bistro import failure is a real defect outside this
+milestone and is left open.
+
+The scene selftest is seventeen lines: the new one presses the binding row, requires the catalogue with "No
+script" first and one entry per definition, picks "No script" and requires one undo to bind the script again;
+presses a boolean parameter, picks the other value and requires one undo to put it back; and presses a text
+parameter, types `7`, presses Enter and requires the parameter and its undo.
+
 ## 2. Decisions taken
 
 1. The animation editor must not share the scene editor's layout. Scene-only entry points (import,

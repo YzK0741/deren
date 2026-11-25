@@ -210,8 +210,10 @@ editing boundaries, and screen positions.
   double-click add, a searchable project browser, draggable row reparenting,
   editable details lanes for every classic component, real scrolling for the
   inspector, draggable dividers whose sizes live in `editor-layout.json`,
-  viewport click picking, Play, and Save/reopen.
-  `--editor-ui-scene-selftest` covers all twelve of those paths at 100% and 150%.
+  viewport click picking, Play, Save/reopen, the status footer, the output tab,
+  the environment rows with their map lists, and the behaviour rows (a script
+  binding, its parameters and the overrides of an expanded instance).
+  `--editor-ui-scene-selftest` covers all seventeen of those paths at 100% and 150%.
   Removing the classic editor code is a separate change, after the game HUD
   scripts are checked against the RmlUi overlay the game still uses.
 

@@ -56,6 +56,20 @@ internal sealed unsafe partial class editor_host {
         internal bool closed { get; }
     }
 
+    /// <summary>One browser row: an asset (its index into <c>assets</c>) or a folder group (-1).</summary>
+    private readonly struct scene_browser_entry {
+        internal scene_browser_entry(int asset_index, string name, string folder) {
+            this.asset_index = asset_index;
+            this.name = name;
+            this.folder = folder;
+        }
+
+        internal int asset_index { get; }
+        internal string name { get; }
+        internal string folder { get; }
+        internal bool directory => asset_index < 0;
+    }
+
     private readonly ui_list_view scene_outliner = new();
     private readonly ui_list_view scene_browser_list = new();
     private readonly List<scene_outline_row> scene_rows = [];
@@ -80,7 +94,29 @@ internal sealed unsafe partial class editor_host {
     // filtered list keeps the absolute asset index in every row key the way the outliner keeps its rows.
     private readonly ui_text_edit scene_asset_edit = new();
     private string scene_asset_filter = string.Empty;
-    private readonly List<int> scene_asset_matches = [];
+    // The browser walks folder groups the asset library reports and shows one page of them at a
+    // time; a match keeps its absolute asset index so a filtered or paged row still adds the asset
+    // it names, and a folder row carries -1 because there is no asset behind it.
+    private readonly List<scene_browser_entry> scene_asset_matches = [];
+    private readonly List<scene_browser_entry> scene_browser_catalogue = [];
+    private readonly HashSet<string> scene_browser_folders = new(StringComparer.Ordinal);
+    private string scene_browser_folder = string.Empty;
+    private int scene_browser_page;
+    private int scene_browser_page_size = 48;
+    // The bottom dock has two tabs: the project browser and the output log. The log is the host's own
+    // queue, so this frontend only renders it, newest first.
+    private readonly ui_list_view scene_output_list = new();
+    private int scene_bottom_tab;
+    // The open environment list: which row opened it, where it hangs, and the choices it was built from.
+    private bool scene_combo_open;
+    private string scene_combo_target = string.Empty;
+    private float scene_combo_x;
+    private float scene_combo_y;
+    private readonly List<(string label, string value)> scene_combo_items = [];
+    private bool scene_combo_demo_applied;
+    // Without the extended authoring table there is no library root to group by, so every asset
+    // stays in the root and the browser is a flat list, exactly as it was before folders.
+    private bool scene_library_ready;
     private string scene_last_asset = string.Empty;
     private long scene_last_asset_click;
     // A row press that travels is a reparent, not a click: the drag only starts once it leaves the slop.
@@ -107,7 +143,13 @@ internal sealed unsafe partial class editor_host {
             report_next_ui_failure("has no scene document to show");
             return;
         }
-        asset_authoring.try_open(out scene_authoring);
+        scene_library_ready = asset_authoring.try_open(out scene_authoring);
+        // The classic shell builds the script catalogue while it opens; this frontend runs without that
+        // panel, so it makes the same catalogue itself - otherwise every behaviour would read as missing.
+        if (editable_scripts == null) {
+            editable_scripts = new script_catalog(Path.Combine(managed_bootstrap.project_directory, "scripts"));
+            reload_scripts();
+        }
         if (assets.Length == 0) {
             // The classic shell lists the library while it starts; this frontend returns before that
             // happens, so the first frame that needs tiles asks for them instead.
@@ -141,15 +183,17 @@ internal sealed unsafe partial class editor_host {
                 "light" => find_scene_node(document.roots, node => node.light != null),
                 "camera" => find_scene_node(document.roots, node => node.camera),
                 "actor" => find_scene_node(document.roots, node => node.subscene != null || node.asset != null),
+                "script" => find_scene_node(document.roots, node => node.script != null),
                 _ => find_scene_node(document.roots, node => node.asset != null || node.subscene != null),
             };
             if (picked != null) { selection_state?.select(picked.uid); }
-            // The same run can open one details lane, so a screenshot shows the inline editor too.
-            if (Environment.GetEnvironmentVariable("DEREN_UI_SCENE_EDIT") is { Length: > 0 } lane
-                && selection_state != null && document.find(selection_state.primary) is { } edited) {
-                begin_scene_edit_from_row(lane);
-                if (scene_value_edit != null) { scene_value_edit.select_all(); }
-            }
+        }
+        // A capture can also open the bottom dock's second tab, which no image would show otherwise.
+        if (Environment.GetEnvironmentVariable("DEREN_UI_SCENE_TAB") == "output") { scene_bottom_tab = 1; }
+        if (Environment.GetEnvironmentVariable("DEREN_UI_SCENE_EDIT") is { Length: > 0 } lane &&
+            selection_state != null && document.find(selection_state.primary) is { } edited) {
+            begin_scene_edit_from_row(lane);
+            if (scene_value_edit != null) { scene_value_edit.select_all(); }
         }
     }
 
@@ -170,6 +214,18 @@ internal sealed unsafe partial class editor_host {
         next_ui.begin(width, height, scale);
         if (!next_ui.submit(build_scene_screen())) {
             report_next_ui_failure("overlay rejected the scene frame");
+        }
+        // A capture run cannot press a row, so one environment hook opens the list for the image. It waits
+        // for the first arranged frame, because the list should hang under the row it belongs to.
+        if (!scene_combo_demo_applied
+            && Environment.GetEnvironmentVariable("DEREN_UI_SCENE_COMBO") is { Length: > 0 } combo_demo
+            && next_ui.last_tree?.find(combo_demo switch {
+                   "script" => "scene_script_picker",
+                   "node" => "scene_env_object",
+                   _ => "scene_env_scene",
+               }) is { } combo_row) {
+            scene_combo_demo_applied = true;
+            open_scene_combo(combo_demo switch { "script" => "script", "node" => "node", _ => "0" }, combo_row.rect);
         }
         publish_scene_pointer_claim();
         return requested_ui_selftest ? scene_selftest_tick() : script_status.success;
@@ -205,12 +261,13 @@ internal sealed unsafe partial class editor_host {
         root.add(ui_controls.splitter("split_browser", next_ui, scene_split_gesture == scene_split.browser));
         root.add(ui_node.column("browser").size(float.NaN, scene_layout.scene_browser_height).bg(ui_theme.panel)
                      .clipped()
-                     .add(build_scene_browser_caption(),
-                          build_scene_browser(browser_height)));
+                     .add(build_scene_bottom_caption(),
+                          build_scene_bottom(browser_height)));
         root.add(ui_node.row("footer").size(float.NaN, scene_footer_height).bg(ui_theme.header)
                      .add(centered(ui_node.label("footer_text", scene_footer_text(), ui_theme.small_size,
                                                  ui_theme.text_dim), float.NaN, scene_footer_height)));
         add_popup_overlays(scene_header_height);
+        add_scene_combo_overlay();
         return root;
     }
 
@@ -340,8 +397,10 @@ internal sealed unsafe partial class editor_host {
         var body_column = ui_node.column("details_body").size(float.NaN, height).spacing(2.0F).clipped();
         var column = new scene_details_body(body_column, height, scene_details_scroll);
         if (node == null) {
-            scene_details_content = 0.0F;
             body_column.add(ui_node.label("details_empty", "Nothing selected", ui_theme.body_size, ui_theme.text_dim));
+            // The scene-wide map belongs to no node, so it stays reachable with nothing selected.
+            add_scene_environment(column, null);
+            scene_details_content = column.content;
             return body_column;
         }
         // A row whose value is editable becomes a text field in place when it is pressed; the lanes are
@@ -369,9 +428,7 @@ internal sealed unsafe partial class editor_host {
         if (node.pipeline != null) {
             add_scene_property(column, "pipeline", "Pipeline", node.pipeline);
         }
-        if (node.script != null) {
-            add_scene_property(column, "script", "Behaviour", node.script);
-        }
+        add_scene_script(column, node);
         if (node.camera) {
             add_scene_section(column, "camera", "Camera");
             add_scene_value_row(column, "camera_fov", "Vertical FOV", node,
@@ -424,8 +481,188 @@ internal sealed unsafe partial class editor_host {
                                 node.animation_clip < 0 ? "(asset default)" : node.animation_clip.ToString(CultureInfo.InvariantCulture));
             add_scene_toggle_row(column, "animation_autoplay", "Auto Play", node.animation_autoplay);
         }
+        add_scene_environment(column, node);
         scene_details_content = column.content;
         return body_column;
+    }
+
+    /// <summary>
+    /// The environment rows: the scene-wide map the project settings keep, one row per custom lane the
+    /// document carries, and - when a node is selected - the lane that node samples.
+    /// </summary>
+    /// <remarks>
+    /// The classic panel offered these as dropdowns. A dropdown is a popup here (the same overlay layer the
+    /// menus use), so a row only has to say which lane it edits and where the list should hang; the apply
+    /// paths are the host's existing ones, which already allocate a lane, share one with another object and
+    /// record the single undo step the two halves need.
+    /// </remarks>
+    private void add_scene_environment(scene_details_body column, document_node? node) {
+        add_scene_section(column, "environment", "Environment");
+        add_scene_choice_row(column, "scene_env_scene", "Scene Map", environment_label(global_environment_hdr));
+        if (document != null) {
+            for (var lane = 1; lane < global_environment.slot_count; ++lane) {
+                if (!string.IsNullOrEmpty(document.environment_slots[lane - 1])) {
+                    add_scene_choice_row(column, string.Create(CultureInfo.InvariantCulture, $"scene_env_lane_{lane}"),
+                                         string.Create(CultureInfo.InvariantCulture, $"Lane {lane}"),
+                                         environment_label(document.environment_slots[lane - 1]));
+                }
+            }
+        }
+        if (node != null) {
+            add_scene_choice_row(column, "scene_env_object", "Object Map",
+                                 node.environment == 0
+                                     ? "(scene map)"
+                                     : environment_lane_label(node.environment));
+        }
+    }
+
+    /// <summary>A row that opens a list instead of a text field: the whole row is the hit target.</summary>
+    private void add_scene_choice_row(scene_details_body column, string key, string name, string value) {
+        bool open = scene_combo_open && string.Equals(scene_combo_target, scene_combo_key(key), StringComparison.Ordinal);
+        var row = ui_node.row(key).size(float.NaN, ui_theme.row_height).spacing(0.0F)
+                      .bg(open ? ui_theme.panel_border : 0U);
+        row.add(ui_node.box(key + "_inset").size(8.0F, 0.0F));
+        row.add(centered(ui_node.label(key + "_name", name, ui_theme.small_size, ui_theme.text_dim),
+                         88.0F, ui_theme.row_height));
+        row.add(value_slot(ui_node.label(key + "_value", value + "  v", ui_theme.body_size, ui_theme.text_key)));
+        column.add(row, ui_theme.row_height);
+    }
+
+    /// <summary>The map a lane row shows: the file name, or the procedural sky when the lane is empty.</summary>
+    private static string environment_label(string? text) {
+        if (string.IsNullOrEmpty(text)) { return "(procedural sky)"; }
+        var name = Path.GetFileName(text);
+        return name.Length == 0 ? text : name;
+    }
+
+    /// <summary>What a node that samples @p lane shows: the lane's map, or that the lane carries none.</summary>
+    private string environment_lane_label(int lane) {
+        var text = document?.environment_slots[lane - 1];
+        return string.IsNullOrEmpty(text)
+            ? string.Create(CultureInfo.InvariantCulture, $"Lane {lane} (no map)")
+            : string.Create(CultureInfo.InvariantCulture, $"Lane {lane}: {environment_label(text)}");
+    }
+
+    /// <summary>The combo target a row stands for: a lane index, or "node" for the per-object row.</summary>
+    private static string scene_combo_key(string key) {
+        if (key == "scene_env_scene") { return "0"; }
+        if (key == "scene_env_object") { return "node"; }
+        return key["scene_env_lane_".Length..];
+    }
+
+    /// <summary>
+    /// Matches any child of an environment row - the inset, the name and the value are all hit targets -
+    /// and returns the combo target the row opens.
+    /// </summary>
+    private static bool try_scene_env_key(string key, out string target) {
+        target = string.Empty;
+        if (!key.StartsWith("scene_env_", StringComparison.Ordinal)) { return false; }
+        foreach (var suffix in new[] { "_inset", "_name", "_value" }) {
+            if (key.EndsWith(suffix, StringComparison.Ordinal)) {
+                key = key[..^suffix.Length];
+                break;
+            }
+        }
+        if (key == "scene_env_scene") {
+            target = "0";
+            return true;
+        }
+        if (key == "scene_env_object") {
+            target = "node";
+            return true;
+        }
+        if (try_scene_index(key, "scene_env_lane_", out var lane) && lane >= 1) {
+            target = lane.ToString(CultureInfo.InvariantCulture);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Opens the map list under @p anchor, seeded with the catalogue the classic panel offered.</summary>
+    private void open_scene_combo(string target, ui_rect anchor) {
+        scene_combo_items.Clear();
+        if (target == "script") {
+            // The classic picker listed every binding in the catalogue and let "No script" clear it.
+            scene_combo_items.Add(("No script", string.Empty));
+            if (editable_scripts != null) {
+                foreach (var definition in editable_scripts.entries) {
+                    scene_combo_items.Add((scene_script_label(definition.binding), definition.binding));
+                }
+            }
+        } else if (target.StartsWith("script_param_", StringComparison.Ordinal) &&
+                   try_scene_index(target, "script_param_", out var parameter_index) &&
+                   selection_state != null && document?.find(selection_state.primary) is { } selected &&
+                   scene_script_definition(selected) is { } script &&
+                   parameter_index >= 0 && parameter_index < script.parameters.Length) {
+            scene_combo_items.AddRange(scene_script_items(script.parameters[parameter_index]));
+        } else {
+            var node_target = target == "node";
+            scene_combo_items.Add(node_target ? ("(scene map)", environment_panel.scene_value)
+                                              : ("(procedural sky)", environment_panel.sky_value));
+            foreach (var entry in environment_catalog()) {
+                scene_combo_items.Add((entry.label, entry.text));
+            }
+            scene_combo_items.Add(("Choose a file...", environment_panel.choose_value));
+        }
+        scene_combo_target = target;
+        scene_combo_open = true;
+        float width = 220.0F;
+        float height = scene_combo_items.Count * ui_theme.row_step + 8.0F;
+        scene_combo_x = Math.Clamp(anchor.x, 0.0F, MathF.Max(0.0F, (next_ui?.width ?? 0.0F) - width));
+        scene_combo_y = Math.Clamp(anchor.y + anchor.height, 0.0F,
+                                   MathF.Max(0.0F, (next_ui?.height ?? 0.0F) - height));
+    }
+
+    /// <summary>Cancels whatever the open row was showing, leaving the document untouched.</summary>
+    private void close_scene_combo() {
+        scene_combo_open = false;
+        scene_combo_items.Clear();
+    }
+
+    /// <summary>Applies one pick from an open list through the host's own environment commands.</summary>
+    private void pick_scene_combo(string value) {
+        string target = scene_combo_target;
+        close_scene_combo();
+        var node = selection_state == null || document == null ? null : document.find(selection_state.primary);
+        if (target == "script") {
+            if (node != null) { apply_scene_script_binding(node, value); }
+            return;
+        }
+        if (target.StartsWith("script_param_", StringComparison.Ordinal) &&
+            try_scene_index(target, "script_param_", out var parameter_index)) {
+            if (node != null) { apply_scene_script_value(node, parameter_index, value); }
+            return;
+        }
+        if (target == "node") {
+            if (node != null) { apply_node_environment_selection(node, value); }
+            return;
+        }
+        if (!int.TryParse(target, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lane)) { return; }
+        apply_environment_selection(lane, value);
+        notice = lane == 0
+            ? "Scene map: " + environment_label(global_environment_hdr)
+            : string.Create(CultureInfo.InvariantCulture, $"Lane {lane}: {environment_label(document?.environment_slots[lane - 1])}");
+    }
+
+    /// <summary>The list itself, hung under the row that opened it so the inspector stays readable.</summary>
+    private void add_scene_combo_overlay() {
+        if (!scene_combo_open || next_ui == null) { return; }
+        var panel = ui_node.column("scene_combo").size(220.0F, float.NaN).bg(ui_theme.panel)
+                          .stroke(ui_theme.outline, 1.0F).pad(4.0F).spacing(1.0F);
+        for (var index = 0; index < scene_combo_items.Count; ++index) {
+            int at = index;
+            var item = scene_combo_items[index];
+            panel.add(ui_node.box(string.Create(CultureInfo.InvariantCulture, $"scene_combo_item_{at}"))
+                            .size(float.NaN, ui_theme.row_step - 1.0F)
+                            .painted((paint, area) => {
+                                if (next_ui.is_hovered(string.Create(CultureInfo.InvariantCulture, $"scene_combo_item_{at}"))) {
+                                    paint.add_rect(area, 0.0F, ui_theme.row_hover, 0U, 0.0F);
+                                }
+                                paint.add_text(area.x + 8.0F, area.y + (area.height - ui_theme.body_size) * 0.5F,
+                                               ui_theme.body_size, ui_theme.text_bright, item.label);
+                            }));
+        }
+        next_ui.add_overlay(panel, scene_combo_x, scene_combo_y);
     }
 
     /// <summary>A caption row that groups the inspector sections the way the classic panel did.</summary>
@@ -443,10 +680,20 @@ internal sealed unsafe partial class editor_host {
         row.add(ui_node.box("scene_property_inset_" + lane).size(8.0F, 0.0F));
         row.add(centered(ui_node.label("scene_property_name_" + lane, name, ui_theme.small_size, ui_theme.text_dim),
                          88.0F, ui_theme.row_height));
-        row.add(centered(ui_node.label("scene_property_value_" + lane, on ? "yes" : "no", ui_theme.body_size,
-                                       on ? ui_theme.text_bright : ui_theme.text_dim),
-                         float.NaN, ui_theme.row_height));
+        row.add(value_slot(ui_node.label("scene_property_value_" + lane, on ? "yes" : "no", ui_theme.body_size,
+                                       on ? ui_theme.text_bright : ui_theme.text_dim)));
         column.add(row, ui_theme.row_height);
+    }
+
+    /// <summary>
+    /// One value slot: it takes the rest of its row instead of hugging the text, so the whole right-hand
+    /// side of a row is a hit target and not just the few pixels the value happens to cover.
+    /// </summary>
+    private static ui_element value_slot(ui_element label) {
+        label.size(float.NaN, ui_theme.row_height);
+        label.text_center = true;
+        label.weight(1.0F);
+        return label;
     }
 
     private static void add_scene_property(scene_details_body column, string key, string name, string value) {
@@ -454,8 +701,8 @@ internal sealed unsafe partial class editor_host {
         row.add(ui_node.box("scene_property_inset_" + key).size(8.0F, 0.0F));
         row.add(centered(ui_node.label("scene_property_name_" + key, name, ui_theme.small_size, ui_theme.text_dim),
                          88.0F, ui_theme.row_height));
-        row.add(centered(ui_node.label("scene_property_value_" + key, value, ui_theme.body_size,
-                                       ui_theme.text_bright), float.NaN, ui_theme.row_height));
+        row.add(value_slot(ui_node.label("scene_property_value_" + key, value, ui_theme.body_size,
+                                       ui_theme.text_bright)));
         column.add(row, ui_theme.row_height);
     }
 
@@ -477,8 +724,8 @@ internal sealed unsafe partial class editor_host {
                         .bg(ui_theme.panel).stroke(ui_theme.accent, 1.0F)
                         .painted((paint, area) => paint_scene_value_field(paint, area)));
         } else {
-            row.add(centered(ui_node.label("scene_property_value_" + lane, display, ui_theme.body_size,
-                                           ui_theme.text_bright), float.NaN, ui_theme.row_height));
+            row.add(value_slot(ui_node.label("scene_property_value_" + lane, display, ui_theme.body_size,
+                                           ui_theme.text_bright)));
         }
         column.add(row, ui_theme.row_height);
     }
@@ -582,7 +829,12 @@ internal sealed unsafe partial class editor_host {
                 apply_scene_vector(node, detail_field.scale_x, text, "Scale");
                 break;
             default:
-                apply_scene_component(node, lane, text);
+                // A script parameter is addressed by its index in the definition the node carries.
+                if (try_scene_index(lane, "script_", out var script_index)) {
+                    apply_scene_script_value(node, script_index, text);
+                } else {
+                    apply_scene_component(node, lane, text);
+                }
                 break;
         }
     }
@@ -638,22 +890,89 @@ internal sealed unsafe partial class editor_host {
         return string.Create(CultureInfo.InvariantCulture, $"{value.x:0.###}, {value.y:0.###}, {value.z:0.###}");
     }
 
-    private ui_element build_scene_browser(float list_height) {
+    /// <summary>The bottom dock's content: the project browser, or the output log on its own tab.</summary>
+    private ui_element build_scene_bottom(float list_height) {
+        if (scene_bottom_tab == 1) {
+            var log_column = ui_node.column("output_body").size(float.NaN, list_height);
+            if (output_log.count == 0) {
+                log_column.add(centered(ui_node.label("output_empty", "Nothing has been logged yet.",
+                                                      ui_theme.small_size, ui_theme.outline),
+                                        float.NaN, ui_theme.row_height),
+                               ui_node.spacer("output_empty_filler"));
+                return log_column;
+            }
+            log_column.add(scene_output_list.build("output_lines", list_height, output_log.count,
+                                                   build_scene_output_row));
+            return log_column;
+        }
         var column = ui_node.column("browser_body").size(float.NaN, list_height);
-        column.add(scene_browser_list.build("browser_tiles", list_height, scene_asset_matches.Count, build_scene_asset_row));
+        column.add(scene_browser_list.build("browser_tiles", list_height, scene_browser_shown, build_scene_asset_row));
         return column;
     }
 
-    /// <summary>The browser caption carries its own search field and how much of the project survived it.</summary>
-    private ui_element build_scene_browser_caption() {
+    /// <summary>One log line, newest first: a linked line walks to its node when it names one.</summary>
+    private ui_element build_scene_output_row(int index) {
+        int line = output_log.count - 1 - index;
+        string text = line < 0 ? string.Empty : output_log.text_at(line);
+        bool error = line >= 0 && output_log.error_at(line);
+        Guid node = line < 0 ? Guid.Empty : output_log.node_at(line);
+        string key = string.Create(CultureInfo.InvariantCulture, $"output_line_{line}");
+        uint colour = error ? ui_theme.error : node != Guid.Empty ? ui_theme.text_key : ui_theme.text_dim;
+        var row = ui_node.row(key).size(float.NaN, scene_output_list.row_height).spacing(0.0F)
+                          .bg(scene_row_color(key, false, index))
+                          .add(ui_node.box(key + "_inset").size(8.0F, 0.0F),
+                               centered(ui_node.label(key + "_text", text, ui_theme.small_size, colour),
+                                        float.NaN, scene_output_list.row_height),
+                               ui_node.spacer(key + "_filler"));
+        return row;
+    }
+
+    /// <summary>The bottom dock's caption: two tabs, then the active tab's own controls.</summary>
+    private ui_element build_scene_bottom_caption() {
         var row = ui_node.row("browser_caption").size(float.NaN, scene_caption_height).spacing(0.0F);
         row.add(ui_node.box("browser_caption_inset").size(8.0F, 0.0F));
-        row.add(centered(ui_node.label("browser_caption_text", "Project", ui_theme.small_size, ui_theme.text_dim),
-                         float.NaN, scene_caption_height));
+        row.add(ui_controls.button("bottom_tab_project", "Project",
+                                   scene_bottom_tab == 0 ? ui_button_style.filled : ui_button_style.subtle,
+                                   next_ui, 74.0F, scene_caption_height - 4.0F));
+        row.add(ui_node.box("browser_caption_gap").size(4.0F, 0.0F));
+        row.add(ui_controls.button("bottom_tab_output", "Output",
+                                   scene_bottom_tab == 1 ? ui_button_style.filled : ui_button_style.subtle,
+                                   next_ui, 66.0F, scene_caption_height - 4.0F));
+        row.add(ui_node.box("browser_caption_gap").size(8.0F, 0.0F));
+        if (scene_bottom_tab == 1) {
+            row.add(centered(ui_node.label("output_caption_count",
+                                           string.Create(CultureInfo.InvariantCulture,
+                                                         $"{output_log.count} line(s)"),
+                                           ui_theme.small_size, ui_theme.text_key),
+                             float.NaN, scene_caption_height));
+            row.add(ui_node.spacer("browser_caption_filler"));
+            row.add(ui_controls.button("output_clear", "Clear", ui_button_style.subtle, next_ui, 60.0F,
+                                       scene_caption_height - 4.0F));
+            row.add(ui_node.box("browser_caption_trailing").size(4.0F, 0.0F));
+            return row;
+        }
+        if (scene_browser_folder.Length != 0) {
+            row.add(ui_controls.button("browser_up", "..", ui_button_style.subtle, next_ui, 30.0F,
+                                       scene_caption_height - 4.0F));
+            row.add(ui_node.box("browser_caption_gap").size(6.0F, 0.0F));
+        }
+        row.add(centered(ui_node.label("browser_caption_text", scene_browser_path(), ui_theme.small_size,
+                                      ui_theme.text_dim), float.NaN, scene_caption_height));
         row.add(ui_node.box("browser_caption_gap").size(8.0F, 0.0F));
         row.add(centered(ui_node.label("browser_caption_count", scene_asset_count_text(), ui_theme.small_size,
                                        ui_theme.text_key), float.NaN, scene_caption_height));
-        row.add(ui_node.spacer());
+        if (scene_browser_page_count > 1) {
+            row.add(ui_controls.button("browser_prev", "<", ui_button_style.subtle, next_ui, 24.0F,
+                                       scene_caption_height - 4.0F));
+            row.add(centered(ui_node.label("browser_page",
+                                           string.Create(CultureInfo.InvariantCulture,
+                                                         $"{scene_browser_page + 1}/{scene_browser_page_count}"),
+                                           ui_theme.small_size, ui_theme.text_dim),
+                             float.NaN, scene_caption_height));
+            row.add(ui_controls.button("browser_next", ">", ui_button_style.subtle, next_ui, 24.0F,
+                                       scene_caption_height - 4.0F));
+        }
+        row.add(ui_node.spacer("browser_caption_filler"));
         row.add(ui_node.box("scene_asset_filter").size(96.0F, scene_caption_height - 4.0F)
                     .bg(ui_theme.panel)
                     .stroke(scene_asset_edit.focused ? ui_theme.accent : ui_theme.panel_border, 1.0F)
@@ -663,32 +982,122 @@ internal sealed unsafe partial class editor_host {
         return row;
     }
 
-    private string scene_asset_count_text() {
-        return string.Create(CultureInfo.InvariantCulture, $"{scene_asset_matches.Count} / {assets.Length}");
+    private string scene_browser_path() {
+        return scene_browser_folder.Length == 0
+            ? "Project"
+            : "Project / " + scene_browser_folder.Replace("/", " / ");
     }
 
-    /// <summary>Recomputes which assets survive the filter; the rows keep their absolute index.</summary>
+    /// <summary>The count reads as the visible slice, so a page says where in the list it sits.</summary>
+    private string scene_asset_count_text() {
+        if (scene_asset_matches.Count == 0) { return "0 items"; }
+        int first = scene_browser_first;
+        return string.Create(CultureInfo.InvariantCulture,
+                             $"{first + 1}-{first + scene_browser_shown} of {scene_asset_matches.Count}");
+    }
+
+    private int scene_browser_first => scene_browser_page * scene_browser_page_size;
+    private int scene_browser_shown =>
+        Math.Max(0, Math.Min(scene_browser_page_size, scene_asset_matches.Count - scene_browser_first));
+    private int scene_browser_page_count =>
+        Math.Max(1, (scene_asset_matches.Count + scene_browser_page_size - 1) / scene_browser_page_size);
+
+    private static string scene_folder_parent(string folder) {
+        int slash = folder.LastIndexOf('/');
+        return slash < 0 ? string.Empty : folder[..slash];
+    }
+
+    /// <summary>Groups the project by the folders the asset library reports and lists the current one.</summary>
     private void rebuild_scene_assets() {
-        scene_asset_matches.Clear();
-        string filter = scene_asset_filter.Trim();
+        scene_browser_catalogue.Clear();
+        scene_browser_folders.Clear();
+        string? root = scene_library_ready ? scene_authoring.library_root() : null;
         for (var index = 0; index < assets.Length; ++index) {
             string id = assets[index];
-            if (filter.Length == 0) {
-                scene_asset_matches.Add(index);
-                continue;
+            if (id.Length == 0) { continue; }
+            string folder = string.Empty;
+            if (root != null && scene_authoring.asset_directory(id) is { } directory &&
+                Path.GetDirectoryName(directory) is { } parent) {
+                folder = Path.GetRelativePath(root, parent).Replace(Path.DirectorySeparatorChar, '/');
+                if (folder is "." or ".." || folder.StartsWith("../", StringComparison.Ordinal) ||
+                    Path.IsPathRooted(folder)) {
+                    folder = string.Empty;
+                }
             }
             string? name = scene_authoring.display_name(id);
-            if (id.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                (name != null && name.Contains(filter, StringComparison.OrdinalIgnoreCase))) {
-                scene_asset_matches.Add(index);
+            scene_browser_catalogue.Add(new scene_browser_entry(index,
+                                                                string.IsNullOrWhiteSpace(name) ? id : name, folder));
+            for (var branch = folder; branch.Length != 0 && scene_browser_folders.Add(branch);
+                 branch = scene_folder_parent(branch)) {
             }
         }
+        // A refresh can drop the folder being shown; walk up until the path exists again.
+        while (scene_browser_folder.Length != 0 && !scene_browser_folders.Contains(scene_browser_folder)) {
+            scene_browser_folder = scene_folder_parent(scene_browser_folder);
+        }
+        rebuild_scene_browser_matches();
+    }
+
+    private void rebuild_scene_browser_matches() {
+        scene_asset_matches.Clear();
+        string filter = scene_asset_filter.Trim();
+        if (filter.Length == 0) {
+            var children = new List<string>();
+            foreach (string folder in scene_browser_folders) {
+                if (string.Equals(scene_folder_parent(folder), scene_browser_folder, StringComparison.Ordinal)) {
+                    children.Add(folder);
+                }
+            }
+            children.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (string folder in children) {
+                scene_asset_matches.Add(new scene_browser_entry(-1, Path.GetFileName(folder), folder));
+            }
+            foreach (var item in scene_browser_catalogue) {
+                if (string.Equals(item.folder, scene_browser_folder, StringComparison.Ordinal)) {
+                    scene_asset_matches.Add(item);
+                }
+            }
+        } else {
+            // A search reaches into the current folder's subtree, the way the classic browser did.
+            string prefix = scene_browser_folder.Length == 0 ? string.Empty : scene_browser_folder + "/";
+            foreach (var item in scene_browser_catalogue) {
+                if (!string.Equals(item.folder, scene_browser_folder, StringComparison.Ordinal) &&
+                    !item.folder.StartsWith(prefix, StringComparison.Ordinal)) {
+                    continue;
+                }
+                if (item.name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                    assets[item.asset_index].Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+                    item.folder.Contains(filter, StringComparison.OrdinalIgnoreCase)) {
+                    scene_asset_matches.Add(item);
+                }
+            }
+        }
+        int pages = Math.Max(1, (scene_asset_matches.Count + scene_browser_page_size - 1) / scene_browser_page_size);
+        scene_browser_page = Math.Clamp(scene_browser_page, 0, pages - 1);
+    }
+
+    private bool navigate_scene_folder(string folder) {
+        if (string.Equals(folder, scene_browser_folder, StringComparison.Ordinal)) { return false; }
+        scene_browser_folder = folder;
+        scene_browser_page = 0;
+        scene_browser_list.first = 0;
+        rebuild_scene_browser_matches();
+        return true;
+    }
+
+    private bool change_scene_browser_page(int step) {
+        int next = Math.Clamp(scene_browser_page + step, 0, scene_browser_page_count - 1);
+        if (next == scene_browser_page) { return false; }
+        scene_browser_page = next;
+        scene_browser_list.first = 0;
+        return true;
     }
 
     private void apply_scene_asset_filter() {
         scene_asset_edit.clear_preedit();
         scene_asset_filter = scene_asset_edit.text;
-        rebuild_scene_assets();
+        scene_browser_page = 0;
+        rebuild_scene_browser_matches();
         scene_browser_list.first = 0;
     }
 
@@ -697,11 +1106,34 @@ internal sealed unsafe partial class editor_host {
         scene_asset_edit.focused = false;
         scene_asset_edit.reset(string.Empty);
         scene_asset_filter = string.Empty;
-        rebuild_scene_assets();
+        scene_browser_page = 0;
+        rebuild_scene_browser_matches();
     }
 
     private ui_element build_scene_asset_row(int index) {
-        int asset_index = scene_asset_matches[index];
+        int match = scene_browser_first + index;
+        if ((uint)match >= (uint)scene_asset_matches.Count) {
+            return ui_node.box("scene_asset_placeholder").size(float.NaN, scene_browser_list.row_height);
+        }
+        var entry = scene_asset_matches[match];
+        if (entry.directory) {
+            string folder_key = string.Create(CultureInfo.InvariantCulture, $"scene_folder_{match}");
+            var folder_row = ui_node.row(folder_key)
+                                 .size(float.NaN, scene_browser_list.row_height)
+                                 .bg(scene_row_color(folder_key, false, index))
+                                 .spacing(0.0F);
+            folder_row.add(ui_node.box(folder_key + "_inset").size(8.0F, 0.0F));
+            folder_row.add(centered(ui_node.label(folder_key + "_name", entry.name + "/", ui_theme.body_size,
+                                                  ui_theme.text_key),
+                                    float.NaN, scene_browser_list.row_height));
+            folder_row.add(ui_node.spacer(folder_key + "_filler"));
+            folder_row.add(centered(ui_node.label(folder_key + "_kind", "folder", ui_theme.small_size,
+                                                  ui_theme.text_dim),
+                                    float.NaN, scene_browser_list.row_height));
+            folder_row.add(ui_node.box(folder_key + "_tail").size(8.0F, 0.0F));
+            return folder_row;
+        }
+        int asset_index = entry.asset_index;
         string id = assets[asset_index];
         bool picked = string.Equals(id, scene_picked_asset, StringComparison.Ordinal);
         string key = string.Create(CultureInfo.InvariantCulture, $"scene_asset_{asset_index}");
@@ -710,8 +1142,7 @@ internal sealed unsafe partial class editor_host {
                       .bg(scene_row_color(key, picked, index))
                       .spacing(0.0F);
         row.add(ui_node.box(key + "_inset").size(8.0F, 0.0F));
-        string label = scene_authoring.display_name(id) ?? id;
-        row.add(centered(ui_node.label(key + "_name", label, ui_theme.body_size,
+        row.add(centered(ui_node.label(key + "_name", entry.name, ui_theme.body_size,
                                        picked ? ui_theme.text_bright : ui_theme.text_dim),
                          float.NaN, scene_browser_list.row_height));
         row.add(ui_node.spacer(key + "_filler"));
@@ -722,11 +1153,18 @@ internal sealed unsafe partial class editor_host {
     }
 
     private string scene_footer_text() {
-        if (notice.Length > 0) { return notice; }
+        // The classic status line: the path and its dirty flag, the node count, the selected node,
+        // then the notice. The notice used to REPLACE the line, which hid the selection while a tool
+        // was talking; the old shell appended it, and so does this one.
+        string path = string.IsNullOrEmpty(document?.path) ? "untitled" : document!.path!;
+        string dirty = document?.dirty == true ? " *dirty*" : string.Empty;
         int nodes = document == null ? 0 : count_nodes(document.roots);
-        string path = document?.path ?? "(unsaved document)";
+        string selected = selection_state != null && document?.find(selection_state.primary) is { } node
+            ? node.name
+            : "-";
+        string suffix = notice.Length == 0 ? string.Empty : " | " + notice;
         return string.Create(CultureInfo.InvariantCulture,
-                             $"Scene screen on the editor UI library | {nodes} node(s) | {path}");
+                             $"{path}{dirty} | nodes: {nodes} | selected: {selected}{suffix}");
     }
 
     /// <summary>The row fill: selection wins, then the pointer, then a zebra stripe.</summary>
@@ -1096,6 +1534,17 @@ internal sealed unsafe partial class editor_host {
     private void press_scene_ui(float x, float y, int modifiers = 0) {
         var hit = next_ui?.hit_test(x, y);
         string key = hit?.key ?? string.Empty;
+        // An open list owns the pointer: its entries pick, and any other press closes it and is spent, the
+        // way a dropdown behaves in the classic shell.
+        if (scene_combo_open) {
+            if (try_scene_index(key, "scene_combo_item_", out var choice) && choice >= 0
+                && choice < scene_combo_items.Count) {
+                pick_scene_combo(scene_combo_items[choice].value);
+            } else {
+                close_scene_combo();
+            }
+            return;
+        }
         if (handle_popup_press(key)) { return; }
         if (find_menu(key) != null) {
             next_ui_open_menu = next_ui_open_menu == key ? string.Empty : key;
@@ -1134,6 +1583,23 @@ internal sealed unsafe partial class editor_host {
             begin_scene_edit_from_row(key["scene_property_value_".Length..]);
             return;
         }
+        if (try_scene_env_key(key, out var environment_target)) {
+            // The row opens a list under itself; the pick goes through the host's environment commands.
+            apply_scene_edit();
+            open_scene_combo(environment_target, hit?.rect ?? new ui_rect(x, y, 0.0F, 0.0F));
+            return;
+        }
+        if (try_scene_index(key, "scene_script_restore_", out var restore_index)) {
+            var restore_node = selection_state == null || document == null ? null : document.find(selection_state.primary);
+            if (restore_node != null) { apply_scene_script_restore(restore_node, restore_index); }
+            return;
+        }
+        if (try_scene_script_key(key, out var script_target)) {
+            // The binding and the three kinds the classic panel listed open a list; the rest edit in place.
+            apply_scene_edit();
+            open_scene_combo(script_target, hit?.rect ?? new ui_rect(x, y, 0.0F, 0.0F));
+            return;
+        }
         if (key.StartsWith("scene_filter", StringComparison.Ordinal)) {
             // The filter is a text field like any other: pressing it focuses it and places the caret.
             apply_scene_edit();
@@ -1163,6 +1629,46 @@ internal sealed unsafe partial class editor_host {
                 scene_drag_armed = true;
                 scene_drag_active = false;
                 scene_drag_target = Guid.Empty;
+            }
+            return;
+        }
+        if (key == "bottom_tab_project" || key == "bottom_tab_output") {
+            scene_bottom_tab = key == "bottom_tab_output" ? 1 : 0;
+            scene_output_list.first = 0;
+            scene_browser_list.first = 0;
+            return;
+        }
+        if (key == "output_clear") {
+            output_log.clear();
+            scene_output_list.first = 0;
+            notice = "Cleared the output log";
+            return;
+        }
+        if (try_scene_index(key, "output_line_", out var log_line) && log_line >= 0) {
+            // A line the runtime tagged with a node walks the selection there, which is what the
+            // classic output panel did when a message was clicked.
+            var logged = output_log.node_at(log_line);
+            if (logged != Guid.Empty && document?.find(logged) is { } logged_node) {
+                selection_state?.select(logged);
+                notice = string.Create(CultureInfo.InvariantCulture, $"Selected '{logged_node.name}'");
+            }
+            return;
+        }
+        if (key == "browser_up") {
+            navigate_scene_folder(scene_folder_parent(scene_browser_folder));
+            notice = scene_browser_path();
+            return;
+        }
+        if (key == "browser_prev" || key == "browser_next") {
+            change_scene_browser_page(key == "browser_next" ? 1 : -1);
+            return;
+        }
+        if (try_scene_index(key, "scene_folder_", out var folder_match) && folder_match >= 0 &&
+            folder_match < scene_asset_matches.Count) {
+            var folder_entry = scene_asset_matches[folder_match];
+            if (folder_entry.directory) {
+                navigate_scene_folder(folder_entry.folder);
+                notice = scene_browser_path();
             }
             return;
         }
@@ -1206,6 +1712,13 @@ internal sealed unsafe partial class editor_host {
                 }
                 return;
             default: {
+                // A text-shaped script parameter opens seeded with the value it shows, like a component lane.
+                if (try_scene_index(lane, "script_", out var script_index) &&
+                    scene_script_definition(node) is { } script && script_index >= 0 &&
+                    script_index < script.parameters.Length) {
+                    begin_scene_edit(node, lane, scene_script_seed(node, script.parameters[script_index]));
+                    return;
+                }
                 // A component lane seeds from the node, so the field opens on the value it shows; a
                 // boolean lane has no text and toggles instead.
                 if (seed_scene_component(node, lane) is { } seed) {
@@ -1304,12 +1817,20 @@ internal sealed unsafe partial class editor_host {
                                             scene_footer_height - scene_layout.scene_browser_height - scene_caption_height),
                                   wheel);
         } else if (key.StartsWith("browser", StringComparison.Ordinal)) {
-            scene_browser_list.scroll(scene_asset_matches.Count,
-                                      MathF.Max(scene_browser_list.row_height,
-                                                scene_layout.scene_browser_height - scene_caption_height), wheel);
+            float list_height = MathF.Max(scene_browser_list.row_height,
+                                          scene_layout.scene_browser_height - scene_caption_height);
+            if (scene_bottom_tab == 1) {
+                // The wheel walks only the tab on screen; the log's order flips so a wheel down
+                // reads the newer lines, which is what the reader expects.
+                scene_output_list.scroll(output_log.count, list_height, -wheel);
+            } else {
+                scene_browser_list.scroll(scene_browser_shown, list_height, wheel);
+            }
         } else if (key.StartsWith("details", StringComparison.Ordinal) ||
                    key.StartsWith("scene_property", StringComparison.Ordinal) ||
-                   key.StartsWith("scene_section", StringComparison.Ordinal)) {
+                   key.StartsWith("scene_section", StringComparison.Ordinal) ||
+                   key.StartsWith("scene_script", StringComparison.Ordinal) ||
+                   key.StartsWith("scene_env", StringComparison.Ordinal)) {
             // The inspector can be taller than its panel; the wheel walks it by whole rows and the clamp
             // comes from the height the last frame measured with every row built.
             scene_details_scroll = Math.Clamp(scene_details_scroll - wheel * ui_theme.row_step, 0.0F,
@@ -1338,7 +1859,9 @@ internal sealed unsafe partial class editor_host {
             return;
         }
         if (value.key == key_code.escape) {
-            if (next_ui_dialog != null) {
+            if (scene_combo_open) {
+                close_scene_combo();
+            } else if (next_ui_dialog != null) {
                 next_ui_dialog = null;
             } else if (next_ui_open_menu.Length != 0) {
                 next_ui_open_menu = string.Empty;
@@ -1348,6 +1871,8 @@ internal sealed unsafe partial class editor_host {
                 scene_filter_applied = string.Empty;
                 scene_asset_edit.reset(string.Empty);
                 scene_asset_filter = string.Empty;
+                scene_browser_folder = string.Empty;
+                scene_browser_page = 0;
                 rebuild_scene_assets();
             }
             return;

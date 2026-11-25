@@ -80,6 +80,33 @@ namespace deren.editor {
             dirty = true;
         }
 
+        /// <summary>The number of lines kept; the oldest is index 0 and the queue drops past 200.</summary>
+        internal int count => lines.Count;
+
+        internal string text_at(int index) {
+            int walked = 0;
+            foreach (var line in lines) {
+                if (walked++ == index) { return line.text; }
+            }
+            return string.Empty;
+        }
+
+        internal bool error_at(int index) {
+            int walked = 0;
+            foreach (var line in lines) {
+                if (walked++ == index) { return line.error; }
+            }
+            return false;
+        }
+
+        internal Guid node_at(int index) {
+            int walked = 0;
+            foreach (var line in lines) {
+                if (walked++ == index) { return line.node; }
+            }
+            return Guid.Empty;
+        }
+
         internal void clear() {
             lines.Clear();
             dirty = true;

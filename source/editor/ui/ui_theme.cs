@@ -28,6 +28,8 @@ namespace deren.editor {
         internal static readonly uint text_key = rgba(169, 190, 209, 255);
         internal static readonly uint key = rgba(150, 196, 236, 255);
         internal static readonly uint key_selected = rgba(255, 214, 148, 255);
+        /// <summary>An error line in the output log; warm enough to stand apart from the blue keys.</summary>
+        internal static readonly uint error = rgba(226, 118, 106, 255);
         /// <summary>The text selection highlight; translucent so the glyphs stay readable inside it.</summary>
         internal static readonly uint selection = rgba(45, 111, 184, 150);
 

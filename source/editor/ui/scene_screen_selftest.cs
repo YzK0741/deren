@@ -139,6 +139,60 @@ internal sealed unsafe partial class editor_host {
                 this.scene_selftest_phase = 12;
                 return script_status.success;
             }
+            case 12: {
+                // The browser's pages: a short page size makes the list span pages, the arrow buttons
+                // walk them and a row keeps the absolute asset index the press needs.
+                if (verify_scene_browser_pages() is { } page_problem) {
+                    return selftest_failure(page_problem);
+                }
+                host_logger.write(
+                    "Editor selftest: the browser paged through the project and every row kept its asset.");
+                this.scene_selftest_phase = 13;
+                return script_status.success;
+            }
+            case 13: {
+                // The status line: path, dirty flag, node count, the selected node, then the notice.
+                if (verify_scene_status_line() is { } status_problem) {
+                    return selftest_failure(status_problem);
+                }
+                host_logger.write(
+                    "Editor selftest: the footer showed the path, the dirty flag, the nodes, the selection and the notice.");
+                this.scene_selftest_phase = 14;
+                return script_status.success;
+            }
+            case 14: {
+                // The output tab: the log the host fills is readable, a line naming a node selects it,
+                // and Clear empties the tab without touching the document.
+                if (verify_scene_output_tab() is { } output_problem) {
+                    return selftest_failure(output_problem);
+                }
+                host_logger.write(
+                    "Editor selftest: the output tab listed the log, followed a line to its node and cleared.");
+                this.scene_selftest_phase = 15;
+                return script_status.success;
+            }
+            case 15: {
+                // The environment rows: a lane row lists the maps, a pick goes through the host's own
+                // commands, and the lane shows up in the inspector only while the document carries it.
+                if (verify_scene_environment() is { } environment_problem) {
+                    return selftest_failure(environment_problem);
+                }
+                host_logger.write(
+                    "Editor selftest: the environment rows listed the maps and a lane lived as one undo step.");
+                this.scene_selftest_phase = 16;
+                return script_status.success;
+            }
+            case 16: {
+                // The script rows: the binding lists the catalogue, a listed parameter applies as one undo
+                // step, and a text parameter edits in place.
+                if (verify_scene_script() is { } script_problem) {
+                    return selftest_failure(script_problem);
+                }
+                host_logger.write(
+                    "Editor selftest: the script rows listed the catalogue and each parameter was one undo step.");
+                this.scene_selftest_phase = 17;
+                return script_status.success;
+            }
             default:
                 return script_status.success;
         }
@@ -180,26 +234,35 @@ internal sealed unsafe partial class editor_host {
             if (!scene_asset_edit.focused) {
                 return "a press on the browser search did not focus it";
             }
-            foreach (char letter in "damaged helmets") { type_scene_character(letter); }
-            if (scene_asset_matches.Count >= before_matches) {
+            // "helmet" is the part both helmet assets share, so the filter must keep exactly those.
+            foreach (char letter in "helmet") { type_scene_character(letter); }
+            if (scene_asset_matches.Count == 0 || scene_asset_matches.Count >= before_matches) {
                 return "typing into the browser search did not narrow the list";
             }
             bool every_match = true;
-            foreach (int index in scene_asset_matches) {
-                if (!assets[index].Contains("damaged", StringComparison.OrdinalIgnoreCase)) { every_match = false; }
+            foreach (var entry in scene_asset_matches) {
+                if (entry.directory || !assets[entry.asset_index].Contains("helmet", StringComparison.OrdinalIgnoreCase)) {
+                    every_match = false;
+                }
             }
             if (!every_match) {
                 return "the browser search kept an asset that does not match";
             }
             var filtered = submit_scene_frame_for_test(1600.0F, 900.0F);
-            int rows = 0;
-            while (filtered.find(string.Create(CultureInfo.InvariantCulture, $"scene_asset_{rows}")) != null) { ++rows; }
-            if (rows != scene_asset_matches.Count) {
-                return $"the filtered browser built {rows} rows for {scene_asset_matches.Count} matches";
+            // Every row the page claims to show has to exist in the frame, keyed by its absolute asset
+            // index so the press that follows names the asset and not the row number.
+            for (var index = 0; index < scene_browser_shown; ++index) {
+                var entry = scene_asset_matches[scene_browser_first + index];
+                string key = entry.directory
+                    ? string.Create(CultureInfo.InvariantCulture, $"scene_folder_{scene_browser_first + index}")
+                    : string.Create(CultureInfo.InvariantCulture, $"scene_asset_{entry.asset_index}");
+                if (filtered.find(key) == null) {
+                    return $"the filtered browser did not build the row '{key}'";
+                }
             }
-            // The count in the caption is the same number, so the reader cannot be misled by a clipped list.
+            // The count in the caption names the slice on screen, so a clipped list cannot mislead.
             if (filtered.find("browser_caption_count")?.text is not { } count_text ||
-                !count_text.StartsWith(
+                !count_text.EndsWith(
                     scene_asset_matches.Count.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)) {
                 return $"the browser count read '{filtered.find("browser_caption_count")?.text}'";
             }
@@ -207,6 +270,413 @@ internal sealed unsafe partial class editor_host {
             cancel_scene_asset_filter();
             scene_asset_edit.focused = false;
             scene_browser_list.first = 0;
+            next_ui_events.Clear();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The bottom dock's second tab: the output log renders newest first, a line that names a node
+    /// walks the selection there, and Clear empties the tab.
+    /// </summary>
+    private string? verify_scene_output_tab() {
+        if (next_ui == null || document == null || selection_state == null) {
+            return "the output tab check has no document";
+        }
+        if (document.roots.Count == 0) {
+            return "the output tab check needs a node";
+        }
+        var node = document.roots[0];
+        int before_tab = scene_bottom_tab;
+        int before_first = scene_output_list.first;
+        var before_primary = selection_state.primary;
+        try {
+            output_log.add(Guid.Empty, "Editor selftest: a plain line", false);
+            output_log.add(node.uid, "Editor selftest: a line about " + node.name, false);
+            scene_bottom_tab = 1;
+            scene_output_list.first = 0;
+            var root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            var count_text = root.find("output_caption_count")?.text;
+            if (count_text == null ||
+                !count_text.StartsWith(output_log.count.ToString(CultureInfo.InvariantCulture),
+                                       StringComparison.Ordinal)) {
+                return $"the output caption read '{count_text}' for {output_log.count} lines";
+            }
+            // Newest first: the node-tagged line is the last one queued, so its id is count - 1.
+            string newest = string.Create(CultureInfo.InvariantCulture, $"output_line_{output_log.count - 1}");
+            if (root.find(newest + "_text") == null) {
+                return "the output tab did not build its newest line";
+            }
+            if (selection_state.primary != node.uid) {
+                selection_state.select(Guid.Empty);
+            }
+            if (root.find(newest) is not { } line_row) {
+                return "the output tab has no row to press";
+            }
+            press_scene_via_events(line_row.rect.x + 20.0F, line_row.rect.y + line_row.rect.height * 0.5F);
+            if (selection_state.primary != node.uid) {
+                return "pressing a node line did not select that node";
+            }
+            var cleared_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (cleared_root.find("output_clear") is not { } clear_button) {
+                return "the output tab has no Clear button";
+            }
+            press_scene_via_events(clear_button.rect.x + clear_button.rect.width * 0.5F,
+                                   clear_button.rect.y + clear_button.rect.height * 0.5F);
+            if (output_log.count != 0) {
+                return $"Clear left {output_log.count} line(s) in the log";
+            }
+            var empty_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (empty_root.find("output_empty") == null) {
+                return "the empty log tab did not say it was empty";
+            }
+        } finally {
+            scene_bottom_tab = before_tab;
+            scene_output_list.first = before_first;
+            selection_state.select(before_primary);
+            next_ui_events.Clear();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The script rows: the binding row lists the catalogue, a listed parameter applies as one undo step,
+    /// a text parameter edits in place, and the node's own values come back after the undos.
+    /// </summary>
+    private string? verify_scene_script() {
+        if (next_ui == null || document == null || selection_state == null) {
+            return "the script check has no document";
+        }
+        var node = find_scene_node(document.roots, candidate => candidate.script != null);
+        if (node == null) {
+            return "no node in the scene carries a script";
+        }
+        if (editable_scripts == null || editable_scripts.entries.Count == 0) {
+            return "the script catalogue is empty, so the rows cannot be checked";
+        }
+        var definition = scene_script_definition(node);
+        if (definition == null || definition.parameters.Length == 0) {
+            return "the script of the selected node declares no parameters";
+        }
+        int boolean_index = -1;
+        int text_index = -1;
+        for (var index = 0; index < definition.parameters.Length; ++index) {
+            var kind = definition.parameters[index].kind;
+            if (kind == parameter_kind.boolean && boolean_index < 0) { boolean_index = index; }
+            if (kind is parameter_kind.integer or parameter_kind.number or parameter_kind.vector && text_index < 0) {
+                text_index = index;
+            }
+        }
+        if (boolean_index < 0 || text_index < 0) {
+            return "the script needs one boolean and one text parameter to check both row kinds";
+        }
+
+        var before_primary = selection_state.primary;
+        string? before_script = node.script;
+        var before_values = new SortedDictionary<string, string>(node.script_parameters, StringComparer.Ordinal);
+        int before_undo = undo_history?.depth ?? 0;
+        string? problem = null;
+        try {
+            selection_state.select(node.uid);
+            scene_details_node = Guid.Empty;
+            var root = submit_scene_frame_for_test(1600.0F, 900.0F);
+
+            // The binding row opens the catalogue: "No script" first, then one entry per definition.
+            var picker = root.find("scene_script_picker_value");
+            if (picker == null) { problem = "the inspector has no script row"; }
+            if (problem == null) {
+                // The binding row opens the catalogue: "No script" first, then one entry per definition.
+                press_scene_via_events(picker.rect.x + 20.0F, picker.rect.y + picker.rect.height * 0.5F);
+                if (scene_combo_target != "script" || scene_combo_items.Count < 2 ||
+                    scene_combo_items[0].value.Length != 0) {
+                    problem = "the script row did not open the catalogue";
+                } else if (scene_combo_items.Count != editable_scripts.entries.Count + 1) {
+                    problem = "the script list did not carry every definition";
+                } else {
+                    pick_scene_combo(string.Empty);
+                    if (node.script != null) { problem = "picking No script left the binding in place"; }
+                }
+            }
+            if (problem == null) {
+                if (undo_history?.try_undo() != true || node.script != before_script) {
+                    problem = "one undo did not bring the script binding back";
+                }
+            }
+
+            if (problem == null) {
+                // A listed parameter is a row that opens a list of the values its kind allows.
+                scene_details_node = Guid.Empty;
+                root = submit_scene_frame_for_test(1600.0F, 900.0F);
+                string key = string.Create(CultureInfo.InvariantCulture, $"scene_script_param_{boolean_index}_value");
+                if (root.find(key) is not { } choice) {
+                    problem = "the boolean parameter has no list row";
+                } else {
+                    press_scene_via_events(choice.rect.x + 20.0F, choice.rect.y + choice.rect.height * 0.5F);
+                    if (!scene_combo_open || scene_combo_target !=
+                        string.Create(CultureInfo.InvariantCulture, $"script_param_{boolean_index}")) {
+                        problem = "the parameter row did not open its list";
+                    } else {
+                        string current = node.script_parameters.GetValueOrDefault(definition.parameters[boolean_index].name) ?? string.Empty;
+                        pick_scene_combo(string.Equals(current, "True", StringComparison.OrdinalIgnoreCase) ? "false" : "true");
+                        if (node.script_parameters.GetValueOrDefault(definition.parameters[boolean_index].name) == null) {
+                            problem = "picking a value did not write the parameter";
+                        }
+                    }
+                }
+            }
+            if (problem == null) {
+                if (undo_history?.try_undo() != true ||
+                    !string.Equals(node.script_parameters.GetValueOrDefault(definition.parameters[boolean_index].name),
+                                   before_values.GetValueOrDefault(definition.parameters[boolean_index].name),
+                                   StringComparison.Ordinal)) {
+                    problem = "one undo did not restore the parameter";
+                }
+            }
+
+            if (problem == null) {
+                // A text parameter edits in place, exactly like a transform lane.
+                scene_details_node = Guid.Empty;
+                root = submit_scene_frame_for_test(1600.0F, 900.0F);
+                string key = string.Create(CultureInfo.InvariantCulture, $"scene_property_value_script_{text_index}");
+                if (root.find(key) is not { } field) {
+                    problem = "the text parameter has no value row";
+                } else {
+                    press_scene_via_events(field.rect.x + 12.0F, field.rect.y + field.rect.height * 0.5F);
+                    if (scene_value_edit is not { focused: true }) {
+                        problem = "a press on the text parameter did not open its field";
+                    } else {
+                        scene_value_edit.select_all();
+                        scene_value_edit.insert_run("7");
+                        handle_scene_key(new input_event(input_type.key, 0, true, (int)key_code.enter,
+                                                         0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0U));
+                        string name = definition.parameters[text_index].name;
+                        if (node.script_parameters.GetValueOrDefault(name) != "7") {
+                            problem = "the typed value did not reach the parameter";
+                        } else if (undo_history?.try_undo() != true ||
+                                   !string.Equals(node.script_parameters.GetValueOrDefault(name),
+                                                  before_values.GetValueOrDefault(name), StringComparison.Ordinal)) {
+                            problem = "one undo did not restore the typed parameter";
+                        }
+                    }
+                }
+            }
+        } finally {
+            scene_collapsed.Clear();
+            cancel_scene_edit();
+            while ((undo_history?.depth ?? 0) > before_undo) {
+                if (undo_history?.try_undo() != true) { break; }
+            }
+            node.script = before_script;
+            node.script_parameters = before_values;
+            push_runtime(node);
+            selection_state.select(before_primary == Guid.Empty ? node.uid : before_primary);
+            scene_details_node = Guid.Empty;
+            next_ui_events.Clear();
+        }
+        return problem;
+    }
+
+    /// <summary>
+    /// The environment rows: a press opens the map list under the row, the list starts with the entry that
+    /// means "no map", a second press closes it, a lane written through the host's own command appears as a
+    /// row until one undo removes it, and the per-object row offers the scene map first.
+    /// </summary>
+    private string? verify_scene_environment() {
+        if (next_ui == null || document == null || selection_state == null) {
+            return "the environment check has no document";
+        }
+        var node = find_scene_node(document.roots, candidate => candidate.asset != null && candidate.subscene == null);
+        if (node == null) {
+            return "the environment check needs a node with an asset";
+        }
+        var before_primary = selection_state.primary;
+        var before_lanes = (string?[])document.environment_slots.Clone();
+        int before_undo = undo_history?.depth ?? 0;
+        try {
+            selection_state.select(node.uid);
+            scene_details_node = Guid.Empty;
+            scene_details_scroll = 0.0F;
+            var root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (root.find("scene_env_scene") is not { } scene_row) {
+                return "the inspector listed no scene map row";
+            }
+            press_scene_via_events(scene_row.rect.x + 40.0F, scene_row.rect.y + scene_row.rect.height * 0.5F);
+            if (!scene_combo_open) {
+                return "pressing the scene map row opened no list";
+            }
+            if (scene_combo_items.Count < 2 || scene_combo_items[0].value != environment_panel.sky_value) {
+                return "the map list did not start with the procedural sky";
+            }
+            submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (next_ui.overlay_root?.find("scene_combo_item_0") == null) {
+                return "the map list was not in the frame it was opened for";
+            }
+            press_scene_via_events(scene_row.rect.x + 40.0F, scene_row.rect.y + scene_row.rect.height * 0.5F);
+            if (scene_combo_open) {
+                return "a second press on the row did not close the list";
+            }
+            apply_environment_text(1, "environments/selftest.hdr");
+            scene_details_node = Guid.Empty;
+            var lane_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (lane_root.find("scene_env_lane_1_name") == null) {
+                return "a lane the document carries had no row";
+            }
+            if (undo_history?.try_undo() != true) {
+                return "the lane edit recorded no undo step";
+            }
+            scene_details_node = Guid.Empty;
+            var undone_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (undone_root.find("scene_env_lane_1_name") != null) {
+                return "undo left the lane row in the inspector";
+            }
+            var object_root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (object_root.find("scene_env_object") is not { } object_row) {
+                return "the inspector listed no object map row";
+            }
+            press_scene_via_events(object_row.rect.x + 40.0F, object_row.rect.y + object_row.rect.height * 0.5F);
+            if (!scene_combo_open || scene_combo_items[0].value != environment_panel.scene_value) {
+                return "the object list did not start with the scene map";
+            }
+            handle_scene_key(new input_event(input_type.key, 0, true, (int)key_code.escape,
+                                             0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0U));
+            if (scene_combo_open) {
+                return "Escape left the object list open";
+            }
+        } finally {
+            close_scene_combo();
+            selection_state.select(before_primary);
+            scene_details_node = Guid.Empty;
+            scene_details_scroll = 0.0F;
+            while ((undo_history?.depth ?? 0) > before_undo) {
+                if (undo_history?.try_undo() != true) { break; }
+            }
+            for (var lane = 0; lane < document.environment_slots.Length; ++lane) {
+                if (!string.Equals(document.environment_slots[lane], before_lanes[lane], StringComparison.Ordinal)) {
+                    document.environment_slots[lane] = before_lanes[lane];
+                }
+            }
+            sync_environment_lanes();
+            next_ui_events.Clear();
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The status footer: the classic single line, so the path, the dirty flag, the node count, the
+    /// selected node and the notice are all readable at once instead of the notice replacing the line.
+    /// </summary>
+    private string? verify_scene_status_line() {
+        if (next_ui == null || document == null || selection_state == null) {
+            return "the status line check has no document";
+        }
+        if (document.roots.Count == 0) {
+            return "the status line check needs a node";
+        }
+        var node = document.roots[0];
+        var before_primary = selection_state.primary;
+        bool before_dirty = document.dirty;
+        string before_name = node.name;
+        string before_notice = notice;
+        string? problem = null;
+        try {
+            selection_state.select(node.uid);
+            var text = submit_scene_frame_for_test(1600.0F, 900.0F).find("footer_text")?.text;
+            if (text == null) {
+                problem = "the footer has no text";
+            } else if (!text.Contains(node.name, StringComparison.Ordinal)) {
+                problem = $"the footer did not name the selection: '{text}'";
+            } else if (!text.Contains($"nodes: {count_nodes(document.roots)}", StringComparison.Ordinal)) {
+                problem = $"the footer did not count the nodes: '{text}'";
+            } else if (document.dirty != text.Contains("*dirty*", StringComparison.Ordinal)) {
+                problem = $"the footer's dirty flag disagreed with the document: '{text}'";
+            } else {
+                // An unsaved edit is what the flag has to show, so make one through the real mark.
+                node.name = before_name + " unsaved";
+                document.mark_dirty();
+                var dirty_text = submit_scene_frame_for_test(1600.0F, 900.0F).find("footer_text")?.text;
+                if (dirty_text == null || !dirty_text.Contains("*dirty*", StringComparison.Ordinal)) {
+                    problem = $"the footer did not show the dirty flag: '{dirty_text}'";
+                } else {
+                    notice = "renamed";
+                    var notice_text = submit_scene_frame_for_test(1600.0F, 900.0F).find("footer_text")?.text;
+                    if (notice_text == null ||
+                        !notice_text.EndsWith(" | renamed", StringComparison.Ordinal) ||
+                        !notice_text.Contains("unsaved", StringComparison.Ordinal)) {
+                        problem = $"the footer replaced the line with the notice: '{notice_text}'";
+                    }
+                }
+            }
+        } finally {
+            notice = before_notice;
+            node.name = before_name;
+            // Undoing the edit through the document's own comparison is what restores the flag.
+            document.mark_dirty();
+            selection_state.select(before_primary);
+            next_ui_events.Clear();
+        }
+        if (problem == null && !before_dirty && document.dirty) {
+            return "the status line check could not restore the document's dirty flag";
+        }
+        return problem;
+    }
+
+    /// <summary>
+    /// The browser pages: a short page size spreads the project over several pages, the arrow buttons
+    /// walk them, the caption names the slice, and a row still carries its absolute asset index.
+    /// </summary>
+    private string? verify_scene_browser_pages() {
+        if (next_ui == null || assets.Length < 3) {
+            return "the browser page check needs three assets";
+        }
+        if (scene_folder_parent("a/b/c") != "a/b" || scene_folder_parent("a").Length != 0) {
+            return "the folder helpers did not split a path";
+        }
+        int before_size = scene_browser_page_size;
+        int before_page = scene_browser_page;
+        int before_first = scene_browser_list.first;
+        try {
+            scene_browser_page_size = 2;
+            scene_browser_page = 0;
+            scene_browser_list.first = 0;
+            rebuild_scene_browser_matches();
+            if (scene_browser_page_count < 2) {
+                return $"the browser fit {scene_asset_matches.Count} assets on one page of two";
+            }
+            var root = submit_scene_frame_for_test(1600.0F, 900.0F);
+            if (root.find("browser_next") is not { } next_button) {
+                return "the browser has no next-page button";
+            }
+            press_scene_via_events(next_button.rect.x + next_button.rect.width * 0.5F,
+                                   next_button.rect.y + next_button.rect.height * 0.5F);
+            if (scene_browser_page != 1) {
+                return $"pressing next left the browser on page {scene_browser_page}";
+            }
+            var paged = submit_scene_frame_for_test(1600.0F, 900.0F);
+            var first_entry = scene_asset_matches[scene_browser_first];
+            string first_key = first_entry.directory
+                ? string.Create(CultureInfo.InvariantCulture, $"scene_folder_{scene_browser_first}")
+                : string.Create(CultureInfo.InvariantCulture, $"scene_asset_{first_entry.asset_index}");
+            if (paged.find(first_key) == null) {
+                return $"page two did not build its first row '{first_key}'";
+            }
+            if (paged.find("browser_caption_count")?.text is not { } count_text ||
+                !count_text.StartsWith((scene_browser_first + 1).ToString(CultureInfo.InvariantCulture),
+                                       StringComparison.Ordinal)) {
+                return $"the page count read '{paged.find("browser_caption_count")?.text}'";
+            }
+            if (paged.find("browser_prev") is not { } prev_button) {
+                return "the browser has no previous-page button";
+            }
+            press_scene_via_events(prev_button.rect.x + prev_button.rect.width * 0.5F,
+                                   prev_button.rect.y + prev_button.rect.height * 0.5F);
+            if (scene_browser_page != 0) {
+                return $"pressing previous left the browser on page {scene_browser_page}";
+            }
+        } finally {
+            scene_browser_page_size = before_size;
+            scene_browser_page = before_page;
+            scene_browser_list.first = before_first;
+            rebuild_scene_browser_matches();
             next_ui_events.Clear();
         }
         return null;
@@ -744,10 +1214,16 @@ internal sealed unsafe partial class editor_host {
                                      $"Ctrl+D left {count_nodes(document.roots)} nodes, expected {rows_before_copy + 1}");
             }
             if ((undo_history?.depth ?? 0) != undo_before_copy + 1) { return "Ctrl+D was not a single undo step"; }
-            // 5. A second press on the same project tile inside the click window adds a node.
+            // 5. A second press on the same project tile inside the click window adds a node. The tile of
+            // the asset the first row already uses is chosen on purpose: adding a whole imported scene
+            // would test the glTF importer here, not the double press.
             root = submit_scene_frame_for_test(1280.0F, 720.0F);
-            var tile = root.find("scene_asset_0_name") ?? root.find("scene_asset_0");
-            if (tile == null) { return "the project panel listed no first tile"; }
+            string? used = scene_rows.Count > 0 ? scene_rows[0].node.asset : null;
+            int tile_index = used == null ? 0 : Array.IndexOf(assets, used);
+            if (tile_index < 0) { tile_index = 0; }
+            var tile = root.find(string.Create(CultureInfo.InvariantCulture, $"scene_asset_{tile_index}_name"))
+                       ?? root.find(string.Create(CultureInfo.InvariantCulture, $"scene_asset_{tile_index}"));
+            if (tile == null) { return "the project panel listed no tile to add"; }
             int nodes_before_add = count_nodes(document.roots);
             press_scene_ui(tile.rect.x + 4.0F, tile.rect.y + tile.rect.height * 0.5F);
             press_scene_ui(tile.rect.x + 4.0F, tile.rect.y + tile.rect.height * 0.5F);
@@ -895,8 +1371,15 @@ internal sealed unsafe partial class editor_host {
                 return "the scrolled inspector still hid the section at its bottom";
             }
             scroll_scene_ui(400.0F, details.rect.x + 20.0F, details.rect.y + 20.0F);
-            if (scene_details_scroll != 0.0F) { return "the wheel did not return the inspector to its top"; }
-            if (moved < ui_theme.row_step) { return "one wheel notch moved less than a row"; }        } finally {
+            // A tall inspector needs more than one notch to get back, and the clamp stops it at zero.
+            for (var attempt = 0; attempt < 8 && scene_details_scroll > 0.0F; ++attempt) {
+                scroll_scene_ui(400.0F, details.rect.x + 20.0F, details.rect.y + 20.0F);
+            }
+            if (scene_details_scroll != 0.0F) {
+                return $"the wheel did not return the inspector to its top (it stopped at {scene_details_scroll} of {scene_details_content})";
+            }
+            if (moved < ui_theme.row_step) { return "one wheel notch moved less than a row"; }
+        } finally {
             selection_state.select(before_selection);
             scene_details_scroll = before_scroll;
             scene_details_node = Guid.Empty;
